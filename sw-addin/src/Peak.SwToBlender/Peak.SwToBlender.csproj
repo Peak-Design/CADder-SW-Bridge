@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>8.0</LangVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AssemblyName>Peak.SwToBlender</AssemblyName>
+    <RootNamespace>Peak.SwToBlender</RootNamespace>
+    <!--
+      Single source of the version. AddIn.AddInVersion reads it back off the
+      assembly, the installer reads it off the built DLL, and the release
+      script tags from it, so there is exactly one number to bump.
+    -->
+    <Version>0.1.0</Version>
+    <Authors>Peak Design</Authors>
+    <Product>SW To Blender</Product>
+    <Description>Exports the assembly's kinematics as a rig manifest next to a STEP file, for the sw_to_blender Blender add-on.</Description>
+    <Copyright>Copyright (c) 2026 Peak Design</Copyright>
+    <ComVisible>false</ComVisible>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      SolidWorks reads these files by absolute path while it runs. They must
+      therefore sit next to the DLL. They cannot be embedded resources.
+    -->
+    <Content Include="icons\*.png" Link="icons\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Import Project="..\..\SolidWorksApi.props" />
+
+</Project>

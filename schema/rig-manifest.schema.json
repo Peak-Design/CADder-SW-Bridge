@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Peak-Design/SW-To-Blender/schema/rig-manifest.schema.json",
+  "title": "SW To Blender rig manifest",
+  "description": "Kinematic description of a SolidWorks assembly, written by Peak.SwToBlender next to a STEP export. Units are metres and radians. All vectors and transforms are in the assembly's global frame (right-handed, Z-up). See SCHEMA.md for semantics.",
+  "type": "object",
+  "required": ["manifest_version", "generator", "units", "frame", "step_export", "components", "rigid_groups", "joints", "loops", "warnings"],
+  "additionalProperties": false,
+  "properties": {
+    "manifest_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "generator": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "solidworks_version": { "type": "string" },
+        "exported_utc": { "type": "string" }
+      }
+    },
+    "units": {
+      "type": "object",
+      "required": ["length", "angle"],
+      "properties": {
+        "length": { "const": "meter" },
+        "angle": { "const": "radian" }
+      }
+    },
+    "frame": {
+      "type": "object",
+      "required": ["handedness", "up_axis", "transform_convention"],
+      "properties": {
+        "handedness": { "const": "right" },
+        "up_axis": { "const": "Z" },
+        "transform_convention": { "const": "row_major_4x4_global" }
+      }
+    },
+    "step_export": {
+      "type": "object",
+      "required": ["file"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "description": "STEP file name relative to the manifest" },
+        "ap": { "type": "string", "enum": ["AP203", "AP214"] },
+        "sha1": { "type": ["string", "null"], "description": "SHA-1 of the STEP file, guards against stale pairs" },
+        "occurrence_matching": { "type": ["string", "null"], "description": "Id of the matcher that produced step_occurrence_path values" }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "sw_path", "step_name", "transform"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Stable per-occurrence id, unique in this manifest (c001, c002, ...)" },
+          "sw_path": { "type": "string", "description": "SolidWorks instance path, e.g. Gripper/Jaw-1" },
+          "sw_persistent_id": { "type": ["string", "null"], "description": "Base64 SolidWorks persistent reference id" },
+          "step_name": { "type": "string", "description": "Exact PRODUCT name written to the STEP file" },
+          "step_occurrence_path": { "type": ["string", "null"], "description": "Occurrence path in the STEP tree; null when matching failed (see warnings)" },
+          "transform": { "$ref": "#/$defs/mat4" },
+          "bbox_local": {
+            "type": ["object", "null"],
+            "required": ["min", "max"],
+            "properties": { "min": { "$ref": "#/$defs/vec3" }, "max": { "$ref": "#/$defs/vec3" } }
+          },
+          "is_fastener": { "type": "boolean", "default": false },
+          "suppressed": { "type": "boolean", "default": false },
+          "subassembly_solving": { "type": ["string", "null"], "enum": ["rigid", "flexible", null] }
+        }
+      }
+    },
+    "rigid_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "components", "grounded"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "g000, g001, ... g000 is conventionally the grounded group" },
+          "name": { "type": "string", "description": "Human slug used for the bone name; the id stays authoritative" },
+          "components": { "type": "array", "items": { "type": "string" }, "description": "Empty for a synthesized carrier link: a virtual body splitting a tangent contact's motion into two primitive joints. It gets a bone and owns no geometry." },
+          "grounded": { "type": "boolean" },
+          "frame": { "oneOf": [{ "$ref": "#/$defs/mat4" }, { "type": "null" }] },
+          "bbox_diag": { "type": ["number", "null"], "description": "Diagonal of the group's combined bounding box, metres; bone-length heuristic" }
+        }
+      }
+    },
+    "joints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "parent_group", "child_group"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "j001, j002, ..." },
+          "type": { "type": "string", "enum": ["fixed", "revolute", "prismatic", "cylindrical", "ball", "planar", "pin_slot", "screw", "path", "surface", "free"] },
+          "parent_group": { "type": "string" },
+          "child_group": { "type": "string" },
+          "origin": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }] },
+          "axis": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }], "description": "Unit vector, global frame. Null for ball and free joints" },
+          "secondary_axis": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }], "description": "Unit vector not parallel to axis; fixes bone roll deterministically. Never null when axis is set. For pin_slot it is semantic: the slide direction, perpendicular to axis" },
+          "limits": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "rotation": { "$ref": "#/$defs/limit" },
+              "translation": { "$ref": "#/$defs/limit" }
+            }
+          },
+          "coupling": {
+            "type": ["object", "null"],
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "enum": ["gear", "rack_pinion", "screw", "linear_coupler", "mirror"] },
+              "driver_joint": { "type": ["string", "null"], "description": "Joint id whose motion drives this one; null for screw self-coupling" },
+              "ratio": { "type": ["number", "null"], "description": "gear: rad/rad, negative = reversal. linear_coupler: m/m" },
+              "meters_per_radian": { "type": ["number", "null"], "description": "rack_pinion only" },
+              "lead_m_per_rev": { "type": ["number", "null"], "description": "screw only" },
+              "mirror_plane": {
+                "type": "object",
+                "required": ["point", "normal"],
+                "additionalProperties": false,
+                "description": "mirror only: the driven joint's body poses as the exact mirror image of the driver's body across this plane",
+                "properties": {
+                  "point": { "$ref": "#/$defs/vec3" },
+                  "normal": { "$ref": "#/$defs/vec3" }
+                }
+              }
+            }
+          },
+          "path": {
+            "type": "object",
+            "required": ["points"],
+            "additionalProperties": false,
+            "description": "Path joints only: the sampled curve the child follows, ordered along the path, global metres. axis is the tangent at the rest position",
+            "properties": {
+              "points": { "type": "array", "items": { "$ref": "#/$defs/vec3" }, "minItems": 2 },
+              "closed": { "type": "boolean", "default": false }
+            }
+          },
+          "surface": {
+            "type": "object",
+            "required": ["points", "triangles"],
+            "additionalProperties": false,
+            "description": "Surface joints only: the face the child's point stays on, triangulated in global metres. axis is the surface normal at the rest position",
+            "properties": {
+              "points": { "type": "array", "items": { "$ref": "#/$defs/vec3" }, "minItems": 3 },
+              "triangles": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "items": { "type": "integer", "minimum": 0 },
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              }
+            }
+          },
+          "source_mates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["sw_feature", "type"],
+              "properties": { "sw_feature": { "type": "string" }, "type": { "type": "string" } }
+            }
+          },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"], "default": "high" },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "loops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "member_joints", "closure_joint"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "member_joints": { "type": "array", "items": { "type": "string" }, "minItems": 3 },
+          "closure_joint": { "type": "string", "description": "The cut edge; Blender closes it with IK instead of parenting" },
+          "suggested_driver_joint": { "type": ["string", "null"] },
+          "planar": { "type": "boolean", "default": false },
+          "plane_normal": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }] }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "components": { "type": "array", "items": { "type": "string" } },
+          "joints": { "type": "array", "items": { "type": "string" } },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "mat4": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+      "description": "Row-major 4x4; rows are [R|t] with bottom row [0,0,0,1]; translation in metres"
+    },
+    "limit": {
+      "type": ["object", "null"],
+      "required": ["min", "max", "value_at_rest"],
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "value_at_rest": { "type": "number", "description": "The mate's dimension value in the exported (as-mated) configuration. Consumers apply min-value_at_rest .. max-value_at_rest as deltas from rest pose" }
+      }
+    }
+  }
+}

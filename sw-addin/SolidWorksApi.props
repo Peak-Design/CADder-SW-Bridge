@@ -1,0 +1,53 @@
+<Project>
+
+  <!-- SolidWorks interop location, oldest installed version first so the
+       compile target stays as low as possible (an add-in compiled against the
+       v30/2022 interops loads on every later SolidWorks). Pattern from
+       Peak-Release. Override with -p:SolidWorksApiDir=... when the probe
+       misses your installation.
+
+       Shared because a project reference does NOT carry these to a consumer:
+       anything that calls the export pipeline has to resolve the interops
+       itself. -->
+  <PropertyGroup>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\api\redist</SolidWorksApiDir>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS 2023\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS 2023\SOLIDWORKS\api\redist</SolidWorksApiDir>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS 2024\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS 2024\SOLIDWORKS\api\redist</SolidWorksApiDir>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS 2025\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS 2025\SOLIDWORKS\api\redist</SolidWorksApiDir>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS 2026\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS 2026\SOLIDWORKS\api\redist</SolidWorksApiDir>
+    <SolidWorksApiDir Condition="'$(SolidWorksApiDir)' == '' And Exists('C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist')">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist</SolidWorksApiDir>
+  </PropertyGroup>
+
+  <Target Name="CheckSolidWorksApiDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(SolidWorksApiDir)' == ''"
+           Text="SolidWorks interop assemblies not found. Install SolidWorks 2022 or newer, or pass -p:SolidWorksApiDir=&quot;&lt;path to SOLIDWORKS\api\redist&gt;&quot;." />
+  </Target>
+
+  <ItemGroup>
+    <!-- The interops are strong-named with no GAC copies and no binding
+         redirects in SolidWorks, so on newer versions the references can ONLY
+         be satisfied by copies sitting next to the add-in DLL — Private=True
+         ships them. The AssemblyResolve hook in AddIn.cs is a fallback only;
+         it cannot rescue the swpublished bind that happens while the AddIn
+         type itself loads. -->
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <Private>True</Private>
+      <SpecificVersion>False</SpecificVersion>
+      <EmbedInteropTypes>False</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
+      <Private>True</Private>
+      <SpecificVersion>False</SpecificVersion>
+      <EmbedInteropTypes>False</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swpublished.dll</HintPath>
+      <Private>True</Private>
+      <SpecificVersion>False</SpecificVersion>
+      <EmbedInteropTypes>False</EmbedInteropTypes>
+    </Reference>
+  </ItemGroup>
+
+</Project>

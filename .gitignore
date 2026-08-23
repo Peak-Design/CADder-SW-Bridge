@@ -1,0 +1,18 @@
+bin/
+obj/
+dist/
+*.user
+*.suo
+.vs/
+__pycache__/
+*.pyc
+*.blend1
+~$*
+
+# The corpus assemblies themselves, and everything an export produces from
+# them. What the repo verifies is the recorded MateGraph fixtures and the
+# manifests the classifier builds from them (test-assemblies/README.md);
+# the models are build recipes, not test data.
+*.SLDASM
+*.SLDPRT
+*.step

@@ -1,0 +1,112 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.SwToBlender",
+    "version": "0.1.0",
+    "solidworks_version": "SOLIDWORKS 2024 SP5.0",
+    "exported_utc": "2026-08-21T10:05:00Z",
+    "note": "Hand-written golden example; the numbers match the 02-slider recipe geometry, not a real export."
+  },
+  "units": { "length": "meter", "angle": "radian" },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "slider.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": null
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "rail-1",
+      "sw_persistent_id": null,
+      "step_name": "rail",
+      "step_occurrence_path": "slider/rail-1",
+      "transform": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "bbox_local": {
+        "min": [0.0, -0.01, 0.0],
+        "max": [0.1, 0.01, 0.01]
+      },
+      "is_fastener": false,
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "slide-1",
+      "sw_persistent_id": null,
+      "step_name": "slide",
+      "step_occurrence_path": "slider/slide-1",
+      "transform": [
+        [1.0, 0.0, 0.0, 0.01],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.01],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "bbox_local": {
+        "min": [0.0, -0.01, 0.0],
+        "max": [0.02, 0.01, 0.01]
+      },
+      "is_fastener": false,
+      "suppressed": false,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "rail",
+      "components": ["c001"],
+      "grounded": true,
+      "frame": [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0]
+      ],
+      "bbox_diag": 0.1025
+    },
+    {
+      "id": "g001",
+      "name": "slide",
+      "components": ["c002"],
+      "grounded": false,
+      "frame": null,
+      "bbox_diag": 0.03
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "prismatic",
+      "parent_group": "g000",
+      "child_group": "g001",
+      "origin": [0.01, 0.0, 0.015],
+      "axis": [1.0, 0.0, 0.0],
+      "secondary_axis": [0.0, 0.0, 1.0],
+      "limits": {
+        "rotation": null,
+        "translation": { "min": 0.0, "max": 0.05, "value_at_rest": 0.01 }
+      },
+      "coupling": null,
+      "source_mates": [
+        { "sw_feature": "Coincident1", "type": "swMateCOINCIDENT" },
+        { "sw_feature": "Coincident2", "type": "swMateCOINCIDENT" },
+        { "sw_feature": "LimitDistance1", "type": "swMateDISTANCE" }
+      ],
+      "confidence": "high",
+      "notes": null
+    }
+  ],
+  "loops": [],
+  "warnings": []
+}
