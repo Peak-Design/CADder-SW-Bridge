@@ -13,7 +13,7 @@ namespace Peak.SwToBlender
     /// <summary>
     /// The one-click path: export the STEP (+ rig manifest for assemblies)
     /// with the persistent settings, no per-export dialogs, then hand the
-    /// files to a running Blender over the localhost bridge — which imports,
+    /// files to a running Blender over the localhost bridge, which imports,
     /// matches, snaps poses, builds the rig and parents the geometry in one
     /// go. The Keyshot-style flow: options live behind the Options button,
     /// the send itself asks nothing.
@@ -24,7 +24,16 @@ namespace Peak.SwToBlender
     /// </summary>
     public static class SendToBlenderCommand
     {
-        public static void Run(ISldWorks app)
+        /// <summary>
+        /// Exports the active document and hands it to Blender.
+        ///
+        /// With <paramref name="native"/> the geometry is tessellated HERE
+        /// and sent as a .swmesh instead of written as STEP for OpenCASCADE
+        /// to rebuild. That is faster, carries appearances and component
+        /// identity straight through, and gives up the solid model: the
+        /// trade the two commands exist to offer.
+        /// </summary>
+        public static void Run(ISldWorks app, bool native = false)
         {
             if (app == null) return;
             var model = app.ActiveDoc as IModelDoc2;
@@ -53,19 +62,45 @@ namespace Peak.SwToBlender
                 string dir = ExportDir(settings, model, baseName);
                 Directory.CreateDirectory(dir);
                 string stepPath = Path.Combine(dir, baseName + ".step");
+                string meshPath = Path.Combine(dir, baseName + ".swmesh");
                 string manifestPath = assembly != null
                     ? Path.Combine(dir, baseName + ".rig.json") : null;
 
                 // ── 1. Export, on this thread (COM) ─────────────────────────
-                AddIn.Log("send to blender: exporting " + stepPath);
-                if (assembly != null)
+                if (native)
                 {
-                    ExportCommand.ExportBundle(
-                        app, model, assembly, stepPath, manifestPath, settings);
+                    AddIn.Log("send to blender (native): tessellating into " + meshPath);
+                    // The manifest still describes the kinematics; only the
+                    // geometry's route changes, so the STEP stages are the
+                    // only thing skipped.
+                    if (assembly != null)
+                    {
+                        var outcome = ExportCommand.ExportBundle(
+                            app, model, assembly, stepPath, manifestPath, settings,
+                            manifestOnly: true,
+                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message));
+                        // No rig: the geometry still goes, and the payload
+                        // leaves out every rig stage (BuildPayload).
+                        if (outcome.GeometryOnly) manifestPath = null;
+                    }
+                    NativeExport.Write(app, model, meshPath,
+                        QualityDial(settings.QualityPreset), AddIn.Log,
+                        settings.SeparateSolids);
                 }
                 else
                 {
-                    StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
+                    AddIn.Log("send to blender: exporting " + stepPath);
+                    if (assembly != null)
+                    {
+                        var outcome = ExportCommand.ExportBundle(
+                            app, model, assembly, stepPath, manifestPath, settings,
+                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message));
+                        if (outcome.GeometryOnly) manifestPath = null;
+                    }
+                    else
+                    {
+                        StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
+                    }
                 }
 
                 // ── 2. Choose the Blender (needs UI, still this thread) ─────
@@ -82,7 +117,7 @@ namespace Peak.SwToBlender
                     app.SendMsgToUser2(
                         "No running Blender with the STEPper NEXT bridge was "
                         + "found. Start Blender, or enable auto-launch in "
-                        + "Blender Options.",
+                        + "Export Options.",
                         (int)swMessageBoxIcon_e.swMbWarning,
                         (int)swMessageBoxBtn_e.swMbOk);
                     return;
@@ -92,14 +127,16 @@ namespace Peak.SwToBlender
                 {
                     app.SendMsgToUser2(
                         "No Blender installation was found to launch. Set the "
-                        + "executable in Blender Options.",
+                        + "executable in Export Options.",
                         (int)swMessageBoxIcon_e.swMbWarning,
                         (int)swMessageBoxBtn_e.swMbOk);
                     return;
                 }
 
                 // ── 3. Launch + send, on a worker under the progress bar ────
-                var payload = BuildPayload(settings, stepPath, manifestPath);
+                var payload = BuildPayload(
+                    settings, native ? null : stepPath, native ? meshPath : null,
+                    manifestPath);
                 string doing = target == null
                     ? "Launching Blender and importing " + baseName + "…"
                     : "Importing " + baseName + " in Blender…";
@@ -131,7 +168,7 @@ namespace Peak.SwToBlender
             }
         }
 
-        private static string ExportDir(
+        internal static string ExportDir(
             AppSettings settings, IModelDoc2 model, string baseName)
         {
             if (settings.ExportFolderMode == "beside")
@@ -144,17 +181,38 @@ namespace Peak.SwToBlender
                 "Peak", "SwToBlender", "exports", baseName);
         }
 
-        private static Dictionary<string, object> BuildPayload(
-            AppSettings settings, string stepPath, string manifestPath)
+        /// <summary>The quality preset as the 0..1 dial the tessellator
+        /// takes. Named presets are what the options dialog already speaks;
+        /// the dial is what a tolerance is computed from.</summary>
+        internal static double QualityDial(string preset)
+        {
+            switch ((preset ?? "").ToUpperInvariant())
+            {
+                case "DRAFT": return 0.15;
+                case "FINE": return 0.75;
+                case "ULTRA": return 1.0;
+                default: return 0.45;      // BALANCED
+            }
+        }
+
+        internal static Dictionary<string, object> BuildPayload(
+            AppSettings settings, string stepPath, string meshPath,
+            string manifestPath)
         {
             bool rig = manifestPath != null;
             return new Dictionary<string, object>
             {
                 { "step", stepPath },
+                { "mesh", meshPath },
                 { "manifest", manifestPath },
                 { "steps", new Dictionary<string, object>
                     {
-                        { "import", true },
+                        { "import", stepPath != null },
+                        // A manifest sent on its own is matched against
+                        // the import already standing in the scene: the
+                        // STEP has not changed, only the rig has (live
+                        // TongRig, 2026-09-14). With no import in the
+                        // scene the match simply finds nothing, and says so.
                         { "match", rig },
                         { "sync_poses", rig && settings.SyncPoses },
                         { "build_rig", rig && settings.BuildRig },
@@ -168,6 +226,9 @@ namespace Peak.SwToBlender
                         { "quality_preset", settings.QualityPreset },
                         { "up_as", settings.UpAxis },
                         { "fw_as", "YPOS" },
+                        { "import_curves", settings.ImportCurves },
+                        { "group_in_collection", settings.GroupInCollection },
+                        { "separate_solids", settings.SeparateSolids },
                     }
                 },
             };

@@ -8,7 +8,7 @@ namespace Peak.SwToBlender.Appearance
 {
     /// <summary>One internal child of a subassembly instance, at the pose the
     /// instance actually shows in SolidWorks. Key is the child's instance name
-    /// in the sub document ("hinge-leaf-1") — the stable correlator between
+    /// in the sub document ("hinge-leaf-1"): the stable correlator between
     /// the layouts of different instances of one document.</summary>
     public sealed class FlexChildPose
     {
@@ -27,8 +27,8 @@ namespace Peak.SwToBlender.Appearance
         /// <summary>SW instance path, for messages.</summary>
         public string Path;
         public string SubDocName;
-        /// <summary>The instance's own position relative to its parent, metres
-        /// — how the instance is told apart from its twins in the file.</summary>
+        /// <summary>The instance's own position relative to its parent, metres:
+        /// how the instance is told apart from its twins in the file.</summary>
         public double[] ParentRelTranslationM;
         public List<FlexChildPose> Children = new List<FlexChildPose>();
     }
@@ -51,7 +51,7 @@ namespace Peak.SwToBlender.Appearance
     /// <summary>
     /// Fixes the shared-flexible-geometry defect INSIDE the STEP file. STEP
     /// stores one internal layout per subassembly product definition, and
-    /// SolidWorks writes the resolved (flexed) layout — so a rigid twin of a
+    /// SolidWorks writes the resolved (flexed) layout, so a rigid twin of a
     /// flexed flexible subassembly imports at the flexible instance's pose in
     /// every consumer. This class de-instances the definition (DeInstancer's
     /// assembly-structure clone, geometry stays shared) and retargets the
@@ -316,7 +316,7 @@ namespace Peak.SwToBlender.Appearance
 
         /// <summary>NAUO → PDS → CDSR → *REPRESENTATION_RELATIONSHIP* → IDT;
         /// the IDT's first AXIS2_PLACEMENT_3D is the child's pose in the
-        /// parent (the second is the shared child origin — see
+        /// parent (the second is the shared child origin, see
         /// StepRewriter.ReadOccurrencePlacement).</summary>
         private static FileChild FindPlacement(Part21 step, StepRewriter.OccurrenceRef c)
         {
@@ -426,7 +426,7 @@ namespace Peak.SwToBlender.Appearance
         /// <summary>Rewrites every child placement (original when map is null,
         /// otherwise the cloned copies) to the given layout. Appends a fresh
         /// CARTESIAN_POINT + DIRECTIONs + AXIS2_PLACEMENT_3D per child and
-        /// swaps the IDT's moving reference — original placements can be
+        /// swaps the IDT's moving reference: original placements can be
         /// shared entities and are never edited.</summary>
         private static void RetargetAll(
             Part21 step, List<FileChild> fileChildren, FlexInstanceLayout layout,

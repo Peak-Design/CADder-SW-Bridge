@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
-// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285 — the STEP appearance engine, merged into SW To Blender.
+// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285: the STEP appearance engine, merged into SW To Blender.
 
 namespace Peak.SwToBlender.Appearance
 {
@@ -109,8 +109,14 @@ namespace Peak.SwToBlender.Appearance
             public string Source;
         }
 
+        /// <summary>The exclusion reason for a component an "only the
+        /// selected ones" export leaves out. Named, because the caller counts
+        /// these apart from hidden and suppressed ones.</summary>
+        public const string NotSelected = "not selected";
+
         public static List<OccurrenceAppearance> Resolve(IModelDoc2 model, Action<string> log,
-                                                         bool includeHidden = false)
+                                                         bool includeHidden = false,
+                                                         HashSet<string> keep = null)
         {
             var results = new List<OccurrenceAppearance>();
             if (!(model is IAssemblyDoc))
@@ -126,7 +132,7 @@ namespace Peak.SwToBlender.Appearance
             log?.Invoke($"    {results.Count} occurrence(s), {roots.Count} at the top level");
 
             // ── 2. Exclusion, inherited down the tree ───────────────────────
-            foreach (var r in roots) MarkExcluded(r, null, includeHidden);
+            foreach (var r in roots) MarkExcluded(r, null, includeHidden, keep);
             int excluded = results.Count(o => !o.Exported);
             if (excluded > 0)
             {
@@ -233,16 +239,27 @@ namespace Peak.SwToBlender.Appearance
 
         // ── exclusion ───────────────────────────────────────────────────────
 
+        private static bool InKeep(IComponent2 comp, HashSet<string> keep)
+        {
+            try { return keep.Contains(comp.Name2 ?? ""); }
+            catch { return true; }    // unreadable name: keep, never drop silently
+        }
+
         private static void MarkExcluded(OccurrenceAppearance n, string inherited,
-                                         bool includeHidden)
+                                         bool includeHidden, HashSet<string> keep)
         {
             string own = ExclusionReason(n.Comp);
             if (includeHidden && own == "hidden") own = null;   // the export reveals them
+            // The keep set already holds every ancestor of every selection,
+            // so a component outside it has nothing selected below it either
+            // and the whole branch goes.
+            if (own == null && keep != null && !InKeep(n.Comp, keep))
+                own = NotSelected;
             string effective = inherited ?? own;
 
             n.ExcludedBecause = effective;
             n.Exported = effective == null;
-            foreach (var c in n.Children) MarkExcluded(c, effective, includeHidden);
+            foreach (var c in n.Children) MarkExcluded(c, effective, includeHidden, keep);
         }
 
         /// <summary>

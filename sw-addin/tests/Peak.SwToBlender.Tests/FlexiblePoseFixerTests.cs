@@ -13,7 +13,7 @@ namespace Peak.SwToBlender.Tests
     /// mirror live corpus 07 flexible-sub2 (2026-08-22): the file carries the
     /// FLEXED layout, so the rigid twin needs its own definition posed at the
     /// document layout. Everything runs through the real StepRewriter parse
-    /// and a real save/re-parse round trip — the assertions read the output
+    /// and a real save/re-parse round trip: the assertions read the output
     /// file the way any consumer would.
     /// </summary>
     public class FlexiblePoseFixerTests : IDisposable
@@ -53,7 +53,7 @@ namespace Peak.SwToBlender.Tests
                 "#8=PRODUCT_DEFINITION_FORMATION('','',#7);",
                 "#9=PRODUCT_DEFINITION('design','',#8,#91);",
                 // Assembly shape representations list their children's
-                // placement axes — that is what the definition clone walks.
+                // placement axes: that is what the definition clone walks.
                 "#11=AXIS2_PLACEMENT_3D('',#50,#51,#52);",
                 "#50=CARTESIAN_POINT('',(0.,0.,0.));",
                 "#51=DIRECTION('',(0.,0.,1.));",
@@ -156,7 +156,7 @@ namespace Peak.SwToBlender.Tests
         [Fact]
         public void RigidTwinGetsItsOwnDefinitionAtTheDocumentLayout()
         {
-            // File holds the FLEXED layout (leaf at 10mm — the flexible
+            // File holds the FLEXED layout (leaf at 10mm: the flexible
             // instance's pose). The rigid twin wants the document layout
             // (leaf at 20mm, rotated 90°).
             string path = WriteFixture(10, 0, 0);

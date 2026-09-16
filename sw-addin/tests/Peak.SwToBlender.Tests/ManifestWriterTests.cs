@@ -24,7 +24,7 @@ namespace Peak.SwToBlender.Tests
                 new[]
                 {
                     "manifest_version", "generator", "units", "frame", "step_export",
-                    "components", "rigid_groups", "joints", "loops", "warnings",
+                    "components", "rigid_groups", "joints", "loops", "mechanisms", "warnings",
                 },
                 parsed.Keys);
         }
@@ -62,7 +62,7 @@ namespace Peak.SwToBlender.Tests
                 new[]
                 {
                     "id", "sw_path", "sw_persistent_id", "step_name", "step_occurrence_path",
-                    "transform", "bbox_local", "is_fastener", "suppressed", "subassembly_solving",
+                    "transform", "bbox_local", "suppressed", "subassembly_solving",
                 },
                 component.Keys);
             Assert.Equal(new[] { "min", "max" }, component["bbox_local"].Keys);
@@ -85,8 +85,16 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal(new[] { "sw_feature", "type" }, joint["source_mates"].Items[0].Keys);
 
             Assert.Equal(
-                new[] { "id", "member_joints", "closure_joint", "suggested_driver_joint", "planar", "plane_normal" },
+                new[] { "id", "member_joints", "closure_joint", "closure_kind", "suggested_driver_joint", "planar", "plane_normal", "driver_candidates" },
                 parsed["loops"].Items[0].Keys);
+            var mechanism = parsed["mechanisms"].Items[0];
+            Assert.Equal(new[] { "id", "loops", "inputs" }, mechanism.Keys);
+            Assert.Equal(new[] { "joint", "loops", "flipped_joints", "joint_limits" },
+                mechanism["inputs"].Items[1].Keys);
+            Assert.Equal(new[] { "joint", "limits" },
+                mechanism["inputs"].Items[1]["joint_limits"].Items[0].Keys);
+            Assert.Equal(parsed["loops"].Items[0].Keys,
+                mechanism["inputs"].Items[1]["loops"].Items[0].Keys);
             Assert.Equal(new[] { "code", "components", "joints", "message" },
                 parsed["warnings"].Items[0].Keys);
 
@@ -303,7 +311,6 @@ namespace Peak.SwToBlender.Tests
                 Transform = MathOps.Identity4(),
                 BboxMin = null,
                 BboxMax = null,
-                IsFastener = true,
                 Suppressed = true,
             });
 
@@ -366,6 +373,31 @@ namespace Peak.SwToBlender.Tests
             loop.PlaneNormal = new double[] { 0, 0, 1 };
             m.Loops.Add(loop);
 
+            var mech = new RigMechanism();
+            mech.Id = "mech001";
+            mech.LoopIds.Add("loop001");
+            var chosen = new RigInputOption();
+            chosen.Joint = "j001";
+            chosen.Loops.Add(loop);
+            mech.Inputs.Add(chosen);
+            var other = new RigInputOption();
+            other.Joint = "j003";
+            var altLoop = new RigLoop();
+            altLoop.Id = "loop001";
+            altLoop.MemberJoints.AddRange(loop.MemberJoints);
+            altLoop.ClosureJoint = "j001";
+            altLoop.SuggestedDriverJoint = "j003";
+            other.Loops.Add(altLoop);
+            other.FlippedJoints.Add("j002");
+            other.JointLimits.Add(new RigOptionLimit
+            {
+                Joint = "j001",
+                RotationLimit = null,
+                TranslationLimit = new JointLimit { Min = -0.01, Max = 0.01, ValueAtRest = 0.0 },
+            });
+            mech.Inputs.Add(other);
+            m.Mechanisms.Add(mech);
+
             var warning = new ManifestWarning();
             warning.Code = "UNDER_DEFINED";
             warning.Components.Add("c002");
@@ -376,7 +408,7 @@ namespace Peak.SwToBlender.Tests
             return m;
         }
 
-        /// <summary>The golden lives in the repo, the tests run from bin\ —
+        /// <summary>The golden lives in the repo, the tests run from bin\:
         /// walk up from the test assembly until the repo-relative path
         /// resolves.</summary>
         private static string FindRepoFile(string relative)

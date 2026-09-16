@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Text.RegularExpressions;
 using Peak.SwToBlender.Core.Model;
 
 namespace Peak.SwToBlender.Core
@@ -16,11 +15,6 @@ namespace Peak.SwToBlender.Core
         public string GroupA;             // the group with the lower list index
         public string GroupB;
         public List<GraphMate> Mates = new List<GraphMate>();
-
-        /// <summary>A fastener-filtered component stayed separate because a
-        /// distance limit mate spans the pair (concentric-slide promotion).
-        /// The classifier drops confidence to "medium" for this edge.</summary>
-        public bool FastenerOverride;
     }
 
     public sealed class RigidGroupingResult
@@ -32,12 +26,20 @@ namespace Peak.SwToBlender.Core
         public Dictionary<string, string> ComponentGroup = new Dictionary<string, string>();
 
         public List<GroupEdge> Edges = new List<GroupEdge>();
+
+        /// <summary>Components SolidWorks calls UNDER-defined that ended up
+        /// merged into a group anyway. Under-defined means the component has
+        /// freedom of its own, so every one of these is a degree of freedom
+        /// the rig has lost: the one direction the constrained status can be
+        /// read in safely.</summary>
+        public List<string> MergedAwayDofs = new List<string>();
     }
 
     /// <summary>
-    /// Union-find merge of components whose combined mate set leaves zero
-    /// relative DOF, plus the fastener filter. Format-neutral: works entirely
-    /// on the recorded MateGraph, no SolidWorks required.
+    /// Union-find merge of components that cannot move relative to each
+    /// other: what SolidWorks reports immobile, and what the combined mate set
+    /// between a pair leaves with zero relative DOF. Kinematics only: nothing
+    /// here looks at a name, a file, a description or a part library.
     /// </summary>
     public static class RigidGrouper
     {
@@ -48,7 +50,17 @@ namespace Peak.SwToBlender.Core
         /// manifest.</summary>
         public const string AssemblyGroundId = "__assembly__";
 
-        public static RigidGroupingResult Group(MateGraph graph)
+        /// <summary>
+        /// Groups the components. <paramref name="solverRigidPairs"/> is the
+        /// SolidWorks solver's own verdict, arriving on a second pass: each
+        /// entry is a component-id pair the DOF probe read as having no
+        /// relative freedom once the parent side was pinned. The mates alone
+        /// cannot always see that: three bodies can pin each other in a way
+        /// no single pair reveals, so when the solver says two things are one
+        /// body, they are.
+        /// </summary>
+        public static RigidGroupingResult Group(
+            MateGraph graph, IEnumerable<string[]> solverRigidPairs = null)
         {
             var comps = new List<GraphComponent>();
             var indexById = new Dictionary<string, int>();
@@ -64,36 +76,33 @@ namespace Peak.SwToBlender.Core
             // as an entity on the first fixed component. With no fixed
             // component at all, the assembly frame itself becomes the ground:
             // a phantom fixed component backs a virtual, component-less
-            // grounded group (live corpus 16/17 pt4 + path1, 2026-08-23 — a
+            // grounded group (live corpus 16/17 pt4 + path1, 2026-08-23, a
             // part mated to an assembly 3D sketch exported as a groundless
             // island and the sampled path was thrown away).
             int assemblyProxy = -1;
             for (int i = 0; i < comps.Count; i++)
             {
-                if (comps[i].IsFixed) { assemblyProxy = i; break; }
+                if (Grounds(comps[i], false)) { assemblyProxy = i; break; }
             }
-            if (assemblyProxy < 0)
+            // Last resort: an assembly whose only fixed component IS a
+            // flexible subassembly node still needs a ground, or every group
+            // it holds becomes an island. Preferring a real body keeps the
+            // ClampRig ram case (a fixed flexible node beside a fixed machine
+            // body) on the rule above.
+            bool flexibleGrounds = assemblyProxy < 0;
+            if (flexibleGrounds)
+                for (int i = 0; i < comps.Count; i++)
+                    if (comps[i].IsFixed) { assemblyProxy = i; break; }
+            if (assemblyProxy < 0 && NeedsAssemblyGround(graph, indexById))
             {
-                foreach (var mate in graph.Mates)
-                {
-                    if (mate.Suppressed) continue;
-                    bool onAssembly = false, onComponent = false;
-                    foreach (var e in mate.Entities)
-                    {
-                        if (e.ComponentId == null) onAssembly = true;
-                        else if (indexById.ContainsKey(e.ComponentId)) onComponent = true;
-                    }
-                    if (!onAssembly || !onComponent) continue;
-                    var ground = new GraphComponent();
-                    ground.Id = AssemblyGroundId;
-                    ground.Name = "assembly";
-                    ground.Transform = MathOps.Identity4();
-                    ground.IsFixed = true;
-                    assemblyProxy = comps.Count;
-                    indexById[ground.Id] = comps.Count;
-                    comps.Add(ground);
-                    break;
-                }
+                var ground = new GraphComponent();
+                ground.Id = AssemblyGroundId;
+                ground.Name = "assembly";
+                ground.Transform = MathOps.Identity4();
+                ground.IsFixed = true;
+                assemblyProxy = comps.Count;
+                indexById[ground.Id] = comps.Count;
+                comps.Add(ground);
             }
 
             var pairMates = new Dictionary<long, List<GraphMate>>();
@@ -117,10 +126,21 @@ namespace Peak.SwToBlender.Core
 
             // A child fixed INSIDE a flexible subassembly is rigid to the
             // subassembly's own frame, not to the world: it merges with the
-            // subassembly node (live corpus 07, 2026-08-22 — the hinge's
+            // subassembly node (live corpus 07, 2026-08-22, the hinge's
             // fixed base floated as its own group, and every mate grabbing
             // the sub's reference geometry attached one body away from the
             // part it actually pins).
+            //
+            // Note what is NOT here. "Fully defined" in SolidWorks means a
+            // component has no freedom of its OWN: not that it cannot move.
+            // The cutting head of live ClampRig is fully defined and
+            // slides half a metre, because its mates inherit the lead screw
+            // rod's motion (2026-08-24). Welding on that status took the
+            // whole lead screw and cutting head out of the rig. What the
+            // status IS good for is the opposite direction: a component
+            // SolidWorks calls UNDER-defined has freedom of its own, so
+            // merging it away is a lost degree of freedom, see
+            // MergedAwayDofs.
             for (int i = 0; i < comps.Count; i++)
             {
                 var c = comps[i];
@@ -129,33 +149,52 @@ namespace Peak.SwToBlender.Core
                 if (indexById.TryGetValue(c.ParentId, out p)) Union(parent, i, p);
             }
 
+            // Every fixed component belongs to the SAME ground: two things
+            // fixed to the assembly have no freedom between them whether or
+            // not a mate happens to span them. Without this the ground
+            // arrives as many separate grounded groups, and any joint landing
+            // on a later one makes a grounded group somebody's child, which
+            // no bone hierarchy can root (live ClampRig, 2026-08-24:
+            // 18 grounded groups, and Blender refused the manifest at j005).
+            if (assemblyProxy >= 0)
+                for (int i = 0; i < comps.Count; i++)
+                    if (Grounds(comps[i], flexibleGrounds)) Union(parent, i, assemblyProxy);
+
+            // The solver's own verdict, arriving on a second pass: pairs the
+            // DOF probe read as having no relative freedom and that survived
+            // SolverWelds, which separates a weld from a follower by what the
+            // probe said about the child's OTHER partners.
+            if (solverRigidPairs != null)
+            {
+                foreach (var pair in solverRigidPairs)
+                {
+                    int a, b;
+                    if (pair == null || pair.Length != 2) continue;
+                    if (!indexById.TryGetValue(pair[0], out a)) continue;
+                    if (!indexById.TryGetValue(pair[1], out b)) continue;
+                    Union(parent, a, b);
+                }
+            }
+
             // Pair keys are visited in a deterministic order so that repeated
             // runs on the same graph produce the same unions.
             var keys = new List<long>(pairMates.Keys);
             keys.Sort();
 
-            var overridePairs = new HashSet<long>();
             foreach (long key in keys)
             {
                 int a = (int)(key >> 32);
                 int b = (int)(key & 0xFFFFFFFF);
                 var mates = pairMates[key];
 
-                bool merge = PairIsRigid(mates, comps[a], comps[b]);
-                if (!merge && (MateFacts.IsFastener(comps[a]) || MateFacts.IsFastener(comps[b])))
-                {
-                    bool promoted;
-                    merge = FastenerMerges(mates, out promoted);
-                    if (promoted) overridePairs.Add(key);
-                }
-                if (merge) Union(parent, a, b);
+                if (PairIsRigid(mates, comps[a], comps[b])) Union(parent, a, b);
             }
 
             // Rigidity can hide at the GROUP level: one body's mates may land
             // on different members of another group, each pair non-rigid
             // alone, the union welded solid. Live corpus 07 (2026-08-22): the
             // baseplate's coincidents grabbed the hinge sub's fixed base
-            // while its distance mate grabbed the sub's own reference plane —
+            // while its distance mate grabbed the sub's own reference plane,
             // the pair-level pass left them split and the classifier hit a
             // zero-DOF edge it refuses to output. Aggregate every pair's
             // mates by current group and merge to a fixpoint.
@@ -191,7 +230,85 @@ namespace Peak.SwToBlender.Core
                 }
             }
 
-            return BuildResult(comps, parent, pairMates, keys, overridePairs);
+            var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds);
+            result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
+            return result;
+        }
+
+        /// <summary>
+        /// Whether this component's fixed flag may ground the rig.
+        ///
+        /// A FLEXIBLE subassembly is not a rigid body: SolidWorks dissolves
+        /// the node and solves its children against the top assembly, which
+        /// is exactly why the walker descends into it. Its Fix/Float flag
+        /// describes a body the solver no longer has, so it cannot ground
+        /// anything: whether the sub's contents are pinned is decided by
+        /// their own mates, like any other component.
+        ///
+        /// Live ClampRig (2026-08-24): both hydraulic rams
+        /// (RamSub-1 and -2, flexible) reported IsFixed while both
+        /// clamps (ClampSub, rigid) did not, and the ram barrels went
+        /// into ground through the node, taking the bore pivot with them, so
+        /// the rods extended in Blender without the ram swinging. The only
+        /// mates from either barrel to a grounded body are the bore
+        /// concentrics (plus one width), which is a revolute; nothing in the
+        /// mate table welds them.
+        /// </summary>
+        private static bool Grounds(GraphComponent c, bool flexibleGrounds)
+        {
+            return c.IsFixed && (flexibleGrounds || c.Solving != "flexible");
+        }
+
+        // ── What the constrained status is good for ─────────────────────────
+
+        /// <summary>
+        /// swConstrainedStatus_e values meaning the component still has
+        /// freedom of its own. That is the ONLY direction this status can be
+        /// read in: fully defined does not mean immobile (a part fully mated
+        /// to a moving one is fully defined and moves with it), but
+        /// under-defined does mean mobile.
+        /// </summary>
+        private const int SwUnderConstrained = 2;
+
+        private static List<string> UnderDefinedButMerged(
+            List<GraphComponent> comps, int[] parent, RigidGroupingResult result)
+        {
+            var lost = new List<string>();
+            for (int i = 0; i < comps.Count; i++)
+            {
+                var c = comps[i];
+                if (c.ConstrainedStatus != SwUnderConstrained) continue;
+                if (c.IsFixed || c.FixedInSubassembly) continue;
+                string group;
+                if (!result.ComponentGroup.TryGetValue(c.Id, out group)) continue;
+                foreach (var g in result.Groups)
+                {
+                    if (g.Id != group) continue;
+                    if (g.Components.Count > 1) lost.Add(c.Path ?? c.Id);
+                    break;
+                }
+            }
+            return lost;
+        }
+
+        /// <summary>True when some surviving mate reaches assembly-owned
+        /// geometry (a datum plane, a 3D sketch) as well as a component: that
+        /// geometry is rigid with the assembly and needs a body to live on.</summary>
+        private static bool NeedsAssemblyGround(
+            MateGraph graph, Dictionary<string, int> indexById)
+        {
+            foreach (var mate in graph.Mates)
+            {
+                if (mate.Suppressed) continue;
+                bool onAssembly = false, onComponent = false;
+                foreach (var e in mate.Entities)
+                {
+                    if (e.ComponentId == null) onAssembly = true;
+                    else if (indexById.ContainsKey(e.ComponentId)) onComponent = true;
+                }
+                if (onAssembly && onComponent) return true;
+            }
+            return false;
         }
 
         // ── Zero-DOF detection ──────────────────────────────────────────────
@@ -199,7 +316,7 @@ namespace Peak.SwToBlender.Core
         /// <summary>
         /// True when the combined mate set between exactly this component pair
         /// leaves no relative freedom. MotionResolver is the single source of
-        /// that truth — the classifier consumes the same resolver, so a pair
+        /// that truth: the classifier consumes the same resolver, so a pair
         /// this method keeps separate can never classify as fixed. (The
         /// predecessor mirrored a few zero-DOF patterns by hand and missed
         /// concentric + face + side-face coincidents: the live fully-defined
@@ -209,37 +326,9 @@ namespace Peak.SwToBlender.Core
         {
             // Two fixed components cannot move relative to each other no
             // matter what the mates between them say.
-            if (a.IsFixed && b.IsFixed) return true;
+            if (Grounds(a, false) && Grounds(b, false)) return true;
 
             return MotionResolver.Resolve(mates).IsRigid;
-        }
-
-        // ── Fastener filter ─────────────────────────────────────────────────
-
-        /// <summary>
-        /// A fastener held by a lone concentric (plus any coincidents) is not a
-        /// joint. A distance LIMIT mate on the same pair means the "fastener"
-        /// actually slides — that pair stays separate and is flagged so the
-        /// classifier can mark the joint medium confidence.
-        /// </summary>
-        private static bool FastenerMerges(List<GraphMate> mates, out bool promoted)
-        {
-            promoted = false;
-            int concentric = 0;
-            foreach (var m in mates)
-            {
-                if (MateFacts.Is(m, "DISTANCE") && MateFacts.IsLimitMate(m))
-                {
-                    promoted = true;
-                    continue;
-                }
-                if (MateFacts.Is(m, "CONCENTRIC")) { concentric++; continue; }
-                if (MateFacts.Is(m, "COINCIDENT")) continue;
-                return false;   // any other mate type: not the filter's pattern
-            }
-            if (concentric != 1) { promoted = false; return false; }
-            if (promoted) return false;
-            return true;
         }
 
         // ── Result assembly ─────────────────────────────────────────────────
@@ -247,7 +336,7 @@ namespace Peak.SwToBlender.Core
         private static RigidGroupingResult BuildResult(
             List<GraphComponent> comps, int[] parent,
             Dictionary<long, List<GraphMate>> pairMates, List<long> keys,
-            HashSet<long> overridePairs)
+            bool flexibleGrounds)
         {
             var membersByRoot = new Dictionary<int, List<int>>();
             var rootOrder = new List<int>();
@@ -273,7 +362,7 @@ namespace Peak.SwToBlender.Core
             {
                 bool grounded = false;
                 foreach (int i in membersByRoot[root])
-                    if (comps[i].IsFixed) { grounded = true; break; }
+                    if (Grounds(comps[i], flexibleGrounds)) { grounded = true; break; }
                 if (grounded) { groundedFirst = root; break; }
             }
             var ordered = new List<int>();
@@ -298,10 +387,10 @@ namespace Peak.SwToBlender.Core
                 foreach (int i in members)
                 {
                     var c = comps[i];
-                    if (c.IsFixed) grounded = true;
+                    if (Grounds(c, flexibleGrounds)) grounded = true;
                     // The phantom assembly ground stays out of the member
                     // list: the group is virtual (schema allows empty
-                    // components — same as carriers) and the id must never
+                    // components: same as carriers) and the id must never
                     // reach the manifest.
                     if (c.Id == AssemblyGroundId) continue;
                     group.Components.Add(c.Id);
@@ -354,7 +443,6 @@ namespace Peak.SwToBlender.Core
                     edgeOrder.Add(groupKey);
                 }
                 edge.Mates.AddRange(pairMates[key]);
-                if (overridePairs.Contains(key)) edge.FastenerOverride = true;
             }
             edgeOrder.Sort();
             foreach (long groupKey in edgeOrder)
@@ -392,7 +480,7 @@ namespace Peak.SwToBlender.Core
         /// <summary>
         /// Resolves which two components a mate spans. Mates touching one
         /// component only, or three or more, take no part in grouping or
-        /// classification — MateReader does not produce them for the mate
+        /// classification. MateReader does not produce them for the mate
         /// types this pipeline handles.
         /// </summary>
         private static bool TrySpan(
@@ -458,9 +546,6 @@ namespace Peak.SwToBlender.Core
         /// <summary>Axes offset by less than this (metres) count as collinear.</summary>
         public const double CollinearTol = 1e-6;
 
-        private static readonly Regex FastenerName =
-            new Regex("(?i)(screw|bolt|washer|nut|pin|dowel|rivet)", RegexOptions.Compiled);
-
         public static bool Is(GraphMate m, string kind)
         {
             return m.TypeName != null
@@ -468,8 +553,8 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>The LOCK mate exactly. Is(m, "LOCK") also matches
-        /// swMateLOCKTOSKETCH — a sketch-driven positioner, nothing like a
-        /// rigid weld — so every lock test must come through here.</summary>
+        /// swMateLOCKTOSKETCH: a sketch-driven positioner, nothing like a
+        /// rigid weld, so every lock test must come through here.</summary>
         public static bool IsLock(GraphMate m)
         {
             return Is(m, "LOCK") && !Is(m, "LOCKTOSKETCH");
@@ -484,10 +569,47 @@ namespace Peak.SwToBlender.Core
             return Is(m, "DISTANCE") || Is(m, "ANGLE");
         }
 
-        public static bool IsFastener(GraphComponent c)
+        /// <summary>
+        /// A mate that leaves motion by its own definition, whatever the
+        /// solver's DOF accounting makes of it: a limit range, a path, a slot
+        /// that is not pinned along its length, a tangent contact, and the
+        /// mechanical mates that TRANSMIT motion rather than remove it.
+        ///
+        /// This reads mate TYPES and ranges (kinematics), never names.
+        /// </summary>
+        /// <summary>A mate that ties this body's motion to another body's:
+        /// gears, racks, couplers, screws, cams, universal joints.</summary>
+        public static bool IsCoupling(GraphMate m)
         {
-            if (c.IsToolboxPart) return true;
-            return c.FileName != null && FastenerName.IsMatch(c.FileName);
+            return Is(m, "SCREW")
+                || Is(m, "GEAR")
+                || Is(m, "RACKPINION")
+                || Is(m, "LINEARCOUPLER")
+                || Is(m, "CAMFOLLOWER")
+                || Is(m, "UNIVERSALJOINT");
+        }
+
+        public static bool PermitsMotion(GraphMate m)
+        {
+            if (IsLimitMate(m)) return true;
+            if (Is(m, "PATH")) return true;
+            // swSlotMateConstraintOptions_e: 0 free, 1 centered, 2 distance,
+            // 3 percent. Only FREE leaves the pin sliding: centered pins it
+            // at the slot's midpoint just as firmly as a distance does (live
+            // ClampRigPart, 2026-08-24, which reported constraint=1 and is
+            // fully defined in SolidWorks). Unread (−1) is treated as free.
+            if (Is(m, "SLOT"))
+                return m.SlotConstraint == 0 || m.SlotConstraint < 0;
+            return Is(m, "SCREW")
+                || Is(m, "GEAR")
+                || Is(m, "RACKPINION")
+                || Is(m, "LINEARCOUPLER")
+                || Is(m, "CAMFOLLOWER")
+                || Is(m, "UNIVERSALJOINT")
+                || Is(m, "HINGE")
+                || Is(m, "SLIDER")
+                || Is(m, "TANGENT")
+                || Is(m, "MAGNETIC");
         }
 
         /// <summary>Axis of a concentric-like mate: the first entity carrying

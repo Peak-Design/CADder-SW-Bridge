@@ -9,14 +9,14 @@ namespace Peak.SwToBlender.Sw
     /// CommonSwOperations.cs): IModelDocExtension.GetPersistReference3 on the
     /// component gives the byte array SolidWorks will honour across sessions,
     /// rebuilds and releases (API help, IModelDocExtension~
-    /// GetPersistReference3.html — the bytes may change, the resolution
+    /// GetPersistReference3.html: the bytes may change, the resolution
     /// stays stable). The manifest stores it base64-encoded; SW2URDF's
     /// ASCII-string round trip corrupts bytes above 0x7F, which is why this
     /// project does not copy that part.
     /// </summary>
     public static class ComponentIdentity
     {
-        /// <summary>Null when SolidWorks cannot produce a reference — a
+        /// <summary>Null when SolidWorks cannot produce a reference: a
         /// suppressed or failing occurrence. The manifest schema allows null
         /// there, and a missing id must not sink the export.</summary>
         public static string PersistIdBase64(IModelDoc2 topDocument, Component2 component)

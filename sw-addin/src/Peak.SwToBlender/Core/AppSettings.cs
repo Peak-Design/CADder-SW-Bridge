@@ -5,7 +5,7 @@ using System.IO;
 namespace Peak.SwToBlender.Core
 {
     /// <summary>
-    /// Persistent add-in settings — %APPDATA%\Peak\SwToBlender\settings.json.
+    /// Persistent add-in settings: %APPDATA%\Peak\SwToBlender\settings.json.
     /// One flat object, read on every command and written when a dialog
     /// changes something, so two SolidWorks sessions cannot fight over stale
     /// in-memory copies. Missing file or unknown keys = defaults; the file
@@ -18,16 +18,27 @@ namespace Peak.SwToBlender.Core
         public bool DeInstance = true;
         public bool EngineeringMaterial = false;
         public bool IncludeHidden = false;
+        public bool OnlySelected = false;
 
         // ── Rig export ──────────────────────────────────────────────────────
         public int Ap = 214;
         public bool RunDofProbe = true;
+        /// <summary>Degrees per drag step when a cam or universal joint
+        /// relation is read off the model. Smaller is finer and slower.</summary>
+        public int RelationStepDeg = 5;
         public bool OpenFolder = true;
 
         // ── Blender import (forwarded over the bridge) ──────────────────────
         public string Hierarchy = "EMPTIES";       // FLAT|TREE|EMPTIES|COLLECTION_INSTANCES
         public string QualityPreset = "BALANCED";  // DRAFT|BALANCED|FINE|ULTRA
-        public string UpAxis = "ZPOS";             // XPOS|YPOS|ZPOS — ZPOS keeps the manifest frame
+        /// <summary>The SolidWorks axis that becomes Blender's Z (the
+        /// STEP importer's up_as spelling). SolidWorks models are Y up
+        /// by convention, so YPOS turns them upright in Blender; ZPOS
+        /// applies no rotation and keeps the manifest frame.</summary>
+        public string UpAxis = "YPOS";
+        public bool ImportCurves = false;          // free edges as POLY curves
+        public bool GroupInCollection = false;     // one collection per file
+        public bool SeparateSolids = false;        // a multibody part per body
 
         // ── Bridge pipeline stages ──────────────────────────────────────────
         public bool BuildRig = true;
@@ -43,6 +54,22 @@ namespace Peak.SwToBlender.Core
         /// <summary>"temp" exports into a per-assembly folder under
         /// %LOCALAPPDATA%; "beside" writes next to the .SLDASM.</summary>
         public string ExportFolderMode = "temp";
+
+        // The lab: the add-in's localhost listener also accepts operations
+        // that CHANGE the open model (open and close documents, suppress a
+        // mate, set a dimension, rebuild, quit), so a test harness can drive
+        // SolidWorks without the ribbon. Nothing is ever saved through it.
+        // Off, and the listener answers only read requests. Off by default:
+        // a user who installs the add-in did not ask for a localhost port
+        // that can close their documents (2026-09-15). The lab turns it on
+        // in settings.json or in the Export Options dialog.
+        public bool LabOps = false;
+
+        /// <summary>Show the STEP route and the file exports on the
+        /// ribbon. Off, the ribbon is Send to Blender and Export Options:
+        /// the direct send is what nearly everyone needs. Read once when
+        /// SolidWorks starts, because the command group is built then.</summary>
+        public bool AdvancedCommands = false;
 
         public static string DefaultPath
             => Path.Combine(
@@ -61,8 +88,13 @@ namespace Peak.SwToBlender.Core
                 settings.DeInstance = MiniJson.Flag(obj, "de_instance", settings.DeInstance);
                 settings.EngineeringMaterial = MiniJson.Flag(obj, "engineering_material", settings.EngineeringMaterial);
                 settings.IncludeHidden = MiniJson.Flag(obj, "include_hidden", settings.IncludeHidden);
+                settings.OnlySelected = MiniJson.Flag(obj, "only_selected", settings.OnlySelected);
+                settings.ImportCurves = MiniJson.Flag(obj, "import_curves", settings.ImportCurves);
+                settings.GroupInCollection = MiniJson.Flag(obj, "group_in_collection", settings.GroupInCollection);
+                settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
+                settings.RelationStepDeg = MiniJson.Int(obj, "relation_step_deg", settings.RelationStepDeg);
                 settings.OpenFolder = MiniJson.Flag(obj, "open_folder", settings.OpenFolder);
                 settings.Hierarchy = MiniJson.Str(obj, "hierarchy", settings.Hierarchy);
                 settings.QualityPreset = MiniJson.Str(obj, "quality_preset", settings.QualityPreset);
@@ -75,6 +107,8 @@ namespace Peak.SwToBlender.Core
                 settings.FocusBlender = MiniJson.Flag(obj, "focus_blender", settings.FocusBlender);
                 settings.BlenderExe = MiniJson.Str(obj, "blender_exe", settings.BlenderExe);
                 settings.ExportFolderMode = MiniJson.Str(obj, "export_folder_mode", settings.ExportFolderMode);
+                settings.LabOps = MiniJson.Flag(obj, "lab_ops", settings.LabOps);
+                settings.AdvancedCommands = MiniJson.Flag(obj, "advanced_commands", settings.AdvancedCommands);
             }
             catch (Exception ex)
             {
@@ -94,8 +128,13 @@ namespace Peak.SwToBlender.Core
                     { "de_instance", DeInstance },
                     { "engineering_material", EngineeringMaterial },
                     { "include_hidden", IncludeHidden },
+                    { "only_selected", OnlySelected },
+                    { "import_curves", ImportCurves },
+                    { "group_in_collection", GroupInCollection },
+                    { "separate_solids", SeparateSolids },
                     { "ap", Ap },
                     { "run_dof_probe", RunDofProbe },
+                    { "relation_step_deg", RelationStepDeg },
                     { "open_folder", OpenFolder },
                     { "hierarchy", Hierarchy },
                     { "quality_preset", QualityPreset },
@@ -108,6 +147,8 @@ namespace Peak.SwToBlender.Core
                     { "focus_blender", FocusBlender },
                     { "blender_exe", BlenderExe ?? "" },
                     { "export_folder_mode", ExportFolderMode },
+                    { "lab_ops", LabOps },
+                    { "advanced_commands", AdvancedCommands },
                 };
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
                 // UTF-8 without BOM, like every JSON this add-in writes.

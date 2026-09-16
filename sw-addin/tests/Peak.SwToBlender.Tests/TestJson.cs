@@ -58,7 +58,7 @@ namespace Peak.SwToBlender.Tests
     /// <summary>
     /// Strict recursive-descent JSON reader for the writer tests. Hand-rolled
     /// on purpose: the test project takes no JSON package dependency, and the
-    /// parser's strictness is itself part of the assertion — anything the
+    /// parser's strictness is itself part of the assertion, anything the
     /// writer emits that this rejects (duplicate keys, bare words, comma-form
     /// decimals) is a writer bug.
     /// </summary>
@@ -75,7 +75,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Structural equality with exact number comparison. Object
-        /// keys must match in order as well as name — the writer's key order
+        /// keys must match in order as well as name: the writer's key order
         /// is fixed by the schema and part of the contract under test.</summary>
         public static bool DeepEquals(JsonValue a, JsonValue b, out string diff)
         {

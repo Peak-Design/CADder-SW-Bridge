@@ -26,7 +26,7 @@ namespace Peak.SwToBlender.Bridge
         {
             string file = string.IsNullOrEmpty(BlendFile)
                 ? "unsaved file" : Path.GetFileName(BlendFile);
-            return "Blender " + (BlenderVersion ?? "?") + " — " + file
+            return "Blender " + (BlenderVersion ?? "?") + " at " + file
                 + " (pid " + Pid + ")";
         }
     }
@@ -36,7 +36,7 @@ namespace Peak.SwToBlender.Bridge
     /// directory of registry files (%LOCALAPPDATA%\PeakDesign\SwToBlender\
     /// bridge\&lt;pid&gt;.json) that each listening Blender writes; every
     /// entry is pinged and corpses are deleted. All requests carry the
-    /// instance's token — possession of the user-private file is the auth.
+    /// instance's token: possession of the user-private file is the auth.
     /// </summary>
     public static class BlenderBridge
     {
@@ -96,7 +96,7 @@ namespace Peak.SwToBlender.Bridge
         {
             try
             {
-                var obj = Request(inst, "GET", "/swtb/ping", null, 2000);
+                var obj = Request(inst, "GET", "/cadlink/ping", null, 2000);
                 if (!MiniJson.Flag(obj, "ok")) return false;
                 // The live answer beats the registry file: the blend file
                 // changes as the user works.
@@ -113,13 +113,13 @@ namespace Peak.SwToBlender.Bridge
         }
 
         /// <summary>Runs the import pipeline in the given Blender. Blocks
-        /// until Blender finishes (big assemblies take minutes — call from a
+        /// until Blender finishes (big assemblies take minutes: call from a
         /// worker thread). Returns the parsed response, ok or not.</summary>
         public static Dictionary<string, object> PostImport(
             BlenderInstance inst, Dictionary<string, object> payload,
             int timeoutMs, Action<string> log)
         {
-            return Request(inst, "POST", "/swtb/import", payload, timeoutMs);
+            return Request(inst, "POST", "/cadlink/import", payload, timeoutMs);
         }
 
         private static Dictionary<string, object> Request(
@@ -131,7 +131,7 @@ namespace Peak.SwToBlender.Bridge
             req.Method = method;
             req.Timeout = timeoutMs;
             req.ReadWriteTimeout = timeoutMs;
-            req.Headers["X-SWTB-Token"] = inst.Token ?? "";
+            req.Headers["X-CADLink-Token"] = inst.Token ?? "";
             req.Proxy = null;   // a system proxy must never sit in a localhost call
 
             if (payload != null)
@@ -211,7 +211,7 @@ namespace Peak.SwToBlender.Bridge
 
         // ── Launching ───────────────────────────────────────────────────────
 
-        /// <summary>Starts Blender and waits for its bridge to come up — the
+        /// <summary>Starts Blender and waits for its bridge to come up: the
         /// addon registers the server during startup, so the new registry
         /// entry appearing (and answering a ping) IS the ready signal.</summary>
         public static BlenderInstance Launch(
@@ -264,7 +264,7 @@ namespace Peak.SwToBlender.Bridge
                 if (hwnd == IntPtr.Zero) return;
                 // SW_RESTORE un-maximizes a maximized window (it restores the
                 // previous floating bounds), so it runs ONLY for a minimized
-                // one — focusing must never change the window's size or state.
+                // one: focusing must never change the window's size or state.
                 if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
                 SetForegroundWindow(hwnd);
             }

@@ -14,7 +14,7 @@ namespace Peak.SwToBlender.Tools
     /// with no ribbon and no dialogs.
     ///
     /// The corpus is the only test that sees what SolidWorks actually hands
-    /// out — fixtures encode what a live entity looked like ONCE, which is
+    /// out: fixtures encode what a live entity looked like ONCE, which is
     /// how a mate type missing from a reader lookup survived to a live round
     /// (corpus 15 cone3, 2026-08-23). Re-exporting every assembly after a
     /// reader change turns that from a manual click-through into one command,
@@ -86,7 +86,7 @@ namespace Peak.SwToBlender.Tools
                     {
                         failed++;
                         Console.WriteLine(Path.GetFileNameWithoutExtension(file)
-                            + ": FAILED — " + ex.Message.Replace("\n", " "));
+                            + ": FAILED: " + ex.Message.Replace("\n", " "));
                     }
                 }
             }
@@ -138,7 +138,7 @@ namespace Peak.SwToBlender.Tools
         {
             string text;
             try { text = File.ReadAllText(manifestPath); }
-            catch (IOException ex) { return "unreadable — " + ex.Message; }
+            catch (IOException ex) { return "unreadable: " + ex.Message; }
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             int at = 0;
             const string key = "\"type\": \"";

@@ -23,30 +23,38 @@
            Text="SolidWorks interop assemblies not found. Install SolidWorks 2022 or newer, or pass -p:SolidWorksApiDir=&quot;&lt;path to SOLIDWORKS\api\redist&gt;&quot;." />
   </Target>
 
-  <ItemGroup>
-    <!-- The interops are strong-named with no GAC copies and no binding
-         redirects in SolidWorks, so on newer versions the references can ONLY
-         be satisfied by copies sitting next to the add-in DLL — Private=True
-         ships them. The AssemblyResolve hook in AddIn.cs is a fallback only;
-         it cannot rescue the swpublished bind that happens while the AddIn
-         type itself loads. -->
+  <!-- The interop TYPES are embedded, not referenced (Private=False +
+       EmbedInteropTypes=True): the interops are strong-named with no GAC
+       copies and no binding redirects in SolidWorks, so a referencing
+       add-in can only be satisfied by copies sitting next to its own DLL —
+       and even those cannot rescue the swpublished bind that happens while
+       the AddIn type itself loads. Embedding copies the handful of
+       interfaces actually used into our assembly and the problem stops
+       existing: nothing to ship, nothing to bind, nothing to resolve.
+       KeyShot's SolidWorks plugin does the same (its plugin folder holds no
+       SolidWorks assemblies at all).
+
+       Set SolidWorksApiReferences=false to import only the directory probe
+       above — the tests need the path but must not compile against the
+       interops. -->
+  <ItemGroup Condition="'$(SolidWorksApiReferences)' != 'false'">
     <Reference Include="SolidWorks.Interop.sldworks">
       <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
-      <Private>True</Private>
+      <Private>False</Private>
       <SpecificVersion>False</SpecificVersion>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
     <Reference Include="SolidWorks.Interop.swconst">
       <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
-      <Private>True</Private>
+      <Private>False</Private>
       <SpecificVersion>False</SpecificVersion>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
     <Reference Include="SolidWorks.Interop.swpublished">
       <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swpublished.dll</HintPath>
-      <Private>True</Private>
+      <Private>False</Private>
       <SpecificVersion>False</SpecificVersion>
-      <EmbedInteropTypes>False</EmbedInteropTypes>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
     </Reference>
   </ItemGroup>
 

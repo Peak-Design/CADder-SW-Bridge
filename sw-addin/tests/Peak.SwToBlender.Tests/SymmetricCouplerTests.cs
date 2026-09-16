@@ -54,6 +54,61 @@ namespace Peak.SwToBlender.Tests
                     PlaneEnt("c001", Y, P(0, 0, 0))));
         }
 
+        /// <summary>
+        /// The mirror plane is the plane that REFLECTS the other two onto each
+        /// other, and mirrored planes need not be parallel to it: only to
+        /// each other's reflection.
+        ///
+        /// Live ClampRig (2026-08-25, Oscar): one symmetric mate holds
+        /// the two clamps so they open and close together. Their own planes
+        /// are tilted 0.0822 degrees out of the machine's centre plane, which
+        /// is a thousand times the parallel tolerance, so the old "three
+        /// parallel planes" reading dropped the mate silently: no coupling
+        /// and no warning, and the clamps posed independently. Every number
+        /// below is off that assembly's own mate table; reflecting the first
+        /// clamp's plane about the centre plane reproduces the second's to
+        /// nine decimals.
+        /// </summary>
+        [Fact]
+        public void MirroredPlanesNeedNotBeParallelToTheMirror()
+        {
+            var mirror = new double[] { 1, 0, 0 };
+            var clampA = new double[] { -1, -2.8604E-17, -0.0014353 };
+            var clampB = new double[] { 1, -4.0059E-17, -0.0014353 };
+
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "machine body", isFixed: true),
+                    Comp("c002", "clamp one"),
+                    Comp("c003", "clamp two"),
+                },
+                Mate("Symmetric5", "swMateSYMMETRIC",
+                    PlaneEnt("c001", mirror, P(0, 0, 0)),
+                    PlaneEnt("c002", clampA, P(-0.72657, 0.085, -1.0598)),
+                    PlaneEnt("c003", clampB, P(0.72657, -0.085, -1.0598))));
+
+            // Both clamps hang on their own vertical pin, as they do live.
+            var joints = new List<RigJoint>
+            {
+                Mount("j001", JointType.Revolute, "g001", Y),
+                Mount("j002", JointType.Revolute, "g002", Y),
+            };
+
+            var warnings = SymmetricCoupler.Resolve(graph, Grouping(), joints);
+
+            Assert.Empty(warnings);
+            Assert.Null(joints[0].Coupling);
+            var c = joints[1].Coupling;
+            Assert.NotNull(c);
+            Assert.Equal("gear", c.Kind);
+            Assert.Equal("j001", c.DriverJoint);
+            // A reflection reverses orientation, and the pin survives it
+            // unchanged (it lies in the mirror plane), so one clamp turns
+            // exactly opposite the other.
+            Assert.Equal(-1.0, c.Ratio ?? 0.0, 9);
+        }
+
         [Fact]
         public void PrismaticPairBecomesLinearCoupler()
         {
@@ -127,11 +182,43 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 14 sym4 (2026-08-23): ONLY the symmetric
-        /// mate between the two slides — both exported as free islands with
+        /// mate between the two slides: both exported as free islands with
         /// a warning. The mirror IS the whole relation: two ground-rooted
         /// free joints are synthesized, the driven one carrying the 6-DOF
         /// mirror coupling with the mate's plane. Entity shape is the live
         /// log's: mirrored side planes plus an ASSEMBLY-owned bisector.</summary>
+        [Fact]
+        public void UnmountedPairOfPOINTSWarnsInsteadOfMirroring()
+        {
+            // The mirror coupling means what a PLANE-to-plane symmetry
+            // constrains: the translation along the normal and the two
+            // rotations that tilt it. Two symmetric POINTS constrain all
+            // three translations and no rotation at all: a different set,
+            // so reading them as planes would silently free two rotations
+            // SolidWorks holds and hold two translations it frees.
+            var minusX = new double[] { -1, 0, 0 };
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "rail", isFixed: true),
+                    Comp("c002", "slide one"),
+                    Comp("c003", "slide two"),
+                },
+                Mate("Symmetric5", "swMateSYMMETRIC",
+                    VertexEnt("c003", P(0.029526, -0.01, 0.02)),
+                    VertexEnt("c002", P(0.070474, -0.01, 0.02)),
+                    PlaneEnt(null, minusX, P(0.05, 0, 0))));
+            var joints = new List<RigJoint>();
+
+            var warnings = SymmetricCoupler.Resolve(graph, Grouping(), joints);
+
+            Assert.Empty(joints);
+            var warning = Assert.Single(warnings);
+            Assert.Equal("SYMMETRIC_COUPLING", warning.Code);
+            Assert.Contains("planar faces", warning.Message);
+            Assert.Contains("vertex", warning.Message);
+        }
+
         [Fact]
         public void UnmountedPairSynthesizesTheMirrorPair()
         {
@@ -174,7 +261,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A pair that IS mated to something else (even without a
-        /// usable mount) keeps the honest warning — the mirror-pair
+        /// usable mount) keeps the honest warning: the mirror-pair
         /// synthesis is only for bodies whose whole relation is the
         /// symmetric mate.</summary>
         [Fact]
@@ -201,7 +288,7 @@ namespace Peak.SwToBlender.Tests
         public void TwoBodySymmetricIsLeftToTheResolver()
         {
             // Both mirrored entities on ONE body: the pairwise resolver
-            // already models this as a mid-plane coincidence — no coupling,
+            // already models this as a mid-plane coincidence: no coupling,
             // no warning.
             var graph = Graph(
                 new[]

@@ -1,4 +1,4 @@
-# Third-party notices — sw-addin
+# Third-party notices: sw-addin
 
 ## SW2URDF (solidworks_urdf_exporter)
 

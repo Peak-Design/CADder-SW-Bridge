@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
-// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285 — the STEP appearance engine, merged into SW To Blender.
+// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285: the STEP appearance engine, merged into SW To Blender.
 
 namespace Peak.SwToBlender.Appearance
 {
@@ -142,6 +142,106 @@ namespace Peak.SwToBlender.Appearance
             foreach (Match m in RefRe.Matches(args))
                 outIds.Add(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
             return outIds;
+        }
+
+        /// <summary>
+        /// Millimetres per unit of the length unit a representation context
+        /// declares, or 1.0 when it declares none that can be read.
+        ///
+        /// SolidWorks writes a STEP with one context per part, each in that
+        /// part's own units, and the assembly's placements in the top
+        /// document's units. The 2022 sample landing_gear.sldasm mixes inch
+        /// parts under a metre assembly (2026-09-14): read as millimetres,
+        /// every occurrence sat 25 times too close to the origin and none
+        /// matched. A context is a complex entity such as
+        ///   ( GEOMETRIC_REPRESENTATION_CONTEXT(3) ...
+        ///     GLOBAL_UNIT_ASSIGNED_CONTEXT((#a,#b,#c)) ... )
+        /// whose units are themselves complex:
+        ///   ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) )
+        ///   ( CONVERSION_BASED_UNIT('INCH',#m) LENGTH_UNIT() NAMED_UNIT(#d) )
+        /// with #m a LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4), #mm).
+        /// </summary>
+        public double LengthUnitMm(int contextId)
+        {
+            foreach (int unit in Refs(contextId))
+            {
+                string args = ArgsOf(unit) ?? "";
+                if (args.IndexOf("LENGTH_UNIT", StringComparison.OrdinalIgnoreCase) < 0)
+                    continue;
+                double mm = UnitMm(unit, 0);
+                if (mm > 0) return mm;
+            }
+            return 1.0;
+        }
+
+        private static readonly Regex SiPrefixRe = new Regex(
+            @"SI_UNIT\s*\(\s*(\$|\.[A-Z]+\.)\s*,\s*\.METRE\.",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex MeasureRe = new Regex(
+            @"LENGTH_MEASURE\s*\(\s*(-?\d+\.?\d*(?:[eE][-+]?\d+)?)\s*\)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private double UnitMm(int unit, int depth)
+        {
+            if (depth > 4) return 0;
+            string args = ArgsOf(unit) ?? "";
+            var si = SiPrefixRe.Match(args);
+            if (si.Success)
+            {
+                switch (si.Groups[1].Value.ToUpperInvariant())
+                {
+                    case "$": return 1000.0;
+                    case ".MILLI.": return 1.0;
+                    case ".CENTI.": return 10.0;
+                    case ".DECI.": return 100.0;
+                    case ".KILO.": return 1.0e6;
+                    case ".MICRO.": return 1.0e-3;
+                    default: return 0;
+                }
+            }
+            if (args.IndexOf("CONVERSION_BASED_UNIT", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                foreach (int r in Refs(unit))
+                {
+                    string margs = ArgsOf(r) ?? "";
+                    var m = MeasureRe.Match(margs);
+                    if (!m.Success) continue;
+                    double factor = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+                    foreach (int baseUnit in Refs(r))
+                    {
+                        double baseMm = UnitMm(baseUnit, depth + 1);
+                        if (baseMm > 0) return factor * baseMm;
+                    }
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Millimetres per unit of the placement's own coordinates: the
+        /// length unit of the shape representation that lists it among its
+        /// items, found through the representation relationship that
+        /// carries the transformation. 1.0 when nothing declares it.
+        /// </summary>
+        public double PlacementUnitMm(int relationship, int placement)
+        {
+            foreach (int rep in Refs(relationship))
+            {
+                string t = TypeOf(rep) ?? "";
+                if (t.IndexOf("REPRESENTATION", StringComparison.OrdinalIgnoreCase) < 0
+                    || t.IndexOf("RELATIONSHIP", StringComparison.OrdinalIgnoreCase) >= 0
+                    || t.IndexOf("TRANSFORMATION", StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                var items = Refs(rep);
+                if (!items.Contains(placement)) continue;
+                foreach (int ctx in items)
+                {
+                    string ct = TypeOf(ctx) ?? "";
+                    if (ct.IndexOf("REPRESENTATION_CONTEXT", StringComparison.OrdinalIgnoreCase) >= 0)
+                        return LengthUnitMm(ctx);
+                }
+            }
+            return 1.0;
         }
 
         /// <summary>The first quoted string in the arguments of an entity. This

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Peak.SwToBlender.Core;
 using Peak.SwToBlender.Core.Model;
@@ -40,7 +41,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Classic four-bar: four groups in a ring, four revolutes
         /// about the same direction. Some joints are stated backwards on
-        /// purpose — the analyzer must re-orient them rootward.</summary>
+        /// purpose: the analyzer must re-orient them rootward.</summary>
         [Fact]
         public void FourBarRingYieldsOnePlanarLoop()
         {
@@ -83,12 +84,20 @@ namespace Peak.SwToBlender.Tests
             AssertOriented(result.Joints[3], "g000", "g003");
         }
 
-        /// <summary>An IK point constraint faithfully closes a revolute but
-        /// over-constrains a sliding interface, so between the two possible
-        /// driver/cut pairings the analyzer takes the one whose cut is a
-        /// revolute — the prismatic becomes a tree edge instead.</summary>
+        /// <summary>
+        /// A ring with one slide is a slider-crank, and it is cut AT the
+        /// slide. No rotational solver can lengthen a sliding joint, so
+        /// leaving it inside the solved chain freezes the mechanism, and
+        /// cutting a pin instead leaves the slide locked in the tree, which
+        /// freezes it just the same. Cut here and each sliding body hangs off
+        /// its own pin, free to aim at the other.
+        ///
+        /// (Until 2026-08-24 this cut a revolute, on the reasoning that an IK
+        /// point constraint over-constrains a sliding interface. True, and
+        /// beside the point: the interface should not be in the chain at all.)
+        /// </summary>
         [Fact]
-        public void DriverSideChosenSoTheCutIsRevolute()
+        public void ARingWithOneSlideIsCutAtTheSlide()
         {
             var groups = new List<RigidGroup>
             {
@@ -110,26 +119,675 @@ namespace Peak.SwToBlender.Tests
 
             var loop = Assert.Single(result.Loops);
             Assert.Equal(new[] { "j001", "j002", "j003", "j004" }, loop.MemberJoints);
-
-            // Driving j004 would put the cut on the prismatic j003; driving
-            // j001 puts it on the revolute j002, so j001 drives.
-            Assert.Equal("j002", loop.ClosureJoint);
+            Assert.Equal("j003", loop.ClosureJoint);
+            // j001 is the only edge touching neither sliding body, so it is
+            // the one a hand can pose to work the mechanism.
             Assert.Equal("j001", loop.SuggestedDriverJoint);
             Assert.True(loop.Planar);
 
-            // Tree j001/j003/j004: g001 and g003 at depth 1, g002 at 2
-            // under g003 through the prismatic.
+            // Tree j001/j002/j004: g001 at depth 1 under g000, g002 at 2
+            // under g001, g003 at 1 under g000.
             AssertOriented(result.Joints[0], "g000", "g001");
-            AssertOriented(result.Joints[1], "g001", "g002");   // closure: rootward end is parent
-            AssertOriented(result.Joints[2], "g003", "g002");
+            AssertOriented(result.Joints[1], "g001", "g002");
+            AssertOriented(result.Joints[2], "g003", "g002");   // closure
             AssertOriented(result.Joints[3], "g000", "g003");
+        }
+
+        /// <summary>With no slide anywhere, the IK closure stands, and it is
+        /// a point coincidence, so between two otherwise equal pairings the
+        /// cut goes on the joint whose bodies SHARE a point. A planar cut
+        /// would ask the consumer to pin two bodies at a point that slides in
+        /// two directions.</summary>
+        [Fact]
+        public void WithNoSlideTheCutGoesOnAPin()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+                Group("g003"),
+            };
+            var axis = new double[] { 0, 0, 1 };
+            var joints = new List<RigJoint>
+            {
+                Joint("j001", JointType.Revolute, "g000", "g001", axis),
+                Joint("j002", JointType.Cylindrical, "g001", "g002", axis),
+                Joint("j003", JointType.Planar, "g002", "g003", axis),
+                Joint("j004", JointType.Revolute, "g003", "g000", axis),
+            };
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j002", loop.ClosureJoint);
+            Assert.Equal("j001", loop.SuggestedDriverJoint);
+        }
+
+        /// <summary>
+        /// Oscar's question, 2026-08-24: with the loop cut at the ram, what
+        /// stops the clamp? In SolidWorks the ram bottoms out and the clamp
+        /// can go no further, so the stroke limit must arrive on the driver,
+        /// converted through the triangle, or the clamp swings past the stop
+        /// and leaves the rod behind.
+        ///
+        /// The triangle here is a right angle at rest, chosen so the answer
+        /// can be read off by hand: A = (1,0,0), B = origin, C = (0,0,1), so
+        /// |AB| = |BC| = 1 and the ram is √2 long. Shortening it to 1 closes
+        /// the corner from 90° to 60°; lengthening it to √3 opens it to 120°.
+        ///
+        /// Run twice, because a stroke is a SIGNED displacement along the
+        /// slide's own axis and the ram's length is a distance. Reverse the
+        /// axis and the same mechanism reads as a falling coordinate; the
+        /// answer must not change. Live ClampRig (2026-08-24) has one
+        /// ram of each hand and derived +90° for one clamp and +38° for the
+        /// other from the same triangle and the same 500 mm stroke.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void ASliderCrankCarriesItsStrokeLimitOntoTheDriver(bool reversedSlide)
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // machine body
+                Group("g001"),                   // clamp
+                Group("g002"),                   // ram barrel
+                Group("g003"),                   // ram rod
+            };
+            var pin = new double[] { 0, 1, 0 };
+            double root2 = Math.Sqrt(2.0), root3 = Math.Sqrt(3.0);
+
+            var clampPin = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            clampPin.Origin = new double[] { 0, 0, 0 };            // B
+            var barrelPin = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            barrelPin.Origin = new double[] { 1, 0, 0 };           // A
+            // A -> C, or the same line measured the other way round.
+            var slideAxis = reversedSlide
+                ? new double[] { 1, 0, -1 }
+                : new double[] { -1, 0, 1 };
+            var stroke = Joint("j003", JointType.Prismatic, "g002", "g003",
+                               slideAxis);
+            stroke.TranslationLimit = reversedSlide
+                ? new JointLimit
+                {
+                    Min = -(0.5 + (root3 - root2)),
+                    Max = -(0.5 + (1.0 - root2)),
+                    ValueAtRest = -0.5,
+                }
+                : new JointLimit
+                {
+                    Min = 0.5 + (1.0 - root2),    // |AC| may shrink to 1
+                    Max = 0.5 + (root3 - root2),  // and grow to sqrt(3)
+                    ValueAtRest = 0.5,
+                };
+            var rodPin = Joint("j004", JointType.Cylindrical, "g001", "g003", pin);
+            rodPin.Origin = new double[] { 0, 0, 1 };              // C
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { clampPin, barrelPin, stroke, rodPin });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j003", loop.ClosureJoint);
+            Assert.Equal("j001", loop.SuggestedDriverJoint);
+
+            // 90° at rest, 60° at the short end, 120° at the long end.
+            Assert.NotNull(clampPin.RotationLimit);
+            double half = Math.PI / 6.0;
+            Assert.Equal(-half, clampPin.RotationLimit.Min, 9);
+            Assert.Equal(half, clampPin.RotationLimit.Max, 9);
+            Assert.Equal(0.0, clampPin.RotationLimit.ValueAtRest, 12);
+            Assert.Contains("derived from the stroke limit", clampPin.Notes);
+
+            // The rod keeps its own stroke: the two describe one constraint
+            // and must not disagree.
+            Assert.NotNull(stroke.TranslationLimit);
+        }
+
+        /// <summary>
+        /// The two mounts of an aim pair are seated ON the ram they close.
+        ///
+        /// A pin's origin is only defined up to sliding along its own axis,
+        /// and SolidWorks hands back whichever point the mate entity sat on.
+        /// The aim closure stands in for the slide by pointing each half at
+        /// the other's pivot, which is the slide only when both pivots are on
+        /// the slide's axis.
+        ///
+        /// Live ClampRig (2026-08-24): the bore pin came in 45 mm above
+        /// the ram's axis and the rod pin 31 mm below it, so the two halves
+        /// aimed across the ram and the rod met the bore at an angle. Both
+        /// pin lines cross the ram axis exactly at the ram's centre plane:
+        /// every number below is off that assembly's own manifest.
+        /// </summary>
+        /// <summary>
+        /// Live TongRig (2026-09-14): a hydraulic tong. Two arms hinged on
+        /// a base, a cylinder between them whose body sits on a cone bore
+        /// over the rod with a point-to-point stroke limit. That leaves the
+        /// rod free to SPIN in the barrel, so the stroke arrives CYLINDRICAL,
+        /// and the loop narrowing that kills the spin runs after closures
+        /// are chosen. Read as "no slide in the ring", the ram was closed
+        /// with IK on one arm: its own two joints stayed free inputs, and
+        /// its length never changed when the arm was posed.
+        ///
+        /// A cylindrical whose axis passes through both of its mount pins is
+        /// a ram's stroke, and the ring closes as an aim pair on it.
+        /// </summary>
+        [Fact]
+        public void ARamWhoseRodMaySpinIsStillAnAimPair()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // base
+                Group("g001"),                   // arm A
+                Group("g002"),                   // arm B
+                Group("g003"),                   // cylinder body
+                Group("g004"),                   // cylinder rod
+            };
+            var pin = new double[] { 1, 0, 0 };
+            var armA = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            armA.Origin = new double[] { -0.2645, -0.3057, 0.37 };
+            var armB = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            armB.Origin = new double[] { -0.2645, -0.3057, -0.37 };
+            var rodPin = Joint("j003", JointType.Revolute, "g001", "g004", pin);
+            rodPin.Origin = new double[] { -0.2375, -0.2327, 0.2948 };
+            var bodyPin = Joint("j006", JointType.Revolute, "g002", "g003", pin);
+            bodyPin.Origin = new double[] { -0.15, -0.2353, -0.2925 };
+            // The stroke, still cylindrical, its axis threading both pins.
+            var stroke = Joint("j009", JointType.Cylindrical, "g004", "g003",
+                               new double[] { 0, 0.0042873, 0.99999 });
+            stroke.Origin = new double[] { 0, -0.233, 0.2249 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { armA, armB, rodPin, bodyPin, stroke });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("aim_pair", loop.ClosureKind);
+            Assert.Equal("j009", loop.ClosureJoint);
+            // The driver is a pin touching neither half of the ram: one of
+            // the arms, and the first by id.
+            Assert.Equal("j001", loop.SuggestedDriverJoint);
+        }
+
+        /// <summary>
+        /// The same tong with the rod eye's OWN mount pin mated by a
+        /// concentric alone, so it arrives cylindrical too (live TongRig
+        /// on the current DLL, 2026-09-14). That pin runs parallel to the
+        /// arm pin beside it and fails the stroke test; whichever way the
+        /// ring is walked it must neither hide the stroke nor veto it. The
+        /// first version returned "ambiguous" on meeting any second
+        /// cylindrical, and the ram went back to an IK closure.
+        /// </summary>
+        [Fact]
+        public void ALoosePinBesideTheRamDoesNotHideItsStroke()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"), Group("g002"), Group("g003"), Group("g004"),
+            };
+            var pin = new double[] { 1, 0, 0 };
+            var armA = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            armA.Origin = new double[] { -0.2645, -0.3057, 0.37 };
+            var armB = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            armB.Origin = new double[] { -0.2645, -0.3057, -0.37 };
+            var rodPin = Joint("j004", JointType.Cylindrical, "g001", "g004", pin);
+            rodPin.Origin = new double[] { -0.2375, -0.2327, 0.2948 };
+            var bodyPin = Joint("j008", JointType.Revolute, "g002", "g003", pin);
+            bodyPin.Origin = new double[] { -0.15, -0.2353, -0.2925 };
+            var stroke = Joint("j009", JointType.Cylindrical, "g003", "g004",
+                               new double[] { 0, 0.0042873, 0.99999 });
+            stroke.Origin = new double[] { 0, -0.233, 0.2248 };
+
+            // Both joint orders, so both ring directions are exercised.
+            foreach (var joints in new[]
+            {
+                new List<RigJoint> { armA, armB, rodPin, bodyPin, stroke },
+                new List<RigJoint> { armB, armA, bodyPin, stroke, rodPin },
+            })
+            {
+                var result = LoopAnalyzer.Analyze(groups, joints);
+                var loop = Assert.Single(result.Loops);
+                Assert.Equal("aim_pair", loop.ClosureKind);
+                Assert.Equal("j009", loop.ClosureJoint);
+            }
+        }
+
+        /// <summary>The same shape of ring with the cylindrical being a
+        /// LOOSE PIN, not a stroke: corpus 06 fourbar's coupler-rocker pin,
+        /// concentric only, its axis parallel to every other pin and a bar
+        /// length away from them. Not a ram, and it must not become one.</summary>
+        [Fact]
+        public void ALoosePinInAFourBarIsNotARam()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"), Group("g002"), Group("g003"),
+            };
+            var z = new double[] { 0, 0, 1 };
+            var a = Joint("j001", JointType.Revolute, "g000", "g001", z);
+            a.Origin = new double[] { 0.05, 0, 0.0025 };
+            var b = Joint("j002", JointType.Revolute, "g001", "g002", z);
+            b.Origin = new double[] { 0.08, 0, 0.0075 };
+            var loose = Joint("j003", JointType.Cylindrical, "g002", "g003", z);
+            loose.Origin = new double[] { 0.0092308, -0.037306, 0.0075 };
+            var d = Joint("j004", JointType.Revolute, "g003", "g000", z);
+            d.Origin = new double[] { -0.05, 0, 0.0025 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { a, b, loose, d });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.NotEqual("aim_pair", loop.ClosureKind);
+        }
+
+        /// <summary>
+        /// Two loops of one mechanism that share a joint must be driven from
+        /// the same input, or each makes the other's driver a driven bone
+        /// and the consumer refuses the cycle (live TongRig, 2026-09-14).
+        /// Here the second loop's own ranking would prefer its LIMITED
+        /// anchor pin; the pin the first loop already drives wins instead.
+        /// </summary>
+        [Fact]
+        public void LoopsThatShareAJointShareItsDriver()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"), Group("g002"), Group("g003"),
+                Group("g005"), Group("g006"),
+            };
+            var z = new double[] { 0, 0, 1 };
+            RigJoint Pin(string id, string p, string c, double x, double y)
+            {
+                var j = Joint(id, JointType.Revolute, p, c, z);
+                j.Origin = new double[] { x, y, 0 };
+                return j;
+            }
+            var shared = Pin("j001", "g000", "g001", 0, 0);
+            var j002 = Pin("j002", "g000", "g002", 0.3, 0);
+            var j003 = Pin("j003", "g001", "g003", 0, 0.1);
+            var j004 = Pin("j004", "g003", "g002", 0.3, 0.1);
+            var j007 = Pin("j007", "g001", "g005", 0, 0.2);
+            var j008 = Pin("j008", "g005", "g006", 0.5, 0.2);
+            var j009 = Pin("j009", "g000", "g006", 0.5, 0);
+            j009.RotationLimit = new JointLimit { Min = -1, Max = 1, ValueAtRest = 0 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { shared, j002, j003, j004, j007, j008, j009 });
+
+            Assert.Equal(2, result.Loops.Count);
+            var drivers = new HashSet<string>();
+            foreach (var lp in result.Loops) drivers.Add(lp.SuggestedDriverJoint);
+            Assert.Equal(new[] { "j001" }, new List<string>(drivers).ToArray());
+        }
+
+        [Fact]
+        public void AnAimPairSeatsBothItsPinsOnTheRamAxis()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // machine body
+                Group("g013"),                   // clamp
+                Group("g018"),                   // ram barrel
+                Group("g019"),                   // ram rod
+            };
+            var pin = new double[] { 0, 1, 0 };
+
+            var clampPin = Joint("j013", JointType.Revolute, "g000", "g013", pin);
+            clampPin.Origin = new double[] { 0.45621065309788655, 0.105,
+                                             -1.2600000000000042 };
+            var barrelPin = Joint("j018", JointType.Revolute, "g000", "g018", pin);
+            barrelPin.Origin = new double[] { 0.5249999999999665, 0.045,
+                                              -0.31568475327996115 };
+            var slide = Joint("j041", JointType.Prismatic, "g018", "g019",
+                              new double[] { 0.2450864909632585, 0,
+                                             -0.9695012181257519 });
+            slide.Origin = new double[] { 0.6966653529012765, 0,
+                                          -0.9947502052102066 };
+            var rodPin = Joint("j040", JointType.Cylindrical, "g013", "g019", pin);
+            rodPin.Origin = new double[] { 0.6966653529014326, -0.031,
+                                           -0.9947502052101866 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { clampPin, barrelPin, slide, rodPin });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("aim_pair", loop.ClosureKind);
+            Assert.Equal("j041", loop.ClosureJoint);
+
+            // Both pins slid down their own axes onto the ram's centre plane.
+            Assert.Equal(0.0, barrelPin.Origin[1], 9);
+            Assert.Equal(0.0, rodPin.Origin[1], 9);
+            // ...and nowhere else: only the height moved.
+            Assert.Equal(0.5249999999999665, barrelPin.Origin[0], 12);
+            Assert.Equal(-0.31568475327996115, barrelPin.Origin[2], 12);
+            Assert.Equal(0.6966653529014326, rodPin.Origin[0], 12);
+            Assert.Equal(-0.9947502052101866, rodPin.Origin[2], 12);
+
+            // Both now lie ON the ram's axis, which is the whole point: the
+            // line joining them IS the slide direction.
+            var along = new double[]
+            {
+                rodPin.Origin[0] - barrelPin.Origin[0],
+                rodPin.Origin[1] - barrelPin.Origin[1],
+                rodPin.Origin[2] - barrelPin.Origin[2],
+            };
+            var unit = MathOps.Normalized(along);
+            Assert.Equal(1.0,
+                Math.Abs(MathOps.Dot(unit, MathOps.Normalized(slide.Axis))), 9);
+
+            // A pin that really does cross the ram says nothing about the
+            // seating. The rod pin does carry a note, but a different one:
+            // it is a concentric-only pair, so pairwise it reads cylindrical,
+            // and CutTransfer takes the slide the ring cannot make. That is
+            // the ram this whole analysis was written for.
+            Assert.True(string.IsNullOrEmpty(barrelPin.Notes));
+            Assert.DoesNotContain("clear of the axis", rodPin.Notes ?? "");
+            Assert.Equal(JointType.Revolute, rodPin.Type);
+            Assert.Contains("removes the slide", rodPin.Notes);
+
+            // The clamp is not part of the pair and keeps its own height.
+            Assert.Equal(0.105, clampPin.Origin[1], 12);
+        }
+
+        /// <summary>
+        /// A pin that genuinely misses the ram cannot be seated onto it, so
+        /// the manifest says by how much it misses instead of pretending.
+        /// </summary>
+        [Fact]
+        public void APinThatMissesTheRamIsReportedRatherThanMoved()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),                   // clamp
+                Group("g002"),                   // barrel
+                Group("g003"),                   // rod
+            };
+            var pin = new double[] { 0, 1, 0 };
+
+            var clampPin = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            clampPin.Origin = new double[] { 0, 0, 0 };
+            // The bore pin sits 20 mm to the side of the ram's own line, and
+            // no point of a vertical pin can reach it.
+            var barrelPin = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            barrelPin.Origin = new double[] { 1.0, 0.3, 0.02 };
+            var slide = Joint("j003", JointType.Prismatic, "g002", "g003",
+                              new double[] { -1, 0, 0 });
+            slide.Origin = new double[] { 0, 0, 0 };
+            var rodPin = Joint("j004", JointType.Cylindrical, "g001", "g003", pin);
+            rodPin.Origin = new double[] { 0, 0.5, 0 };
+
+            LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { clampPin, barrelPin, slide, rodPin });
+
+            // Seated as far as it can be: down onto the ram's own height,
+            // and the sideways miss reported in millimetres.
+            Assert.Equal(0.0, barrelPin.Origin[1], 12);
+            Assert.Equal(0.02, barrelPin.Origin[2], 12);
+            Assert.Contains("20 mm clear of the axis", barrelPin.Notes);
+            Assert.Contains("j003", barrelPin.Notes);
+        }
+
+        /// <summary>A pin running ALONG the ram has no nearest point: every
+        /// point of it is the same distance away. Nothing is moved and the
+        /// manifest says why.</summary>
+        [Fact]
+        public void APinParallelToTheRamIsLeftWhereItIs()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+                Group("g003"),
+            };
+            var pin = new double[] { 0, 1, 0 };
+
+            var clampPin = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            clampPin.Origin = new double[] { 0, 0, 0 };
+            // A bore pin along the ram: a ram free to spin about its own axis.
+            var barrelPin = Joint("j002", JointType.Revolute, "g000", "g002",
+                                  new double[] { 1, 0, 0 });
+            barrelPin.Origin = new double[] { 1.0, 0.3, 0.0 };
+            var slide = Joint("j003", JointType.Prismatic, "g002", "g003",
+                              new double[] { -1, 0, 0 });
+            slide.Origin = new double[] { 0, 0, 0 };
+            var rodPin = Joint("j004", JointType.Cylindrical, "g001", "g003", pin);
+            rodPin.Origin = new double[] { 0, 0.5, 0 };
+
+            LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { clampPin, barrelPin, slide, rodPin });
+
+            Assert.Equal(1.0, barrelPin.Origin[0], 12);
+            Assert.Equal(0.3, barrelPin.Origin[1], 12);
+            Assert.Contains("parallel to the slide", barrelPin.Notes);
+        }
+
+        /// <summary>
+        /// An IK closure re-joins a cut by making one POINT meet again, so a
+        /// cut whose bodies share no point cannot be closed that way: the
+        /// consumer would drag a body to pin a face against a face.
+        ///
+        /// Live ClampRig (2026-08-24): the two hydraulic rams are held
+        /// level by a coincidence between their subassembly mid-planes, which
+        /// reads as a planar joint between the two barrels. Cut there and
+        /// IK-closed, it pulled one barrel off the Damped Track aiming it at
+        /// its own rod, and that ram stopped following its clamp.
+        /// </summary>
+        [Fact]
+        public void ACutThatSharesNoPointIsLeftUnsolved()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // machine body
+                Group("g001"),                   // one ram barrel
+                Group("g002"),                   // the other
+            };
+            var pin = new double[] { 0, 1, 0 };
+
+            var left = Joint("j001", JointType.Cylindrical, "g000", "g001", pin);
+            left.Origin = new double[] { -1, 0, 0 };
+            var right = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            right.Origin = new double[] { 1, 0, 0 };
+            var level = Joint("j003", JointType.Planar, "g001", "g002", pin);
+            level.Origin = new double[] { 0, 0, 0 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { left, right, level });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j003", loop.ClosureJoint);
+            Assert.Equal("none", loop.ClosureKind);
+        }
+
+        /// <summary>The same ring with a PIN in the middle is an ordinary
+        /// four-bar and keeps its solved closure.</summary>
+        [Fact]
+        public void ACutOnAPinIsStillSolved()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+            };
+            var pin = new double[] { 0, 1, 0 };
+
+            var left = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            left.Origin = new double[] { -1, 0, 0 };
+            var right = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            right.Origin = new double[] { 1, 0, 0 };
+            var coupler = Joint("j003", JointType.Revolute, "g001", "g002", pin);
+            coupler.Origin = new double[] { 0, 0, 0.4 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { left, right, coupler });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j003", loop.ClosureJoint);
+            Assert.Equal("ik", loop.ClosureKind);
+        }
+
+        /// <summary>A driver that carries its OWN limit mate keeps it: what
+        /// SolidWorks measured beats what this can infer.</summary>
+        [Fact]
+        public void ADriverWithItsOwnLimitIsLeftAlone()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+                Group("g003"),
+            };
+            var pin = new double[] { 0, 1, 0 };
+            var clampPin = Joint("j001", JointType.Revolute, "g000", "g001", pin);
+            clampPin.Origin = new double[] { 0, 0, 0 };
+            clampPin.RotationLimit = new JointLimit { Min = 0, Max = 1, ValueAtRest = 0.25 };
+            var barrelPin = Joint("j002", JointType.Revolute, "g000", "g002", pin);
+            barrelPin.Origin = new double[] { 1, 0, 0 };
+            var stroke = Joint("j003", JointType.Prismatic, "g002", "g003",
+                               new double[] { 1, 0, -1 });
+            stroke.TranslationLimit = new JointLimit { Min = 0.4, Max = 0.9, ValueAtRest = 0.5 };
+            var rodPin = Joint("j004", JointType.Cylindrical, "g001", "g003", pin);
+            rodPin.Origin = new double[] { 0, 0, 1 };
+
+            LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { clampPin, barrelPin, stroke, rodPin });
+
+            Assert.Equal(0.0, clampPin.RotationLimit.Min, 12);
+            Assert.Equal(1.0, clampPin.RotationLimit.Max, 12);
+            Assert.Equal(0.25, clampPin.RotationLimit.ValueAtRest, 12);
+        }
+
+        /// <summary>
+        /// Live ClampRig's lead screw and cutting head (2026-08-24).
+        /// Both slide along the machine on their own guides, and the head is
+        /// mated to the rod, so in SolidWorks driving the lead screw carries
+        /// the head with it.
+        ///
+        /// Cutting BETWEEN them left both hanging off ground as siblings, and
+        /// nothing could then make one carry the other: the consumer's closure
+        /// rotates a chain, and there is nothing here to rotate. Cutting an
+        /// anchor edge instead turns the loop into a chain: pose the lead
+        /// screw and the head simply comes along, which is what the mates said
+        /// all along. The cut is then satisfied by the parenting, so there is
+        /// nothing left to solve and the closure kind says so.
+        /// </summary>
+        [Fact]
+        public void TwoBodiesSlidingOnGroundChainInsteadOfBecomingSiblings()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // machine body
+                Group("g001"),                   // lead screw rod
+                Group("g002"),                   // cutting head
+            };
+            var along = new double[] { 0, 0, 1 };
+
+            var rod = Joint("j001", JointType.Prismatic, "g000", "g001", along);
+            rod.Origin = new double[] { 0, 0, 0 };
+            // The lead screw is the modelled input: it is the one with a
+            // stroke, so it drives.
+            rod.TranslationLimit = new JointLimit { Min = 0, Max = 0.85, ValueAtRest = 0.0 };
+            var head = Joint("j002", JointType.Prismatic, "g000", "g002", along);
+            head.Origin = new double[] { 0, 0, 0.1 };
+            var contact = Joint("j003", JointType.Planar, "g001", "g002", along);
+            contact.Origin = new double[] { 0, 0, 0.1 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { rod, head, contact });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j001", loop.SuggestedDriverJoint);
+            Assert.Equal("j002", loop.ClosureJoint);
+            Assert.Equal("none", loop.ClosureKind);
+
+            // The tree that leaves: ground -> rod -> head. The head is a child
+            // of the rod, not a sibling of it.
+            AssertOriented(result.Joints[0], "g000", "g001");
+            AssertOriented(result.Joints[2], "g001", "g002");
+        }
+
+        /// <summary>The same shape with a PIN at the anchor is an ordinary
+        /// loop and keeps the solved closure: the chain rule is about two
+        /// slides having nothing to rotate, not about ring size.</summary>
+        [Fact]
+        public void APinAtTheAnchorStillGetsASolvedClosure()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+            };
+            var axis = new double[] { 0, 0, 1 };
+            var crank = Joint("j001", JointType.Revolute, "g000", "g001", axis);
+            crank.Origin = new double[3];
+            var rocker = Joint("j002", JointType.Revolute, "g000", "g002", axis);
+            rocker.Origin = new double[] { 0.3, 0, 0 };
+            var coupler = Joint("j003", JointType.Revolute, "g001", "g002", axis);
+            coupler.Origin = new double[] { 0.15, 0.1, 0 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { crank, rocker, coupler });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j003", loop.ClosureJoint);
+            Assert.Equal("ik", loop.ClosureKind);
+        }
+
+        /// <summary>
+        /// The live ClampRig hydraulic ram, both hands. The machine is symmetric:
+        /// each ram's bore is pinned to the body, the clamp is pinned to the
+        /// body, and the ram's rod drives the clamp's lug, so the two sides
+        /// must be planned identically. Under the old rule nothing but joint
+        /// ID ORDER separated them: one side cut at the clamp pin (clamp
+        /// drives, ram swings, correct) and the other cut at the ram's own
+        /// stroke, which put the clamp inside the driven chain and froze it
+        /// solid (2026-08-24). Whichever way the ids fall, the cut is the pin.
+        /// </summary>
+        [Theory]
+        [InlineData("j001", "j002")]     // clamp edge sorts first
+        [InlineData("j002", "j001")]     // ram edge sorts first
+        public void BothHandsOfAMirroredRamGetTheSamePlan(
+            string clampEdge, string ramEdge)
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),   // machine body
+                Group("g001"),                   // clamp
+                Group("g002"),                   // ram barrel
+                Group("g003"),                   // ram rod
+            };
+            var pin = new double[] { 0, 1, 0 };
+            var joints = new List<RigJoint>
+            {
+                Joint(clampEdge, JointType.Revolute, "g000", "g001", pin),
+                Joint(ramEdge, JointType.Revolute, "g000", "g002", pin),
+                Joint("j003", JointType.Prismatic, "g002", "g003",
+                      new double[] { 0.245, 0, -0.969 }),
+                Joint("j004", JointType.Cylindrical, "g001", "g003", pin),
+            };
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            var loop = Assert.Single(result.Loops);
+            // The clamp is the input the operator poses, and the cut is the
+            // ram's own stroke: barrel hangs off the body pin, rod off the
+            // clamp pin, and the two halves aim at each other.
+            Assert.Equal(clampEdge, loop.SuggestedDriverJoint);
+            Assert.Equal("j003", loop.ClosureJoint);
+            Assert.True(loop.Planar);
         }
 
         /// <summary>Live corpus 06 (2026-08-22): the ground–crank revolute
         /// must stay a tree edge and drive; the cut goes just past the crank
         /// so coupler and rocker are IK-solved. The old rule cut the driver's
         /// own edge and the four-bar froze solid. The rocker–coupler joint is
-        /// cylindrical here because a lone concentric classifies that way —
+        /// cylindrical here because a lone concentric classifies that way:
         /// the driver preference must still avoid cutting it.</summary>
         [Fact]
         public void FourBarCutsJustPastTheDriver()
@@ -166,7 +824,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 06 parallelogram2 (2026-08-22): redundant
         /// parallel mates between opposing links export as free joints. Free
-        /// joints must not be graph edges — the consumer never parents them,
+        /// joints must not be graph edges: the consumer never parents them,
         /// so a free "tree edge" here made every real ring joint a loop
         /// closure and the Blender side refused the manifest as
         /// disconnected. The ring must come out as exactly one loop with the
@@ -257,7 +915,7 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal("j003", j005.Coupling.DriverJoint);
             Assert.Equal(-1.0, j005.Coupling.Ratio);
 
-            // The free joints stay free — the coupling models them, the tree
+            // The free joints stay free: the coupling models them, the tree
             // never parents them.
             Assert.Null(result.Joints[1].Coupling);
             Assert.Null(result.Joints[3].Coupling);

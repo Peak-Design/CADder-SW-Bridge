@@ -24,7 +24,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 07 (2026-08-22), the whole flexible-sub
         /// pipeline offline: the graph exactly as MateReader records it with
-        /// the sub-document mate route — top coincidents on the fixed base,
+        /// the sub-document mate route, top coincidents on the fixed base,
         /// a distance on the sub's own reference plane (pinned to the sub
         /// node), and the internal pin mates. Fixed-in-sub plus the
         /// group-level rigidity sweep must weld baseplate, sub frame and base
@@ -166,7 +166,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>The bone direction must be identical no matter the pose
-        /// or entity order — the sign along the axis line is a pure function
+        /// or entity order: the sign along the axis line is a pure function
         /// of the line (live 2026-08-23: the hinge bone flipped with the
         /// export pose).</summary>
         [Fact]
@@ -220,7 +220,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live hinge4 case (2026-08-22): the pin is held by a
         /// coincident mate between two temporary AXES instead of a concentric.
-        /// Kinematically identical — rotate about + slide along the line — but
+        /// Kinematically identical (rotate about + slide along the line) but
         /// the old pattern table only knew planes and points on coincidents
         /// and fell through to ball, so the limit was rejected with
         /// LIMIT_AXIS_MISMATCH and the leaf spun freely in every direction.</summary>
@@ -253,7 +253,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A fixed (non-limit) angle mate whose measured directions
-        /// run along the pin axis does not block the spin — precession keeps
+        /// run along the pin axis does not block the spin: precession keeps
         /// the angle. The old table treated every angle mate as a rotation
         /// block and called this prismatic.</summary>
         [Fact]
@@ -410,7 +410,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live slider6 case (2026-08-22): a prismatic origin is
         /// kinematically arbitrary, and the mate planes reported a point off
-        /// the moving part — the bone floated above the rail instead of
+        /// the moving part: the bone floated above the rail instead of
         /// sitting on the slide. The origin must be the child part's own
         /// origin.</summary>
         [Fact]
@@ -433,8 +433,8 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>The live slider2 case (2026-08-22): a single face
-        /// coincident leaves a planar joint, and its origin — arbitrary like
-        /// the prismatic one — came back as the far corner of the mated face.
+        /// coincident leaves a planar joint, and its origin, arbitrary like
+        /// the prismatic one, came back as the far corner of the mated face.
         /// Same rule: the child part's origin.</summary>
         [Fact]
         public void PlanarOriginAnchorsAtTheChildPartOrigin()
@@ -457,7 +457,7 @@ namespace Peak.SwToBlender.Tests
         // ── Ball ────────────────────────────────────────────────────────────
 
         /// <summary>Corpus 04 as the API documents it: a concentric between
-        /// two spherical faces pins the centres — a ball, never a pin.</summary>
+        /// two spherical faces pins the centres: a ball, never a pin.</summary>
         [Fact]
         public void SphereConcentricIsBall()
         {
@@ -481,7 +481,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live corpus 04 failure shape (2026-08-22): one side is
         /// a proper sphere, the other arrived under a junk entity kind still
-        /// carrying a leftover direction. The sphere must win — trusting the
+        /// carrying a leftover direction. The sphere must win: trusting the
         /// direction made the ball a cylindrical sliding along world X.</summary>
         [Fact]
         public void SphereBeatsMisreportedDirectionOnTheOtherEntity()
@@ -675,17 +675,20 @@ namespace Peak.SwToBlender.Tests
             Assert.Empty(result.Warnings);
         }
 
-        /// <summary>The concentric-slide promotion: a fastener-named part
-        /// kept separate by a distance limit mate. The joint is real but the
-        /// classification rests on a heuristic, hence medium confidence.</summary>
+        /// <summary>A concentric plus a distance LIMIT mate: the part spins
+        /// and slides within a range, which is a cylindrical joint carrying a
+        /// translation limit. This used to be "medium" confidence because a
+        /// name-based fastener filter had to be talked out of welding it; with
+        /// the filter gone the classification is ordinary and so is its
+        /// confidence.</summary>
         [Fact]
-        public void ConcentricSlidePromotionIsMediumConfidence()
+        public void ConcentricPlusDistanceLimitIsALimitedCylindrical()
         {
             var graph = Graph(
                 new[]
                 {
                     Comp("c001", "housing", isFixed: true),
-                    Comp("c002", "spring pin", toolbox: true),
+                    Comp("c002", "spring pin"),
                 },
                 Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
                 DistanceLimit("LimitDistance1", "c001", "c002", Z, P(0, 0, 0),
@@ -695,7 +698,7 @@ namespace Peak.SwToBlender.Tests
 
             var joint = Assert.Single(result.Joints);
             Assert.Equal(JointType.Cylindrical, joint.Type);
-            Assert.Equal("medium", joint.Confidence);
+            Assert.Equal("high", joint.Confidence);
             Assert.NotNull(joint.TranslationLimit);
             Assert.Equal(0.002, joint.TranslationLimit.ValueAtRest, 1e-12);
         }
@@ -728,7 +731,7 @@ namespace Peak.SwToBlender.Tests
         // ── Perpendicular mates ─────────────────────────────────────────────
 
         /// <summary>Live corpus 12 perp1 (2026-08-23): a hinge plus a
-        /// REDUNDANT perpendicular (one normal on the hinge axis — rotation
+        /// REDUNDANT perpendicular (one normal on the hinge axis, rotation
         /// about it keeps the other normal perpendicular forever). The old
         /// rule applied each measured direction as an independent kill, and
         /// since a perpendicular's normals are mutually perpendicular by
@@ -763,7 +766,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 12 perp2: the same hinge with a perpendicular
-        /// between two SIDE faces — neither normal on the axis, so any spin
+        /// between two SIDE faces, neither normal on the axis, so any spin
         /// changes the measured angle. Genuinely zero DOF: the pair merges
         /// rigid, as SolidWorks behaves.</summary>
         [Fact]
@@ -788,7 +791,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 12 perp3: a perpendicular alone leaves five
-        /// DOF no pattern covers — free plus the honest note, counted as ONE
+        /// DOF no pattern covers, free plus the honest note, counted as ONE
         /// unmodelled mate (the flattened-directions rule counted each
         /// normal separately and said "2 mate(s)" for one).</summary>
         [Fact]
@@ -856,8 +859,8 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 08 (2026-08-22), exactly as recorded: the
-        /// large gear was mate entity 1 with num:den = 1:2 — the ANGULAR
-        /// ratio θ(e1):θ(e2) — and Reverse off, and the pair still rotated
+        /// large gear was mate entity 1 with num:den = 1:2: the ANGULAR
+        /// ratio θ(e1):θ(e2), and Reverse off, and the pair still rotated
         /// the SAME way at HALF speed in Blender. The driven (small) side
         /// must follow at den/num, negated for the external mesh.</summary>
         [Fact]
@@ -934,7 +937,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 07 flexible-sub2 (2026-08-22): the hinge
         /// flexed from the document's 30° to 75°, but the limit dimension is
-        /// read through the sub document and still said 30° — Blender then
+        /// read through the sub document and still said 30°. Blender then
         /// allowed +45° past the limit. The child's MatePoseDelta (actual =
         /// delta × document pose) must shift value_at_rest by the rotation
         /// about the joint axis; the limit range itself never moves.</summary>
@@ -1031,7 +1034,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 07 (2026-08-23): the sub DOCUMENT rests at
-        /// its 0° stop (measurement faces parallel — geometric sign
+        /// its 0° stop (measurement faces parallel, geometric sign
         /// undefined), the instance is flexed +40.45°. Only ONE axis sense
         /// puts the flexed dimension inside the 0..75° range, so the sense is
         /// proven without any guess: the wrong sense rigged the leaf −40°
@@ -1057,8 +1060,8 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal(flex, joint.RotationLimit.ValueAtRest, 9);
         }
 
-        /// <summary>A small flex lands both senses inside the range — the
-        /// range check alone proves nothing — but the flexed pose has
+        /// <summary>A small flex lands both senses inside the range: the
+        /// range check alone proves nothing, but the flexed pose has
         /// rotated the measurement faces off parallel, so the geometry
         /// evaluated AT THE ACTUAL POSE resolves the sense (live
         /// 2026-08-23: the flexible hinge's limit direction depended on
@@ -1113,7 +1116,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 01 (2026-08-23): a top-level hinge dragged to
-        /// its horizontal stop and exported — degenerate pose, no flexed
+        /// its horizontal stop and exported, degenerate pose, no flexed
         /// instance to learn from. The oracle (live SolidWorks perturbs and
         /// reads the dimension) is the last rung; its verdict orients the
         /// axis and clears the guess.</summary>
@@ -1160,7 +1163,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 01 hinge5 (2026-08-23): same assembly as the
         /// hinge, parked at the same degenerate stop, the ONLY difference the
-        /// "Flip dimension" tick on the limit-angle mate — in SolidWorks it
+        /// "Flip dimension" tick on the limit-angle mate, in SolidWorks it
         /// opens the other way. Every rung fails at the stop; the tick picks
         /// the mirrored branch of the guess, so the two assemblies export
         /// opposite limit values on the SAME canonical axis.</summary>
@@ -1198,7 +1201,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>At any READABLE pose a flipped mate's faces have solved
         /// to the other side, so the geometric sign already reports the
-        /// flipped sense from the entities themselves — the tick must never
+        /// flipped sense from the entities themselves: the tick must never
         /// be multiplied on top of a geometric verdict.</summary>
         [Fact]
         public void FlippedDimensionDoesNotDoubleApplyWhereGeometryResolves()
@@ -1263,8 +1266,8 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 11 tangent1 (2026-08-22, raw log geometry): a
         /// puck lying on its side on a plate, held by ONE tangent mate. The
-        /// residual is two slides plus two independent spins — no single
-        /// joint — so the contact splits into planar(plate→carrier) then
+        /// residual is two slides plus two independent spins: no single
+        /// joint, so the contact splits into planar(plate→carrier) then
         /// revolute(carrier→puck, its own axis).</summary>
         [Fact]
         public void TangentCylinderOnPlaneSplitsThroughCarrier()
@@ -1314,7 +1317,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 11 tangent2 (2026-08-22): two face-mated
         /// discs tangent rim to rim. The puck orbits the base disc AND spins
-        /// — two rotations about offset parallel axes — so the pair becomes
+        /// (two rotations about offset parallel axes), so the pair becomes
         /// revolute(base axis) then revolute(puck axis) through a carrier.</summary>
         [Fact]
         public void TangentDiscOnDiscBecomesOrbitPlusSpin()
@@ -1354,7 +1357,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A vertex coincident with a face: two slides on the plane
-        /// plus a full ball of rotation — planar(plane side) then ball(the
+        /// plus a full ball of rotation, planar(plane side) then ball(the
         /// vertex) through a carrier.</summary>
         [Fact]
         public void VertexOnFaceSplitsIntoPlanarPlusBall()
@@ -1383,7 +1386,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 15 cone1 (2026-08-23): concentric between
-        /// two conical faces leaves the slide alive in SolidWorks — plain
+        /// two conical faces leaves the slide alive in SolidWorks, plain
         /// cylindrical, full confidence, no honesty note (the old
         /// "cones probably pin the apex" flag is retired by the live pin).</summary>
         [Fact]
@@ -1412,14 +1415,20 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 15 cone3 (2026-08-23, raw log geometry): a
         /// cone lying tangent on a plate. Like the cylinder it slides and
-        /// yaws on the plane and spins about its own axis — but the axis is
+        /// yaws on the plane and spins about its own axis, but the axis is
         /// tilted OUT of the plane by exactly the half-angle, which is where
         /// the carrier gate must sit (the in-plane gate rejected it and the
         /// pair exported free).</summary>
         [Fact]
         public void TangentConeOnPlaneSplitsIntoPlanarPlusTiltedSpin()
         {
-            var coneAxis = new[] { -0.89941, -0.27218, -0.34202 };
+            // The live numbers at full precision, straight off the export:
+            // rounding the axis to five places moves the apex by 4e-7 m, and
+            // the whole point of this test is that the apex lands exactly.
+            var coneAxis = new[]
+            {
+                -0.8994102715858506, -0.272182631564461, -0.3420201433256696,
+            };
             var graph = Graph(
                 new[]
                 {
@@ -1427,7 +1436,10 @@ namespace Peak.SwToBlender.Tests
                     Comp("c002", "cone"),
                 },
                 Mate("Tangent1", "swMateTANGENT",
-                    ConeEnt("c002", coneAxis, P(0.015634, 0.019435, 0.019397), 0.34907),
+                    ConeEnt("c002", coneAxis,
+                            P(0.01563422574668991, 0.019435308129904547,
+                              0.019396926207859044),
+                            0.3490658503988659),
                     PlaneEnt("c001", Z, P(0, 0, 0.01))));
 
             var result = Run(graph);
@@ -1443,12 +1455,47 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal(JointType.Revolute, spin.Type);
             Assert.Equal(carrier.Id, spin.ParentGroup);
             Assert.Equal("g001", spin.ChildGroup);
-            AssertVector(MathOps.Normalized(coneAxis), spin.Axis, 1e-6);
+            // Pointing INTO the cone, not back down through the plate: the
+            // bone sits at the apex, so the raw axis would run the wrong way.
+            AssertVector(new[] { -coneAxis[0], -coneAxis[1], -coneAxis[2] },
+                         spin.Axis, 1e-9);
+
+            // Both halves are anchored on the APEX: where the axis meets the
+            // plate. Everything the contact permits turns about that point,
+            // and the mate entity's own point is the base-circle centre,
+            // 27.5 mm away and 9.4 mm above the plate.
+            var apex = new[] { -0.0090768683733867539, 0.011957151787993635, 0.01 };
+            AssertVector(apex, spin.Origin, 1e-9);
+            AssertVector(apex, planar.Origin, 1e-9);
             Assert.Empty(result.Warnings);
         }
 
+        /// <summary>The apex is only the apex while the cone is LYING on the
+        /// plane. A cone whose axis is square to the plane has no tangency to
+        /// describe and must keep the ordinary anchor rather than divide by a
+        /// vanishing denominator.</summary>
+        [Fact]
+        public void AConeSquareToThePlaneKeepsTheOrdinaryAnchor()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "plate", isFixed: true),
+                    Comp("c002", "cone"),
+                },
+                Mate("Tangent1", "swMateTANGENT",
+                    ConeEnt("c002", X, P(0.02, 0.0, 0.05), 0.34907),
+                    PlaneEnt("c001", Z, P(0, 0, 0.01))));
+
+            var result = Run(graph);
+
+            foreach (var j in result.Joints)
+                Assert.All(j.Origin ?? new double[3],
+                           v => Assert.True(!double.IsNaN(v) && !double.IsInfinity(v)));
+        }
+
         /// <summary>Live corpus 16 pt1 (2026-08-23): the vertex arrived as
-        /// ReferenceType 0 — the "vertex" string was dead and the pair
+        /// ReferenceType 0: the "vertex" string was dead and the pair
         /// classified planar (two invented dead rotations). With the
         /// selection-type naming it splits like the typed-point twin above.</summary>
         [Fact]
@@ -1475,7 +1522,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 13 dist4 (2026-08-23): a vertex held at a
-        /// DISTANCE from a face — hovering — splits exactly like the
+        /// DISTANCE from a face (hovering), splits exactly like the
         /// coincident twin: planar at the offset plus the ball at the
         /// vertex. It exported free/UNDER_DEFINED while the vertex was
         /// typeless.</summary>
@@ -1535,7 +1582,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Live corpus 16 pt3 (2026-08-23): a vertex riding a
         /// cylindrical FACE keeps the spin about the axis AND the slide
-        /// along it (SolidWorks lets it orbit, slide and tumble) — the
+        /// along it (SolidWorks lets it orbit, slide and tumble): the
         /// cylinder side is a CYLINDRICAL carrier primitive, anchored at the
         /// vertex's foot on the axis, plus the ball at the vertex.</summary>
         [Fact]
@@ -1593,7 +1640,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A ball rolling on a table: tangency of a sphere and a
-        /// plane — planar plus ball at the centre.</summary>
+        /// plane, planar plus ball at the centre.</summary>
         [Fact]
         public void SphereOnPlaneSplitsIntoPlanarPlusBall()
         {
@@ -1618,7 +1665,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A DISTANCE held between two parallel cylinders over a
-        /// face coincident is the rim-tangent disc pair at an offset — the
+        /// face coincident is the rim-tangent disc pair at an offset: the
         /// offset changes the dimension, never the freedom, so the same
         /// orbit + spin carrier appears.</summary>
         [Fact]
@@ -1752,7 +1799,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 17 path1 (2026-08-23): the track is a 3D
-        /// sketch owned by the ASSEMBLY and no component is fixed — the
+        /// sketch owned by the ASSEMBLY and no component is fixed: the
         /// sampled 49 points were thrown away because the joint had no
         /// second group. Assembly-owned reference geometry IS ground: a
         /// virtual grounded group (empty components, like a carrier) anchors
@@ -1787,7 +1834,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Live corpus 16 pt4 (2026-08-23): a corner COINCIDENT
-        /// with an assembly 3D-sketch spline — a path mate in all but name.
+        /// with an assembly 3D-sketch spline: a path mate in all but name.
         /// MateReader recovers and samples the curve onto the mate; the
         /// classifier rides the existing path machinery, origin at the
         /// vertex, rotation free (the "slide along and tumble").</summary>
@@ -1816,7 +1863,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A vertex COINCIDENT with a face no analytic joint
-        /// describes — a torus, a fillet, a loft. SolidWorks mates to those
+        /// describes: a torus, a fillet, a loft. SolidWorks mates to those
         /// as readily as to a plane and lets the point slide anywhere on the
         /// face, so the classifier rides the triangulation MateReader
         /// carried: origin at the contact point, axis the local surface
@@ -1928,7 +1975,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>swMateLOCKTOSKETCH contains "LOCK" as a substring but is
-        /// a sketch-driven positioner, not a weld — it must not freeze the
+        /// a sketch-driven positioner, not a weld: it must not freeze the
         /// pair. The concentric still classifies, freer-with-a-note.</summary>
         [Fact]
         public void LockToSketchIsNotALock()
@@ -1950,8 +1997,8 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal("medium", joint.Confidence);
         }
 
-        /// <summary>The common symmetric-mate use — a moving plane centred
-        /// between two fixed faces — is a plane coincidence with the
+        /// <summary>The common symmetric-mate use: a moving plane centred
+        /// between two fixed faces, is a plane coincidence with the
         /// mid-plane: a planar joint, not free.</summary>
         [Fact]
         public void SymmetricAboutFixedFacesIsPlanar()
@@ -1972,6 +2019,78 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal(JointType.Planar, joint.Type);
             AssertVector(new[] { 0.0, 1.0, 0.0 }, joint.Axis);
             Assert.Empty(result.Warnings);
+        }
+
+        /// <summary>
+        /// Live TongRig (2026-09-14). The base section's two side faces
+        /// meet at an angle, 15 degrees either side of X, and are held
+        /// symmetric about the ASSEMBLY's own Right plane. The mirrored
+        /// planes are not parallel to each other, which the resolver used to
+        /// read as "no motion model"; the base then kept a slide along X it
+        /// does not have, and the whole tong exported as sliding relative to
+        /// its ground.
+        ///
+        /// What the mate says is exact: the body's bisector of those two
+        /// faces lies IN the mirror plane. A plane coincidence on the mirror
+        /// normal.
+        /// </summary>
+        [Fact]
+        public void SymmetricAboutAnAssemblyPlaneWithAngledFacesIsPlanar()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "base"),
+                },
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    PlaneEnt("c001", new[] { 0.96593, 0.25882, 0.0 },
+                             P(0.074863, 0.44746, -0.16)),
+                    PlaneEnt("c001", new[] { -0.96593, 0.25882, 0.0 },
+                             P(-0.22757, -0.12244, -0.16)),
+                    PlaneEnt(null, X, P(0, 0, 0))));
+
+            var state = MotionResolver.Resolve(graph.Mates);
+            Assert.Equal(0, state.Unmodelled);
+            // A plane coincidence on X: the two slides in the plane remain,
+            // the one along X is gone.
+            Assert.False(state.IsRigid);
+            Assert.Equal(2, state.TransDirs.Count);
+            foreach (var d in state.TransDirs)
+                Assert.True(Math.Abs(MathOps.Dot(MathOps.Normalized(d), X)) < 1e-9,
+                            "a slide along the mirror normal survived");
+        }
+
+        /// <summary>The same base with all three of its mates to the
+        /// assembly: a coincident on Y and symmetrics whose mirrors are the
+        /// X and Z planes. Three orthogonal plane coincidences are a weld,
+        /// so the base joins the assembly ground rather than hanging off it
+        /// by a joint.</summary>
+        [Fact]
+        public void ABaseHeldOnThreeAssemblyPlanesIsGround()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "base"),
+                },
+                Mate("Coincident17", "swMateCOINCIDENT",
+                    PlaneEnt("c001", Y, P(-0.295, 0, -0.16)),
+                    PlaneEnt(null, Y, P(0, 0, 0))),
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    PlaneEnt("c001", new[] { 0.96593, 0.25882, 0.0 },
+                             P(0.074863, 0.44746, -0.16)),
+                    PlaneEnt("c001", new[] { -0.96593, 0.25882, 0.0 },
+                             P(-0.22757, -0.12244, -0.16)),
+                    PlaneEnt(null, X, P(0, 0, 0))),
+                Mate("Symmetric2", "swMateSYMMETRIC",
+                    PlaneEnt("c001", Z, P(0.295, 0, 0.16)),
+                    PlaneEnt("c001", new[] { 0.0, 0.0, -1.0 }, P(-0.295, 0, -0.16)),
+                    PlaneEnt(null, Z, P(0, 0, 0))));
+
+            var grouping = RigidGrouper.Group(graph);
+            var ground = Assert.Single(grouping.Groups);
+            Assert.True(ground.Grounded);
+            Assert.Contains("c001", ground.Components);
         }
 
         // ── Secondary axis ──────────────────────────────────────────────────
@@ -2020,7 +2139,7 @@ namespace Peak.SwToBlender.Tests
         /// <summary>The live planar2 (2026-08-22): puck face-coincident on the
         /// plate, one width mate centring the puck's cylinder between the
         /// plate's X-normal sides. The puck slides along Y and spins about its
-        /// own axis — a pin in a slot. The old plane-tab width model killed
+        /// own axis: a pin in a slot. The old plane-tab width model killed
         /// the spin and exported prismatic. The secondary axis must be the
         /// slide direction, not a roll pick.</summary>
         [Fact]
@@ -2077,7 +2196,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>The live planar3 (2026-08-22): widths on BOTH side pairs
-        /// pin the cylinder at the plate's centre but its own spin survives —
+        /// pin the cylinder at the plate's centre but its own spin survives,
         /// a revolute, where the plane-tab width model merged the pair rigid.
         /// The origin slides down the axis onto the coincident plane.</summary>
         [Fact]
@@ -2113,7 +2232,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live planar4 (2026-08-22): a profile-centre mate
         /// without "lock rotation" pins the centre and leaves the spin about
-        /// the mated faces' normal — a revolute at the centre. The raw entity
+        /// the mated faces' normal: a revolute at the centre. The raw entity
         /// params carry no trace of the tick; the fixture states the feature
         /// data's LockRotation the way MateReader records it.</summary>
         [Fact]

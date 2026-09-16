@@ -3,6 +3,7 @@ using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SolidWorks.Interop.swpublished;
 using System;
+using Peak.SwToBlender.Core;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,7 +12,7 @@ using System.Runtime.InteropServices;
 
 namespace Peak.SwToBlender
 {
-    // Shell cloned from Peak.NextStep\AddIn.cs — the traps it documents
+    // Shell cloned from Peak.NextStep\AddIn.cs. The traps it documents
     // (registry casing, tab rebuild, icon paths, interop binding) apply here
     // unchanged. Only the identity, the command set and the callbacks differ.
     [ComVisible(true)]
@@ -52,37 +53,22 @@ namespace Peak.SwToBlender
         /// <summary>The CommandGroup UserID. SolidWorks keeps it in the registry
         /// with the toolbar layout of the user, so it must never change.
         /// 71 is NEXT-STEP, 74 is this add-in.</summary>
-        private const int MainCmdGroupId = 74;
+        // 75 since 2026-09-15: the group went from six commands to four,
+        // and SolidWorks has crashed at start on a group whose command set
+        // shrank against its saved layout. A new id starts with no layout.
+        private const int MainCmdGroupId = 75;
         private const int CmdExportUserId = 0;
         private const int CmdStepPlusUserId = 1;
         private const int CmdSendUserId = 2;
         private const int CmdOptionsUserId = 3;
         private const int CmdExportJsonUserId = 4;
+        private const int CmdSendNativeUserId = 5;
 
-        // ── Cross-version interop resolver ──────────────────────────────────
-        // This add-in compiles against the oldest installed interops. A newer
-        // SolidWorks loads it, and the CLR then cannot find that exact assembly
-        // version. This handler points at the interops of the SolidWorks that
-        // is running. It is only a fallback. The Private=True copies next to the
-        // DLL satisfy the bind that happens while the AddIn type itself loads.
-        static AddIn()
-        {
-            AppDomain.CurrentDomain.AssemblyResolve += (sender, args) =>
-            {
-                var name = new AssemblyName(args.Name);
-                if (!name.Name.StartsWith("SolidWorks.Interop.", StringComparison.OrdinalIgnoreCase))
-                    return null;
-                try
-                {
-                    string swDir = Path.GetDirectoryName(
-                        System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName);
-                    string dll = Path.Combine(swDir ?? "", name.Name + ".dll");
-                    if (File.Exists(dll)) return Assembly.LoadFrom(dll);
-                }
-                catch { }
-                return null;
-            };
-        }
+        // The interop types are EMBEDDED (see SolidWorksApi.props), so this
+        // add-in has no SolidWorks assembly reference to satisfy: it loads on
+        // any SolidWorks from 2022 up with nothing beside it. The
+        // cross-version AssemblyResolve handler that used to live here, and
+        // the interop copies it fell back on, went with it.
 
         // ── Registration ────────────────────────────────────────────────────
 
@@ -163,6 +149,18 @@ namespace Peak.SwToBlender
                 _cmdMgr = SwApp.GetCommandManager(_cookie);
                 BuildCommandUI();
 
+                // The return leg, so Blender can ask for geometry rather than
+                // only be sent it. Started HERE because the marshalling
+                // control it creates belongs to the thread that makes it, and
+                // that has to be SolidWorks'. A failure to listen costs the
+                // round trip and nothing else, so it never fails the connect.
+                try
+                {
+                    Bridge.SwCommandServer.Start(
+                        SwApp, Bridge.SwCommandHandler.Handle, Log);
+                }
+                catch (Exception ex) { Log("sw bridge start: " + ex.Message); }
+
                 Log("connected");
                 return true;
             }
@@ -175,6 +173,8 @@ namespace Peak.SwToBlender
 
         public bool DisconnectFromSW()
         {
+            try { Bridge.SwCommandServer.Stop(Log); }
+            catch (Exception ex) { Log("sw bridge stop: " + ex.Message); }
             try
             {
                 if (_cmdMgr != null)
@@ -201,8 +201,14 @@ namespace Peak.SwToBlender
             // away the layout each time.
             object registryIds;
             bool hadPrevious = _cmdMgr.GetGroupDataFromRegistry(MainCmdGroupId, out registryIds);
-            var knownIds = new[] { CmdExportUserId, CmdStepPlusUserId, CmdSendUserId,
-                CmdOptionsUserId, CmdExportJsonUserId };
+            // The group always holds all four commands: a group whose command
+            // set shrinks against the saved layout crashed SolidWorks at
+            // start (2026-09-15, twice). The advanced option decides only
+            // what reaches the ribbon tab and the toolbar; the rest stay
+            // menu items under Tools.
+            bool advanced = AppSettings.Load(Log).AdvancedCommands;
+            var knownIds = new[] { CmdSendNativeUserId, CmdOptionsUserId,
+                                   CmdStepPlusUserId, CmdExportJsonUserId };
             bool ignorePrevious = hadPrevious && !SameIds(registryIds as int[], knownIds);
 
             var group = _cmdMgr.CreateCommandGroup2(
@@ -211,57 +217,47 @@ namespace Peak.SwToBlender
 
             ApplyIcons(group);
 
+            // The image index is the command's position in the icon strip
+            // (tools/Make-Icons.py builds it in this order, advanced or not).
+            // An index past the strip breaks the artwork in silence.
+            const int both = (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem);
+            int rest = advanced ? both : (int)swCommandItemType_e.swMenuItem;
+
             group.AddCommandItem2(
                 "Send to Blender", -1,
-                "Export and import straight into a running Blender: geometry, "
-                + "appearances, rig, parenting — one click, options behind Blender Options",
+                "Send the assembly to a running Blender: geometry, appearances, "
+                + "rig, parenting. One click, options behind Export Options",
                 "Send to Blender", 0,
-                nameof(CommandCallbacks.SendToBlender),
+                nameof(CommandCallbacks.SendToBlenderNative),
                 nameof(CommandCallbacks.EnableAnyDoc),
-                CmdSendUserId,
-                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
+                CmdSendNativeUserId, both);
 
             group.AddCommandItem2(
-                "Export Rig + STEP", -1,
-                "Export the assembly's kinematics as a rig manifest next to a STEP file",
-                // Image index 0 for every command: the icon strips carry ONE
-                // icon per size, so any other index would point past the strip
-                // and silently break the artwork.
-                "Export Rig + STEP", 0,
-                nameof(CommandCallbacks.ExportRig),
-                nameof(CommandCallbacks.EnableExportRig),
-                CmdExportUserId,
-                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
-
-            group.AddCommandItem2(
-                "Export Rig JSON", -1,
-                "Re-export only the rig manifest — no STEP write. For iterating on "
-                + "large assemblies: occurrences are matched against the existing "
-                + "STEP file beside the manifest when there is one",
-                "Export Rig JSON", 0,
-                nameof(CommandCallbacks.ExportRigJson),
-                nameof(CommandCallbacks.EnableExportRig),
-                CmdExportJsonUserId,
-                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
+                "Export Options", -1,
+                "Persistent options: Blender import, rig pipeline, appearances, "
+                + "which Blender to use",
+                "Export Options", 1,
+                nameof(CommandCallbacks.BlenderOptions),
+                nameof(CommandCallbacks.EnableAlways),
+                CmdOptionsUserId, both);
 
             group.AddCommandItem2(
                 "Export STEP+", -1,
                 "Export STEP and keep the full appearance hierarchy (the NEXT-STEP engine)",
-                "Export STEP+", 0,
+                "Export STEP+", 2,
                 nameof(CommandCallbacks.ExportStepPlus),
                 nameof(CommandCallbacks.EnableAnyDoc),
-                CmdStepPlusUserId,
-                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
+                CmdStepPlusUserId, rest);
 
             group.AddCommandItem2(
-                "Blender Options", -1,
-                "Persistent options: Blender import, rig pipeline, appearances, "
-                + "which Blender to use",
-                "Blender Options", 0,
-                nameof(CommandCallbacks.BlenderOptions),
-                nameof(CommandCallbacks.EnableAlways),
-                CmdOptionsUserId,
-                (int)(swCommandItemType_e.swMenuItem | swCommandItemType_e.swToolbarItem));
+                "Export Rig", -1,
+                "Export the rig manifest to disk, no STEP write and no Blender. "
+                + "Occurrences are matched against the STEP file beside the "
+                + "manifest when there is one",
+                "Export Rig", 3,
+                nameof(CommandCallbacks.ExportRigJson),
+                nameof(CommandCallbacks.EnableExportRig),
+                CmdExportJsonUserId, rest);
 
             group.HasToolbar = true;
             group.HasMenu = true;
@@ -290,12 +286,20 @@ namespace Peak.SwToBlender
                 var box = tab.AddCommandTabBox();
                 if (box == null) { Log($"AddCommandTabBox failed for docType {docType}"); continue; }
 
-                var userIds = docType == swDocumentTypes_e.swDocASSEMBLY
-                    ? new[] { CmdSendUserId, CmdExportUserId, CmdExportJsonUserId,
-                              CmdStepPlusUserId, CmdOptionsUserId }
-                    : new[] { CmdSendUserId, CmdStepPlusUserId, CmdOptionsUserId };
-                var commandIds = userIds.Select(id => group.get_CommandID(id)).ToArray();
-                var styles = userIds.Select(
+                // get_CommandID takes the command's INDEX in the group, in
+                // the order AddCommandItem2 was called: 0 Send to Blender,
+                // 1 Export Options, 2 Export STEP+, 3 Export Rig. Passing
+                // the user ids here put the wrong buttons on the ribbon
+                // (Oscar, 2026-09-15). Export Rig needs mates: assemblies.
+                int[] indexes;
+                if (!advanced)
+                    indexes = new[] { 0, 1 };
+                else if (docType == swDocumentTypes_e.swDocASSEMBLY)
+                    indexes = new[] { 0, 1, 2, 3 };
+                else
+                    indexes = new[] { 0, 1, 2 };
+                var commandIds = indexes.Select(i => group.get_CommandID(i)).ToArray();
+                var styles = indexes.Select(
                     _ => (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow).ToArray();
                 bool added = box.AddCommands(commandIds, styles);
                 if (!added) Log($"AddCommands failed for docType {docType}");
@@ -321,7 +325,7 @@ namespace Peak.SwToBlender
                 string dir = Path.Combine(
                     Path.GetDirectoryName(typeof(AddIn).Assembly.Location) ?? ".", "icons");
 
-                var commands = IconSizes.Select(s => Path.Combine(dir, $"SwToBlender_{s}.png")).ToArray();
+                var commands = IconSizes.Select(s => Path.Combine(dir, "SwToBlender_" + s + ".png")).ToArray();
                 var main = IconSizes.Select(s => Path.Combine(dir, $"SwToBlenderMain_{s}.png")).ToArray();
 
                 var missing = commands.Concat(main).Where(p => !File.Exists(p)).ToList();
@@ -346,15 +350,45 @@ namespace Peak.SwToBlender
         }
 
         // ── Logging ─────────────────────────────────────────────────────────
+        /// <summary>
+        /// The log lives in the user's local app data, beside the bridge
+        /// registry, never next to the DLL: an installed add-in sits in
+        /// Program Files, where a user process cannot write.
+        /// </summary>
+        public static string LogPath
+        {
+            get
+            {
+                // The name needs its namespace. SolidWorks.Interop.sldworks
+                // also declares an Environment type, so the short name is
+                // ambiguous here.
+                string dir = Path.Combine(
+                    System.Environment.GetFolderPath(
+                        System.Environment.SpecialFolder.LocalApplicationData),
+                    "PeakDesign", "SwToBlender");
+                return Path.Combine(dir, "swtoblender-debug.log");
+            }
+        }
+
+        /// <summary>Past this size the log is renamed to .1 (replacing the
+        /// previous .1) and a fresh one starts, so a machine that exports
+        /// every day for a year does not grow a gigabyte of text.</summary>
+        private const long LogRotateBytes = 8L * 1024 * 1024;
+
         public static void Log(string message)
         {
             try
             {
-                string dir = Path.GetDirectoryName(typeof(AddIn).Assembly.Location) ?? ".";
-                // The name needs its namespace. SolidWorks.Interop.sldworks
-                // also declares an Environment type, so the short name is
-                // ambiguous here.
-                File.AppendAllText(Path.Combine(dir, "swtoblender-debug.log"),
+                string path = LogPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var info = new FileInfo(path);
+                if (info.Exists && info.Length > LogRotateBytes)
+                {
+                    string older = path + ".1";
+                    if (File.Exists(older)) File.Delete(older);
+                    File.Move(path, older);
+                }
+                File.AppendAllText(path,
                     DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + message
                     + System.Environment.NewLine);
             }
@@ -377,6 +411,7 @@ namespace Peak.SwToBlender
         public void ExportRigJson() => ExportCommand.RunManifestOnly(AddIn.SwApp);
         public void ExportStepPlus() => StepPlusCommand.Run(AddIn.SwApp);
         public void SendToBlender() => SendToBlenderCommand.Run(AddIn.SwApp);
+        public void SendToBlenderNative() => SendToBlenderCommand.Run(AddIn.SwApp, native: true);
         public void BlenderOptions() => BlenderOptionsDialog.Run(AddIn.SwApp);
 
         /// <summary>1 enables the button. 0 makes it grey.</summary>

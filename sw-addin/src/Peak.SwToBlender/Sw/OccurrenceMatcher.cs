@@ -29,7 +29,7 @@ namespace Peak.SwToBlender.Sw
 
     /// <summary>
     /// Matches the walked SolidWorks component tree to the occurrence tree in
-    /// the STEP output. Adapted from Peak Design's NEXT-STEP-SW — the
+    /// the STEP output. Adapted from Peak Design's NEXT-STEP-SW: the
     /// level-by-level matcher from NEXT-STEP-SW/src/Peak.NextStep/Core/
     /// OccurrenceMatcher.cs and the NAUO/placement discovery from
     /// StepRewriter.FindOccurrences in the same directory. The styling and
@@ -66,7 +66,7 @@ namespace Peak.SwToBlender.Sw
         private sealed class StepOccurrence
         {
             public int NauoId;
-            /// <summary>The occurrence name — the SECOND quoted string of the
+            /// <summary>The occurrence name: the SECOND quoted string of the
             /// NAUO, which SolidWorks fills with the component instance name
             /// ("Jaw-1"). The first string is the schema id ("NAUO1").</summary>
             public string NauoName;
@@ -117,7 +117,7 @@ namespace Peak.SwToBlender.Sw
                 // SolidWorks writes the NAUO name field as a single SPACE, not
                 // an empty string (live corpus 07, 2026-08-22: every nested
                 // path came out "flexible-sub1/ / "), so whitespace-only falls
-                // back to the product name too — which is what the Blender
+                // back to the product name too, which is what the Blender
                 // importer rebuilds its occurrence paths from.
                 if (string.IsNullOrWhiteSpace(occ.NauoName)) occ.NauoName = occ.ProductName;
                 byNauo[nauo] = occ;
@@ -185,7 +185,15 @@ namespace Peak.SwToBlender.Sw
                     int location = placementRefs[0];
                     if (string.Equals(_step.TypeOf(location), "CARTESIAN_POINT",
                                       StringComparison.OrdinalIgnoreCase))
-                        return ReadTriple(location);
+                    {
+                        // In the unit of the parent's representation, which
+                        // is whatever the top document was modelled in; the
+                        // matcher compares millimetres.
+                        var xyz = ReadTriple(location);
+                        if (xyz == null) return null;
+                        double mm = _step.PlacementUnitMm(rel, placement);
+                        return new[] { xyz[0] * mm, xyz[1] * mm, xyz[2] * mm };
+                    }
                 }
             }
             return null;

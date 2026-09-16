@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
-// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285 — the STEP appearance engine, merged into SW To Blender.
+// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285: the STEP appearance engine, merged into SW To Blender.
 
 namespace Peak.SwToBlender.Appearance
 {

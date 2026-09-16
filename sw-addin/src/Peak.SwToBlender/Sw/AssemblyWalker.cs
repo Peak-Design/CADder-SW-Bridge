@@ -35,7 +35,7 @@ namespace Peak.SwToBlender.Sw
         public WalkedComponent Parent;
         public List<WalkedComponent> Children = new List<WalkedComponent>();
 
-        /// <summary>The sub DOCUMENT's saved child layout — filled only for
+        /// <summary>The sub DOCUMENT's saved child layout: filled only for
         /// flexible subassemblies (their document is guaranteed in memory).
         /// The flexible-twin STEP fix reads a rigid twin's correct layout from
         /// here, because a rigid sub's interior is never walked.</summary>
@@ -71,7 +71,7 @@ namespace Peak.SwToBlender.Sw
     /// The WYSIWYG walk. Top-level components always; a subassembly recurses
     /// only when its solving mode is flexible, because only then do its
     /// internal mates still move anything in the open assembly. Component
-    /// documents are never opened — everything here reads through the
+    /// documents are never opened: everything here reads through the
     /// occurrence, so a large assembly does not page in every part file.
     /// </summary>
     public static class AssemblyWalker
@@ -82,16 +82,41 @@ namespace Peak.SwToBlender.Sw
             var top = assembly.GetComponents(true) as object[];
             if (top == null) return result;
 
-            // Ids follow the order GetComponents/GetChildren return, which is
-            // the feature-tree order — stable for the same assembly, so a
-            // re-export numbers the same occurrence the same way.
+            // Ids follow the INSTANCE NAME, sorted, at every level. The
+            // order GetComponents returns is not stable: two exports of one
+            // unchanged assembly in two SolidWorks sessions numbered the
+            // same occurrences differently (live cam-follower2, 2026-09-15:
+            // c001 was the cam in one export and the rod in the next), which
+            // renumbers every group and joint with them and breaks anything
+            // saved against an id (a mechanism choice, an update from CAD).
+            // Sorting by name keeps a parent before its children, because a
+            // child's name starts with the parent's.
             int next = 0;
-            foreach (var o in top)
+            foreach (var comp in Sorted(top))
+                Add(comp, null, result, ref next, log, fixedInSub: false);
+            return result;
+        }
+
+        /// <summary>Components by instance name, so the ids do not depend
+        /// on the order SolidWorks happens to return.</summary>
+        private static List<Component2> Sorted(object[] raw)
+        {
+            var list = new List<Component2>();
+            foreach (var o in raw ?? new object[0])
             {
                 var comp = o as Component2;
-                if (comp == null) continue;
-                Add(comp, null, result, ref next, log, fixedInSub: false);
+                if (comp != null) list.Add(comp);
             }
+            list.Sort((a, b) => string.Compare(SafeName2(a), SafeName2(b), StringComparison.Ordinal));
+            return list;
+        }
+
+        /// <summary>The same order, as the objects the caller already has.</summary>
+        private static object[] SortedObjects(object[] raw)
+        {
+            var sorted = Sorted(raw);
+            var result = new object[sorted.Count];
+            for (int i = 0; i < sorted.Count; i++) result[i] = sorted[i];
             return result;
         }
 
@@ -127,6 +152,7 @@ namespace Peak.SwToBlender.Sw
             g.Suppressed = suppression == (int)swComponentSuppressionState_e.swComponentSuppressed;
 
             try { g.IsFixed = comp.IsFixed(); } catch { }
+            try { g.ConstrainedStatus = comp.GetConstrainedStatus(); } catch { }
 
             // Fixed inside a flexible subassembly means rigid to the SUB's
             // frame, never to the world: it must not ground a group. The
@@ -153,8 +179,6 @@ namespace Peak.SwToBlender.Sw
             else if (solving == (int)swComponentSolvingOption_e.swComponentFlexibleSolving) g.Solving = "flexible";
             else g.Solving = null;
 
-            g.IsToolboxPart = IsToolboxPart(comp);
-
             try
             {
                 var t = comp.Transform2;
@@ -171,7 +195,7 @@ namespace Peak.SwToBlender.Sw
 
             // A flexible instance can be posed away from the sub DOCUMENT's
             // saved positions, and the internal mates are read through the
-            // document — their geometry and dimension values describe the
+            // document: their geometry and dimension values describe the
             // document pose. The delta (actual = delta × document pose, world
             // frame) lets the classifier shift value_at_rest to the flexed
             // pose (live corpus 07 flexible-sub2, 2026-08-22).
@@ -187,13 +211,13 @@ namespace Peak.SwToBlender.Sw
 
             // Flexible subassembly: the leaf above stays in the list (top
             // level mates grab its planes) AND the children join the graph.
-            // Their Transform2 is root-relative already — see SwFrames.
+            // Their Transform2 is root-relative already, see SwFrames.
             // A suppressed subassembly has no live children to walk.
             if (g.Solving == "flexible" && !g.Suppressed)
             {
                 // Fixed state lives in the SUB's own tree: the top-context
                 // child handles report IsFixed()=false even for a child fixed
-                // in the subassembly document (live corpus 07, 2026-08-22 —
+                // in the subassembly document (live corpus 07, 2026-08-22,
                 // the hinge's fixed base floated as its own group). A
                 // flexible sub is always resolved, so its document is in
                 // memory; this reads it, never opens it.
@@ -204,7 +228,7 @@ namespace Peak.SwToBlender.Sw
                 var children = comp.GetChildren() as object[];
                 if (children != null)
                 {
-                    foreach (var o in children)
+                    foreach (var o in SortedObjects(children))
                     {
                         var child = o as Component2;
                         if (child == null) continue;
@@ -222,7 +246,7 @@ namespace Peak.SwToBlender.Sw
         /// <summary>Reads a flexible subassembly's OWN document tree once:
         /// which top-level children are fixed there (instance names,
         /// "hinge-base-1"), and each child's transform in the document's
-        /// frame — the pose the sub's internal mates describe.</summary>
+        /// frame: the pose the sub's internal mates describe.</summary>
         private static void ReadSubDocTree(
             Component2 subComp, Action<string> log,
             out HashSet<string> fixedNames, out Dictionary<string, double[,]> localTransforms,
@@ -303,7 +327,7 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>"hinge-1/hinge-base-1" gives "hinge-base-1"; a bare name
-        /// passes through. Instance suffixes stay — they distinguish
+        /// passes through. Instance suffixes stay: they distinguish
         /// instances.</summary>
         private static string LastPathSegment(string path)
         {
@@ -316,7 +340,7 @@ namespace Peak.SwToBlender.Sw
         /// Global-frame bounding box. GetBox returns two diagonal corners with
         /// no min/max ordering promise, so each axis sorts its own pair. The
         /// call returns null for unloaded subassemblies, and the API help
-        /// marks the values approximate — good enough for the bone-length
+        /// marks the values approximate: good enough for the bone-length
         /// heuristic they feed, nothing else.
         /// </summary>
         private static void ReadBox(Component2 comp, GraphComponent g, Action<string> log)
@@ -344,23 +368,6 @@ namespace Peak.SwToBlender.Sw
             }
         }
 
-        /// <summary>
-        /// True when the referenced document says it came from Toolbox. A
-        /// lightweight or suppressed component has no model doc, and the only
-        /// honest answer then is false — the name-pattern half of the fastener
-        /// filter still gets its chance.
-        /// </summary>
-        private static bool IsToolboxPart(Component2 comp)
-        {
-            try
-            {
-                var doc = comp.GetModelDoc2() as IModelDoc2;
-                var ext = doc == null ? null : doc.Extension;
-                return ext != null
-                    && ext.ToolboxPartType != (int)swToolBoxPartType_e.swNotAToolboxPart;
-            }
-            catch { return false; }
-        }
 
         /// <summary>"Sub-1/Jaw-2" gives "Jaw". Same rule as NEXT-STEP's
         /// AppearanceLadder, because the STEP name fallback must behave the

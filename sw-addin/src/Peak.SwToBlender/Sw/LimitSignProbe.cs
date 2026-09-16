@@ -11,12 +11,12 @@ namespace Peak.SwToBlender.Sw
     /// The last rung of limit-sense resolution (JointClassifier's
     /// ILimitSignOracle): when a limit mate rests at 0/180 deg or with
     /// touching faces, no recorded geometry can say which way its dimension
-    /// grows — but the live model can. The probe nudges one side of the pair
+    /// grows, but the live model can. The probe nudges one side of the pair
     /// a fraction of the limit span about/along the joint axis and reads two
     /// independent signals:
     ///
     ///   * the mate dimension's response (top-level mates only; SolidWorks
-    ///     tracks a limit mate's dimension against the solved pose — proven
+    ///     tracks a limit mate's dimension against the solved pose, proven
     ///     across three dragged exports reading 30°, 75°, 0°);
     ///   * the solver's asymmetry at a range endpoint: parked at Min, only
     ///     the dimension-increasing direction can move at all, so which nudge
@@ -28,9 +28,9 @@ namespace Peak.SwToBlender.Sw
     /// Transform2 write plus EditRebuild3 reads back unmoved (the solver is
     /// never engaged); IComponent2.SetTransformAndSolve2 ALSO reads back
     /// unmoved for a mated component (it solves, but the previous solved
-    /// state wins). IDragOperator is the interactive-drag pipeline — the one
+    /// state wins). IDragOperator is the interactive-drag pipeline: the one
     /// mover that demonstrably takes a mated component through its free DOF
-    /// and stops at limit mates — so it is the primary mover, with
+    /// and stops at limit mates, so it is the primary mover, with
     /// SetTransformAndSolve2 kept only as a fallback when no drag operator
     /// exists. Every nudge is verified by transform read-back, so a mover
     /// that silently does nothing can only cost a signal, never invent one.
@@ -41,24 +41,23 @@ namespace Peak.SwToBlender.Sw
     /// </summary>
     public sealed class LimitSignProbe : ILimitSignOracle
     {
-        private readonly ISldWorks _app;
         private readonly IModelDoc2 _model;
         private readonly IAssemblyDoc _assembly;
         private readonly RigidGroupingResult _grouping;
         private readonly Action<string> _log;
         private readonly Dictionary<string, WalkedComponent> _byId
             = new Dictionary<string, WalkedComponent>();
-        private IMathUtility _mathUtil;
+        private readonly ComponentMover _mover;
 
         public LimitSignProbe(
             ISldWorks app, IModelDoc2 model, List<WalkedComponent> walked,
             RigidGroupingResult grouping, Action<string> log)
         {
-            _app = app;
             _model = model;
             _assembly = model as IAssemblyDoc;
             _grouping = grouping;
             _log = log ?? delegate { };
+            _mover = new ComponentMover(app, model);
             foreach (var w in walked)
                 if (w.Comp != null) _byId[w.Id] = w;
         }
@@ -154,7 +153,7 @@ namespace Peak.SwToBlender.Sw
                         // after a drag returned +0.0000 against a read-back
                         // proven motion (live corpus 01, 2026-08-23 18:04).
                         // A rebuild does not re-solve mates (round-11
-                        // evidence), so it cannot undo the nudge — it only
+                        // evidence), so it cannot undo the nudge: it only
                         // refreshes the feature data being read.
                         try { _model.EditRebuild3(); } catch { }
                         double a1 = ReadDimension(feat, mate.TypeName);
@@ -172,7 +171,7 @@ namespace Peak.SwToBlender.Sw
                             : axis[0] * rel[0, 3] + axis[1] * rel[1, 3] + axis[2] * rel[2, 3];
                     }
 
-                    // Undo by what actually happened — a blocked nudge must
+                    // Undo by what actually happened: a blocked nudge must
                     // not be "reversed" into free territory.
                     if (!double.IsNaN(achieved[i]) && Math.Abs(achieved[i]) > 1e-6)
                         Nudge(mover.Comp, axis, origin,
@@ -204,7 +203,7 @@ namespace Peak.SwToBlender.Sw
                     return sign;
                 }
 
-                // Signal 2: at an endpoint, exactly one direction can move —
+                // Signal 2: at an endpoint, exactly one direction can move,
                 // from Min the pair can only take the dimension UP.
                 if (atMin ^ atMax)
                 {
@@ -261,69 +260,16 @@ namespace Peak.SwToBlender.Sw
             }
         }
 
-        // ── Movers ──────────────────────────────────────────────────────────
+        // ── Movers ────────────────────────────────────────────────────────
 
-        /// <summary>One nudge of `amount` about/along the axis. The drag
-        /// pipeline is the mover that actually works on mated components;
-        /// success here only means "a mover ran" — the caller reads the
-        /// transforms back to see what truly happened.</summary>
+        /// <summary>One nudge of `amount` about/along the axis, through the
+        /// shared mover. Success here only means "a mover ran": the caller
+        /// reads the transforms back to see what truly happened.</summary>
         private bool Nudge(
             Component2 comp, double[] axis, double[] origin, double amount,
             bool rotational, double[,] from)
         {
-            var motion = rotational
-                ? RotationAboutAxis(axis, origin, amount)
-                : TranslationAlong(axis, amount);
-            if (DragBy(comp, motion)) return true;
-            return from != null && SolveTo(comp, MathOps.Multiply(motion, from));
-        }
-
-        private bool DragBy(Component2 comp, double[,] deltaWorld)
-        {
-            IDragOperator drag = null;
-            try
-            {
-                drag = _assembly.GetDragOperator() as IDragOperator;
-                if (drag == null) return false;
-                try { drag.GraphicsRedrawEnabled = false; } catch { }
-                try { drag.CollisionDetectionEnabled = false; } catch { }
-                try { drag.DynamicClearanceEnabled = false; } catch { }
-                drag.TransformType = 2;         // general
-                drag.DragMode = 2;              // relaxation: solve the mates
-                try { drag.UseAbsoluteTransform = false; } catch { }
-                if (!drag.AddComponent(comp, false)) return false;
-                if (!drag.BeginDrag()) return false;
-                var mt = ToMathTransform(deltaWorld);
-                if (mt == null) { drag.EndDrag(); return false; }
-                // Drag returns false when the move is refused (a limit stop);
-                // that IS data — the read-back shows nothing moved.
-                drag.Drag(mt);
-                drag.EndDrag();
-                return true;
-            }
-            catch
-            {
-                try { if (drag != null) drag.EndDrag(); } catch { }
-                return false;
-            }
-        }
-
-        private bool SolveTo(Component2 comp, double[,] m)
-        {
-            var mt = ToMathTransform(m);
-            if (mt == null) return false;
-            try { return comp.SetTransformAndSolve2(mt); }
-            catch { return false; }
-        }
-
-        private MathTransform ToMathTransform(double[,] m)
-        {
-            if (_mathUtil == null)
-            {
-                try { _mathUtil = _app.GetMathUtility() as IMathUtility; } catch { }
-                if (_mathUtil == null) return null;
-            }
-            return SwFrames.FromMatrix(_mathUtil, m);
+            return _mover.Nudge(comp, axis, origin, amount, rotational, from);
         }
 
         // ── Model access ────────────────────────────────────────────────────
@@ -344,7 +290,7 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>The relative pose delta between the mate's two sides
-        /// (flexed instances only), projected on the probe axis — how far
+        /// (flexed instances only), projected on the probe axis: how far
         /// the instance's dimension sits from the recorded rest value.</summary>
         private double RelativeDeltaOnAxis(
             RigJoint joint, GraphMate mate, double[] axis, bool rotational)
@@ -435,61 +381,13 @@ namespace Peak.SwToBlender.Sw
 
         private List<KeyValuePair<Component2, MathTransform>> Snapshot()
         {
-            var snaps = new List<KeyValuePair<Component2, MathTransform>>();
-            foreach (var w in _byId.Values)
-            {
-                try
-                {
-                    var t = w.Comp.Transform2;
-                    if (t != null)
-                        snaps.Add(new KeyValuePair<Component2, MathTransform>(w.Comp, t));
-                }
-                catch { }
-            }
-            return snaps;
+            return ComponentMover.Snapshot(_byId.Values);
         }
 
         private void RestoreAll(List<KeyValuePair<Component2, MathTransform>> snaps)
         {
-            foreach (var kv in snaps)
-            {
-                try { kv.Key.Transform2 = kv.Value; } catch { }
-            }
-            try { _model.EditRebuild3(); } catch { }
+            _mover.RestoreAll(snaps);
         }
 
-        // ── Motion builders (manifest convention: column vectors) ───────────
-
-        private static double[,] RotationAboutAxis(double[] a, double[] o, double angle)
-        {
-            double c = Math.Cos(angle), s = Math.Sin(angle), t = 1.0 - c;
-            var r = new double[3, 3]
-            {
-                { t * a[0] * a[0] + c,        t * a[0] * a[1] - s * a[2], t * a[0] * a[2] + s * a[1] },
-                { t * a[0] * a[1] + s * a[2], t * a[1] * a[1] + c,        t * a[1] * a[2] - s * a[0] },
-                { t * a[0] * a[2] - s * a[1], t * a[1] * a[2] + s * a[0], t * a[2] * a[2] + c        },
-            };
-            var m = MathOps.Identity4();
-            for (int i = 0; i < 3; i++)
-            {
-                double ro = 0;
-                for (int j = 0; j < 3; j++)
-                {
-                    m[i, j] = r[i, j];
-                    ro += r[i, j] * o[j];
-                }
-                m[i, 3] = o[i] - ro;    // p' = R(p − o) + o
-            }
-            return m;
-        }
-
-        private static double[,] TranslationAlong(double[] a, double dist)
-        {
-            var m = MathOps.Identity4();
-            m[0, 3] = a[0] * dist;
-            m[1, 3] = a[1] * dist;
-            m[2, 3] = a[2] * dist;
-            return m;
-        }
     }
 }

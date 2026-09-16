@@ -11,7 +11,7 @@ namespace Peak.SwToBlender
     /// <summary>
     /// NEXT-STEP's "Export STEP+" command, merged in: STEP export with the
     /// appearance hierarchy repaired, no rig manifest. Works for parts and
-    /// assemblies. Assemblies also get the flexible-twin de-instancing —
+    /// assemblies. Assemblies also get the flexible-twin de-instancing:
     /// the walk is cheap and the WYSIWYG poses matter to every consumer, not
     /// only the rig pipeline. Options come from the persistent settings; the
     /// per-export dialog only confirms the three appearance choices.
@@ -73,7 +73,7 @@ namespace Peak.SwToBlender
         }
 
         /// <summary>The STEP+ export body, shared with Send to Blender's
-        /// part-document path. Always AP214 — the appearance forms need it.</summary>
+        /// part-document path. Always AP214: the appearance forms need it.</summary>
         public static string ExportAppearanceOnly(
             ISldWorks app, IModelDoc2 model, string target, AppSettings settings)
         {
@@ -100,7 +100,7 @@ namespace Peak.SwToBlender
             if (post.ColoursUnmatched > 0)
                 msg += "\n\nWARNING: " + post.ColoursUnmatched + " occurrence(s) "
                     + "could not be matched, and keep the SolidWorks colour. "
-                    + "See swtoblender-debug.log.";
+                    + "See the log: " + AddIn.LogPath;
             return msg;
         }
     }

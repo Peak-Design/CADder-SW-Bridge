@@ -1,7 +1,7 @@
 /*
 Adapted from SW2URDF (https://github.com/ros/solidworks_urdf_exporter),
 SW2URDF/Utilities/MathOPS.cs at commit c8b70b5069c69c290c83c95529052fc9f9e6ff63.
-Copyright (c) 2015 Stephen Brawner, MIT licence — see
+Copyright (c) 2015 Stephen Brawner, MIT licence. See
 sw-addin\THIRD-PARTY-NOTICES.md and sw-addin\vendor\sw2urdf\LICENSE.
 
 Changes from upstream: the MathNet.Numerics matrix type is replaced with plain
@@ -160,6 +160,78 @@ namespace Peak.SwToBlender.Core
 
         /// <summary>Inverse of a rigid transform (orthonormal rotation +
         /// translation). Not a general matrix inverse.</summary>
+        /// <summary>
+        /// The mirror plane that takes placement <paramref name="a"/> to
+        /// placement <paramref name="b"/>, or false when the two are not
+        /// reflections of each other.
+        ///
+        /// Mirrored components carry no mate, so the relation has to be read
+        /// off the placements themselves: S = B·A⁻¹ is a REFLECTION exactly
+        /// when its linear part is symmetric, squares to the identity and
+        /// has determinant −1. That is a real test, not a formality: a
+        /// mirrored instance that has since been dragged somewhere else is
+        /// no longer a reflection of its source, and treating it as one
+        /// would invent a symmetry the model does not have.
+        ///
+        /// For a reflection L = I − 2nnᵀ, so (I − L)/2 is nnᵀ and the normal
+        /// falls out of its largest diagonal: largest because a normal
+        /// nearly perpendicular to an axis leaves that entry near zero and
+        /// its sign unrecoverable.
+        /// </summary>
+        public static bool TryReflectionPlane(
+            double[,] a, double[,] b, out double[] point, out double[] normal)
+        {
+            point = null;
+            normal = null;
+            if (a == null || b == null) return false;
+            var s = Multiply(b, InvertRigid(a));
+
+            // det of the linear part; a reflection is improper.
+            double det =
+                s[0, 0] * (s[1, 1] * s[2, 2] - s[1, 2] * s[2, 1])
+                - s[0, 1] * (s[1, 0] * s[2, 2] - s[1, 2] * s[2, 0])
+                + s[0, 2] * (s[1, 0] * s[2, 1] - s[1, 1] * s[2, 0]);
+            if (det > -0.99 || det < -1.01) return false;
+            for (int r = 0; r < 3; r++)
+                for (int c = r + 1; c < 3; c++)
+                    if (Math.Abs(s[r, c] - s[c, r]) > 1e-6) return false;
+
+            var outer = new double[3, 3];
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 3; c++)
+                    outer[r, c] = ((r == c ? 1.0 : 0.0) - s[r, c]) * 0.5;
+
+            int lead = 0;
+            for (int i = 1; i < 3; i++) if (outer[i, i] > outer[lead, lead]) lead = i;
+            if (outer[lead, lead] < 1e-9) return false;   // S is the identity
+            double scale = Math.Sqrt(outer[lead, lead]);
+            var n = new double[3];
+            for (int i = 0; i < 3; i++) n[i] = outer[lead, i] / scale;
+            n = Normalized(n);
+            if (n == null) return false;
+
+            // Confirm the reconstruction rather than trusting the algebra:
+            // a rotation by 180 degrees is also symmetric and also squares
+            // to the identity, and only differs here in its determinant.
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 3; c++)
+                    if (Math.Abs(s[r, c] - ((r == c ? 1.0 : 0.0) - 2.0 * n[r] * n[c])) > 1e-6)
+                        return false;
+
+            // The offset: S maps the origin to 2(p·n)n, a translation
+            // purely ALONG the normal. Any component of it in the plane
+            // makes S a glide reflection, which is not a mirror image of
+            // anything: that is a mirrored instance somebody has since
+            // dragged, and it has no symmetry left to model.
+            double along = s[0, 3] * n[0] + s[1, 3] * n[1] + s[2, 3] * n[2];
+            for (int i = 0; i < 3; i++)
+                if (Math.Abs(s[i, 3] - along * n[i]) > 1e-6) return false;
+
+            point = new[] { n[0] * along * 0.5, n[1] * along * 0.5, n[2] * along * 0.5 };
+            normal = n;
+            return true;
+        }
+
         public static double[,] InvertRigid(double[,] m)
         {
             var inv = Identity4();
@@ -176,7 +248,7 @@ namespace Peak.SwToBlender.Core
 
         /// <summary>
         /// Roll/pitch/yaw (x-y-z) from the rotation part, gimbal-lock guarded.
-        /// This is upstream's GetRPY including the fix from their PR #171 —
+        /// This is upstream's GetRPY including the fix from their PR #171:
         /// keep the branch structure identical so TestMathOps stays a
         /// like-for-like port.
         /// </summary>

@@ -34,7 +34,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live hinge3 case (2026-08-22): pin concentric + face
         /// coincident + a side-face coincident whose normal is off the axis.
-        /// The side face kills the spin — zero DOF — but the old hand-mirrored
+        /// The side face kills the spin (zero DOF) but the old hand-mirrored
         /// zero-DOF patterns had no row for it, so the pair stayed separate
         /// and the "fully defined" hinge rotated freely in Blender.</summary>
         [Fact]
@@ -58,7 +58,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Three coincident planes with independent normals pin all
-        /// six DOF — the fully-defined slider variant of hinge3.</summary>
+        /// six DOF: the fully-defined slider variant of hinge3.</summary>
         [Fact]
         public void ThreeIndependentPlanesMergeIntoOneGroup()
         {
@@ -80,7 +80,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>Pinned and clocked: a fixed angle mate measured off the
         /// pin axis stops the spin, and the face coincident already stopped
-        /// the slide — rigid.</summary>
+        /// the slide, rigid.</summary>
         [Fact]
         public void ClockedPinMergesIntoOneGroup()
         {
@@ -105,7 +105,7 @@ namespace Peak.SwToBlender.Tests
         /// grab the hinge sub's fixed base while its distance mate grabs the
         /// sub's own reference plane. Each component pair is non-rigid alone
         /// (two coincidents = prismatic, one distance = planar), but with the
-        /// fixed-in-sub merge the union is welded solid — rigidity that only
+        /// fixed-in-sub merge the union is welded solid: rigidity that only
         /// exists at the group level. The pair-level pass missed it and the
         /// classifier hit a zero-DOF edge it refuses to output.</summary>
         [Fact]
@@ -139,7 +139,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live ball4 variant (2026-08-22): an origin mate with
         /// "align axes" ticked exports as swMateCOORDINATE (the un-aligned one
-        /// exports swMateCOINCIDENT — the type IS the align flag, nothing else
+        /// exports swMateCOINCIDENT: the type IS the align flag, nothing else
         /// in the API carries it). Aligned origins lock all six DOF, so the
         /// pair merges and no joint exists.</summary>
         [Fact]
@@ -163,7 +163,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>The live planar5 variant (2026-08-22): a profile-centre
         /// mate WITH "lock rotation" pins all six DOF on its own. The tick
-        /// lives only on the feature data — the raw entities are identical to
+        /// lives only on the feature data: the raw entities are identical to
         /// the unlocked planar4, which classifies revolute.</summary>
         [Fact]
         public void LockedProfileCentreMergesThePair()
@@ -210,40 +210,59 @@ namespace Peak.SwToBlender.Tests
             Assert.Empty(result.Edges);
         }
 
-        /// <summary>A toolbox bolt held by one concentric plus the under-head
-        /// coincident spins freely in SolidWorks, but it is hardware, not a
-        /// mechanism: the filter folds it into the part it is bolted to.</summary>
-        [Fact]
-        public void ToolboxFastenerWithLoneConcentricMerges()
+        /// <summary>
+        /// Nothing is classified by what a part is CALLED. A bolt held by one
+        /// concentric and a face coincident can spin, SolidWorks says so, and
+        /// the rig says so too: whatever the file is named and whether or not
+        /// it came from the Toolbox.
+        ///
+        /// There used to be a filter here that folded such a pair together on
+        /// a file-name match against screw/bolt/washer/nut/pin/dowel/rivet. It
+        /// silently changed KINEMATICS from metadata, and it misfired exactly
+        /// where it hurt: "spindle" and "pinion" both contain "pin", and one
+        /// concentric plus a face coincident is precisely the shape it welded,
+        /// so a shaft became part of its housing with nothing in the manifest
+        /// to show for it (Oscar, 2026-08-24, "joints should be classified
+        /// ENTIRELY based on kinematics alone").
+        /// </summary>
+        [Theory]
+        [InlineData("M6_socket_screw.sldprt")]
+        [InlineData("spindle.sldprt")]
+        [InlineData("bracket.sldprt")]
+        public void HardwareNamesDoNotMergeAnything(string fileName)
         {
             var graph = Graph(
                 new[]
                 {
                     Comp("c001", "plate", isFixed: true),
-                    Comp("c002", "hex bolt", toolbox: true),
+                    Comp("c002", "part", fileName: fileName),
                 },
                 Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
                 CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0.01)));
 
             var result = RigidGrouper.Group(graph);
 
-            Assert.Single(result.Groups);
-            Assert.Equal(new[] { "c001", "c002" }, result.Groups[0].Components);
-            Assert.Empty(result.Edges);
+            Assert.Equal(2, result.Groups.Count);
+            var edge = Assert.Single(result.Edges);
+            Assert.Equal("g000", edge.GroupA);
+            Assert.Equal("g001", edge.GroupB);
         }
 
-        /// <summary>The filter also keys on the model file name, for hardware
-        /// that never came from the Toolbox.</summary>
+        /// <summary>And when the MATES pin it: a second concentric off the
+        /// first axis: the same bolt merges. The verdict is kinematic and it
+        /// comes from the geometry, which is the whole difference.</summary>
         [Fact]
-        public void FileNameFastenerMerges()
+        public void AGeometricallyPinnedBoltMerges()
         {
             var graph = Graph(
                 new[]
                 {
                     Comp("c001", "plate", isFixed: true),
-                    Comp("c002", "m6", fileName: "M6_socket_screw.sldprt"),
+                    FullyDefined(Comp("c002", "m6", fileName: "M6_socket_screw.sldprt")),
                 },
-                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)));
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
+                Concentric("Concentric2", "c001", "c002", Z, P(0.05, 0, 0)),
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0.01)));
 
             var result = RigidGrouper.Group(graph);
 
@@ -251,34 +270,8 @@ namespace Peak.SwToBlender.Tests
             Assert.Empty(result.Edges);
         }
 
-        /// <summary>A distance limit mate on the "fastener" pair means the
-        /// part actually slides. The pair stays separate and the edge carries
-        /// the override flag so the classifier drops confidence to medium.</summary>
-        [Fact]
-        public void FastenerWithDistanceLimitIsNotMerged()
-        {
-            var graph = Graph(
-                new[]
-                {
-                    Comp("c001", "housing", isFixed: true),
-                    Comp("c002", "spring pin", toolbox: true),
-                },
-                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
-                DistanceLimit("LimitDistance1", "c001", "c002", Z, P(0, 0, 0),
-                    min: 0.0, max: 0.01, current: 0.002));
-
-            var result = RigidGrouper.Group(graph);
-
-            Assert.Equal(2, result.Groups.Count);
-            var edge = Assert.Single(result.Edges);
-            Assert.True(edge.FastenerOverride);
-            Assert.Equal(2, edge.Mates.Count);
-            Assert.Equal("g000", edge.GroupA);
-            Assert.Equal("g001", edge.GroupB);
-        }
-
         /// <summary>Suppressed components belong to no group, and any mate
-        /// that touches one — or is itself suppressed — is inert. The
+        /// that touches one (or is itself suppressed), is inert. The
         /// suppressed LOCK here would have merged the pair if it counted.</summary>
         [Fact]
         public void SuppressedComponentsAndMatesAreExcluded()
@@ -338,5 +331,119 @@ namespace Peak.SwToBlender.Tests
             Assert.Equal("g000", edge.GroupA);
             Assert.Equal("g001", edge.GroupB);
         }
+
+        /// <summary>Two things fixed to the assembly have no freedom between
+        /// them whether or not a mate happens to span them. Live
+        /// ClampRig (2026-08-24) arrived with 18 grounded groups:
+        /// eighteen separately fixed hose routes, and Blender refused the
+        /// manifest, because a joint had landed on one of the later ones and a
+        /// bone hierarchy cannot root at two places.</summary>
+        [Fact]
+        public void EveryFixedComponentSharesOneGround()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "hose a", isFixed: true),
+                    Comp("c002", "frame", isFixed: true),
+                    Comp("c003", "hose b", isFixed: true),
+                    Comp("c004", "lever"),
+                },
+                Concentric("Concentric1", "c002", "c004", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c002", "c004", Z, P(0, 0, 0.01)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(2, result.Groups.Count);
+            Assert.True(result.Groups[0].Grounded);
+            Assert.False(result.Groups[1].Grounded);
+            Assert.Equal(new[] { "c001", "c002", "c003" }, result.Groups[0].Components);
+
+            // The invariant the consumer depends on: a grounded group is never
+            // anybody's child, so it is always the LOW side of its edges.
+            var edge = Assert.Single(result.Edges);
+            Assert.Equal("g000", edge.GroupA);
+        }
+
+        /// <summary>
+        /// "Fully defined" in SolidWorks means a component has no freedom of
+        /// its OWN: NOT that it cannot move. A part fully mated to a moving
+        /// one is fully defined and moves with it, which is why the status
+        /// cannot weld anything on its own.
+        ///
+        /// This is the live case that proved it (ClampRig, 2026-08-24):
+        /// the cutting head is mated to the machine body AND to the lead screw
+        /// rod, reports fully defined, and slides half a metre. An earlier
+        /// rule welded on that status and took the whole lead screw assembly
+        /// and cutting head out of the rig.
+        /// </summary>
+        [Fact]
+        public void AFullyDefinedFollowerIsNotWelded()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "body", isFixed: true),
+                    UnderDefined(Comp("c002", "rod")),
+                    FullyDefined(Comp("c003", "carriage")),
+                },
+                // The rod slides in the body.
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
+                // The carriage rides the body and is pushed by the rod.
+                CoincidentPlanes("Coincident1", "c001", "c003", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c002", "c003", Z, P(0, 0, 0.4)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(3, result.Groups.Count);
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c002"]);
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c003"]);
+        }
+
+        /// <summary>The direction the constrained status CAN be read in: a
+        /// component SolidWorks calls under-defined has freedom of its own, so
+        /// finding it merged into a group means a lost degree of freedom. It
+        /// is reported, not prevented: the merge may still be right, and the
+        /// mate analysis is what decided it.</summary>
+        [Fact]
+        public void AnUnderDefinedComponentThatMergedIsReported()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "base", isFixed: true),
+                    UnderDefined(Comp("c002", "flange")),
+                },
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
+                Concentric("Concentric2", "c001", "c002", Z, P(0.05, 0, 0)),
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0.01)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Single(result.Groups);
+            Assert.Equal(new[] { "flange-1" }, result.MergedAwayDofs);
+        }
+
+        /// <summary>A mate onto assembly-owned geometry still grounds on the
+        /// phantom assembly body, with nothing fixed by hand.</summary>
+        [Fact]
+        public void AssemblyGeometryGroundsOnThePhantomAssembly()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "plate"),
+                    Comp("c002", "bracket"),
+                },
+                Mate("Coincident1", "swMateCOINCIDENT",
+                    PlaneEnt("c001", Z, P(0, 0, 0)), PlaneEnt(null, Z, P(0, 0, 0))),
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.True(result.Groups[0].Grounded);
+            Assert.DoesNotContain(RigidGrouper.AssemblyGroundId, result.Groups[0].Components);
+        }
+
     }
 }

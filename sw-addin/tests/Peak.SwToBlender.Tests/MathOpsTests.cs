@@ -219,5 +219,93 @@ namespace Peak.SwToBlender.Tests
                 for (int c = 0; c < 4; c++)
                     Assert.Equal(identity[r, c], product[r, c], Tol);
         }
+
+        // ── Mirror-plane recovery ───────────────────────────────────────
+        // Mirrored components carry no mate, so the symmetry has to be read
+        // off the two placements. These pin the recovery and, just as
+        // importantly, the refusals.
+
+        private static double[,] Placement(double[] rpy, double[] xyz)
+        {
+            return MathOps.GetTransformation(xyz, rpy);
+        }
+
+        private static double[,] ReflectAcross(double[] n, double[] p, double[,] m)
+        {
+            var s = MathOps.Identity4();
+            double along = MathOps.Dot(p, n);
+            for (int r = 0; r < 3; r++)
+            {
+                for (int c = 0; c < 3; c++)
+                    s[r, c] = (r == c ? 1.0 : 0.0) - 2.0 * n[r] * n[c];
+                s[r, 3] = 2.0 * along * n[r];
+            }
+            return MathOps.Multiply(s, m);
+        }
+
+        [Theory]
+        [InlineData(1.0, 0.0, 0.0, 0.05)]      // the sym4 plane
+        [InlineData(0.0, 1.0, 0.0, -0.2)]
+        [InlineData(0.6, 0.8, 0.0, 0.13)]      // oblique, through no axis
+        [InlineData(0.0, 0.0, 1.0, 0.0)]       // through the origin
+        public void RecoversThePlaneAMirroredPlacementWasMadeAcross(
+            double nx, double ny, double nz, double offset)
+        {
+            var n = MathOps.Normalized(new[] { nx, ny, nz });
+            var p = new[] { n[0] * offset, n[1] * offset, n[2] * offset };
+            var source = Placement(new[] { 0.3, -0.7, 1.1 }, new[] { 0.4, 0.2, -0.1 });
+            var mirrored = ReflectAcross(n, p, source);
+
+            double[] gotPoint, gotNormal;
+            Assert.True(MathOps.TryReflectionPlane(
+                source, mirrored, out gotPoint, out gotNormal));
+
+            // The normal is recovered up to sign; the PLANE is what matters,
+            // so compare the plane both describe.
+            double sign = MathOps.Dot(gotNormal, n) < 0 ? -1.0 : 1.0;
+            for (int i = 0; i < 3; i++)
+                Assert.Equal(n[i], gotNormal[i] * sign, 9);
+            Assert.Equal(offset, MathOps.Dot(gotPoint, gotNormal) * sign, 9);
+        }
+
+        [Fact]
+        public void RefusesTwoPlacementsThatAreNotMirrorImages()
+        {
+            var source = Placement(new[] { 0.3, -0.7, 1.1 }, new[] { 0.4, 0.2, -0.1 });
+            double[] point, normal;
+
+            // A plain rotation: proper, so no reflection plane exists.
+            var rotated = Placement(new[] { 0.9, 0.1, 0.2 }, new[] { 0.4, 0.2, -0.1 });
+            Assert.False(MathOps.TryReflectionPlane(source, rotated, out point, out normal));
+
+            // The same placement: S is the identity, which fixes every plane
+            // and therefore names none.
+            Assert.False(MathOps.TryReflectionPlane(source, source, out point, out normal));
+
+            // A HALF TURN is symmetric and squares to the identity like a
+            // reflection does, and is told apart only by its determinant:
+            // the case a looser test would wave through.
+            var halfTurn = MathOps.Multiply(
+                MathOps.GetTransformation(new double[] { 0, 0, 0 },
+                                          new[] { 0.0, 0.0, Math.PI }),
+                source);
+            Assert.False(MathOps.TryReflectionPlane(source, halfTurn, out point, out normal));
+        }
+
+        [Fact]
+        public void RefusesAMirroredPlacementThatWasThenDraggedAway()
+        {
+            // A mirrored instance is only a reflection of its source until
+            // someone moves it. Inventing a symmetry for one that has been
+            // dragged would hold a body SolidWorks leaves free.
+            var n = new double[] { 1, 0, 0 };
+            var source = Placement(new[] { 0.2, 0.1, 0.0 }, new[] { 0.3, 0.0, 0.0 });
+            var mirrored = ReflectAcross(n, new double[] { 0.05, 0, 0 }, source);
+            mirrored[1, 3] += 0.02;      // nudged 20 mm out of symmetry
+
+            double[] point, normal;
+            Assert.False(MathOps.TryReflectionPlane(
+                source, mirrored, out point, out normal));
+        }
     }
 }

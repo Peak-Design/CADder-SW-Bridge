@@ -8,7 +8,7 @@ namespace Peak.SwToBlender.Bridge
     /// <summary>
     /// Marquee progress while a worker thread talks to Blender. The COM/SW
     /// calls all happen BEFORE this shows; the worker does pure .NET (HTTP,
-    /// process launch), so the thread split is safe. No close box — the only
+    /// process launch), so the thread split is safe. No close box: the only
     /// way out is the worker finishing (or the Cancel returning the thread's
     /// result to the void: the HTTP call cannot be aborted mid-import without
     /// leaving Blender half-imported, so there is deliberately no cancel).

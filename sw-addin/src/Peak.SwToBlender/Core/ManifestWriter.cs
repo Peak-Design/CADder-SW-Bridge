@@ -8,7 +8,7 @@ namespace Peak.SwToBlender.Core
 {
     /// <summary>
     /// Hand-written JSON emitter for the rig manifest. House rule: no
-    /// Newtonsoft, no System.Text.Json on net48 — this ~200-line writer keeps
+    /// Newtonsoft, no System.Text.Json on net48: this ~200-line writer keeps
     /// the add-in dependency-free, and the manifest's shape is fixed enough
     /// that a general serializer buys nothing. Key names and their order come
     /// from schema/rig-manifest.schema.json; arrays keep list order, so two
@@ -69,7 +69,6 @@ namespace Peak.SwToBlender.Core
                     w.Field("max").Vector(c.BboxMax);
                     w.EndObject();
                 }
-                w.Field("is_fastener").Bool(c.IsFastener);
                 w.Field("suppressed").Bool(c.Suppressed);
                 w.Field("subassembly_solving").String(c.SubassemblySolving);
                 w.EndObject();
@@ -122,11 +121,48 @@ namespace Peak.SwToBlender.Core
                     w.Field("ratio").Number(j.Coupling.Ratio);
                     w.Field("meters_per_radian").Number(j.Coupling.MetersPerRadian);
                     w.Field("lead_m_per_rev").Number(j.Coupling.LeadMPerRev);
+                    if (j.Coupling.Samples != null)
+                    {
+                        w.Field("samples").BeginArray();
+                        foreach (var s in j.Coupling.Samples)
+                        {
+                            w.BeginArray();
+                            w.Number(s[0]);
+                            w.Number(s[1]);
+                            w.EndArray();
+                        }
+                        w.EndArray();
+                        w.Field("periodic").Bool(j.Coupling.Periodic);
+                        w.Field("period").Number(j.Coupling.Period);
+                    }
                     if (j.Coupling.MirrorPlaneNormal != null)
                     {
+                        w.Field("mirror_scope").String(j.Coupling.MirrorScope);
                         w.Field("mirror_plane").BeginObject();
                         w.Field("point").Vector(j.Coupling.MirrorPlanePoint);
                         w.Field("normal").Vector(j.Coupling.MirrorPlaneNormal);
+                        w.EndObject();
+                    }
+                    if (j.Coupling.Kind == "cam" && j.Coupling.CamSurfacePoints != null)
+                    {
+                        w.Field("cam").BeginObject();
+                        w.Field("axis").Vector(j.Coupling.CamAxis);
+                        w.Field("origin").Vector(j.Coupling.CamOrigin);
+                        w.Field("surface").BeginObject();
+                        w.Field("points").BeginArray();
+                        foreach (var p in j.Coupling.CamSurfacePoints) w.Vector(p);
+                        w.EndArray();
+                        w.Field("triangles").BeginArray();
+                        foreach (var t in j.Coupling.CamSurfaceTriangles) w.Indices(t);
+                        w.EndArray();
+                        w.EndObject();
+                        w.Field("follower").BeginObject();
+                        w.Field("kind").String(j.Coupling.FollowerKind);
+                        w.Field("point").Vector(j.Coupling.FollowerPoint);
+                        w.Field("axis").Vector(j.Coupling.FollowerAxis);
+                        w.Field("radius").Number(j.Coupling.FollowerRadius);
+                        w.Field("normal").Vector(j.Coupling.FollowerNormal);
+                        w.EndObject();
                         w.EndObject();
                     }
                     w.EndObject();
@@ -170,17 +206,48 @@ namespace Peak.SwToBlender.Core
             w.EndArray();
 
             w.Field("loops").BeginArray();
-            foreach (var l in m.Loops)
+            foreach (var l in m.Loops) WriteLoop(w, l);
+            w.EndArray();
+
+            w.Field("mechanisms").BeginArray();
+            foreach (var mech in m.Mechanisms)
             {
                 w.BeginObject();
-                w.Field("id").String(l.Id);
-                w.Field("member_joints").BeginArray();
-                foreach (var id in l.MemberJoints) w.String(id);
+                w.Field("id").String(mech.Id);
+                w.Field("loops").BeginArray();
+                foreach (var id in mech.LoopIds) w.String(id);
                 w.EndArray();
-                w.Field("closure_joint").String(l.ClosureJoint);
-                w.Field("suggested_driver_joint").String(l.SuggestedDriverJoint);
-                w.Field("planar").Bool(l.Planar);
-                w.Field("plane_normal").Vector(l.PlaneNormal);
+                w.Field("inputs").BeginArray();
+                foreach (var opt in mech.Inputs)
+                {
+                    w.BeginObject();
+                    w.Field("joint").String(opt.Joint);
+                    w.Field("loops").BeginArray();
+                    foreach (var l in opt.Loops) WriteLoop(w, l);
+                    w.EndArray();
+                    w.Field("flipped_joints").BeginArray();
+                    foreach (var id in opt.FlippedJoints) w.String(id);
+                    w.EndArray();
+                    w.Field("joint_limits").BeginArray();
+                    foreach (var lim in opt.JointLimits)
+                    {
+                        w.BeginObject();
+                        w.Field("joint").String(lim.Joint);
+                        w.Field("limits");
+                        if (lim.RotationLimit == null && lim.TranslationLimit == null) w.Null();
+                        else
+                        {
+                            w.BeginObject();
+                            w.Field("rotation").Limit(lim.RotationLimit);
+                            w.Field("translation").Limit(lim.TranslationLimit);
+                            w.EndObject();
+                        }
+                        w.EndObject();
+                    }
+                    w.EndArray();
+                    w.EndObject();
+                }
+                w.EndArray();
                 w.EndObject();
             }
             w.EndArray();
@@ -206,7 +273,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>UTF-8 without BOM. A BOM'd or ASCII-mangled manifest is a
-        /// known upstream bug class — a BOM breaks strict JSON consumers and
+        /// known upstream bug class: a BOM breaks strict JSON consumers and
         /// non-ASCII component names must survive the trip intact.</summary>
         public static void WriteFile(RigManifest m, string path)
         {
@@ -214,6 +281,31 @@ namespace Peak.SwToBlender.Core
         }
 
         // ── The emitter ─────────────────────────────────────────────────────
+
+        private static void WriteLoop(JsonWriter w, RigLoop l)
+        {
+            w.BeginObject();
+            w.Field("id").String(l.Id);
+            w.Field("member_joints").BeginArray();
+            foreach (var id in l.MemberJoints) w.String(id);
+            w.EndArray();
+            w.Field("closure_joint").String(l.ClosureJoint);
+            w.Field("closure_kind").String(l.ClosureKind);
+            w.Field("suggested_driver_joint").String(l.SuggestedDriverJoint);
+            w.Field("planar").Bool(l.Planar);
+            w.Field("plane_normal").Vector(l.PlaneNormal);
+            w.Field("driver_candidates").BeginArray();
+            foreach (var c in l.DriverCandidates)
+            {
+                w.BeginObject();
+                w.Field("joint").String(c.DriverJoint);
+                w.Field("closure_joint").String(c.ClosureJoint);
+                w.Field("closure_kind").String(c.ClosureKind);
+                w.EndObject();
+            }
+            w.EndArray();
+            w.EndObject();
+        }
 
         private sealed class JsonWriter
         {
@@ -382,7 +474,7 @@ namespace Peak.SwToBlender.Core
             }
 
             /// <summary>Round-trip exact, invariant culture, and no scientific
-            /// notation for integer-valued doubles — "1000000", never "1E+06".
+            /// notation for integer-valued doubles: "1000000", never "1E+06".
             /// "R" is not always shortest-exact on net48, so a parse-back
             /// guards it and G17 is the fallback.</summary>
             private static string FormatDouble(double value)

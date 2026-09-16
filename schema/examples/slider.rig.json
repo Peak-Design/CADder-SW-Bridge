@@ -36,7 +36,6 @@
         "min": [0.0, -0.01, 0.0],
         "max": [0.1, 0.01, 0.01]
       },
-      "is_fastener": false,
       "suppressed": false,
       "subassembly_solving": null
     },
@@ -56,7 +55,6 @@
         "min": [0.0, -0.01, 0.0],
         "max": [0.02, 0.01, 0.01]
       },
-      "is_fastener": false,
       "suppressed": false,
       "subassembly_solving": null
     }

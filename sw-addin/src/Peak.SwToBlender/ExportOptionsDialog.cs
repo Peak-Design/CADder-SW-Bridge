@@ -7,7 +7,7 @@ using Peak.SwToBlender.Core;
 namespace Peak.SwToBlender
 {
     /// <summary>
-    /// The Export Rig + STEP options, backed by the persistent AppSettings —
+    /// The Export Rig + STEP options, backed by the persistent AppSettings:
     /// what the user set last time is what the dialog shows next time, in
     /// this session or the next. Built in the constructor, no designer file.
     ///
@@ -72,15 +72,17 @@ namespace Peak.SwToBlender
                 SystemColors.GrayText);
             apHelp.Margin = new Padding(20, 0, 0, 12);
 
-            _dofProbe = Check("Cross-check joints with the DOF probe",
+            _dofProbe = Check("Let the SolidWorks solver decide each joint",
                 settings.RunDofProbe);
             var probeHelp = Prose(
-                "Asks the SolidWorks solver for each pair's remaining freedom "
-                + "and marks joints where it disagrees with the mate analysis "
-                + "(confidence drops, a warning names both verdicts). "
-                + "Temporarily fixes components and suppresses limit mates, "
-                + "restoring everything; turn off if an export slows down or "
-                + "misbehaves on a large assembly.",
+                "Asks the solver for each pair's remaining freedom and uses "
+                + "its answer: the mates decide which body hangs off which, "
+                + "the solver decides what the connection between them is. "
+                + "With this off, the joint type is inferred from the mate "
+                + "geometry one pair at a time, which is a guess wherever "
+                + "three bodies constrain each other. Temporarily fixes "
+                + "components and suppresses limit mates, restoring "
+                + "everything.",
                 SystemColors.GrayText);
             probeHelp.Margin = new Padding(20, 0, 0, 12);
 
@@ -91,7 +93,7 @@ namespace Peak.SwToBlender
                 + "flattens are restored after export, and a flexed flexible "
                 + "subassembly next to a rigid twin is de-instanced so both "
                 + "import at their SolidWorks poses. De-instancing and "
-                + "engineering-material options live in Blender Options.",
+                + "engineering-material options live in Export Options.",
                 SystemColors.GrayText);
             appearanceHelp.Margin = new Padding(20, 0, 0, 12);
 

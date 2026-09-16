@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -11,7 +12,7 @@ using SolidWorks.Interop.swconst;
 namespace Peak.SwToBlender
 {
     /// <summary>
-    /// The persistent bridge options — everything Send to Blender uses so
+    /// The persistent bridge options: everything Send to Blender uses so
     /// that the send itself never asks. Combo tags carry the wire values;
     /// the labels stay human.
     /// </summary>
@@ -34,8 +35,15 @@ namespace Peak.SwToBlender
         private readonly CheckBox _deInstance;
         private readonly CheckBox _material;
         private readonly CheckBox _hidden;
+        private readonly CheckBox _onlySelected;
+        private readonly CheckBox _importCurves;
+        private readonly CheckBox _groupInCollection;
+        private readonly CheckBox _separateSolids;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
+        private readonly CheckBox _labOps;
+        private readonly CheckBox _advanced;
+        private readonly ComboBox _relationStep;
         private readonly ComboBox _exe;
         private readonly ComboBox _exportFolder;
 
@@ -43,7 +51,7 @@ namespace Peak.SwToBlender
 
         private BlenderOptionsDialog(AppSettings settings)
         {
-            Text = "Blender Options";
+            Text = "Export Options";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
@@ -79,15 +87,16 @@ namespace Peak.SwToBlender
                 new Item { Label = "Fine", Value = "FINE" },
                 new Item { Label = "Ultra", Value = "ULTRA" },
             }, settings.QualityPreset);
+            // The SolidWorks axis that points up. It becomes Blender's Z.
             _upAxis = Combo(new[]
             {
-                new Item { Label = "Z up (keeps the rig frame)", Value = "ZPOS" },
-                new Item { Label = "Y up", Value = "YPOS" },
-                new Item { Label = "X up", Value = "XPOS" },
+                new Item { Label = "Y (SolidWorks default)", Value = "YPOS" },
+                new Item { Label = "Z (no rotation)", Value = "ZPOS" },
+                new Item { Label = "X", Value = "XPOS" },
             }, settings.UpAxis);
             import.Controls.Add(Row("Hierarchy:", _hierarchy));
             import.Controls.Add(Row("Mesh quality:", _quality));
-            import.Controls.Add(Row("Up axis:", _upAxis));
+            import.Controls.Add(Row("SolidWorks up axis (becomes Blender Z):", _upAxis));
 
             // ── Pipeline ────────────────────────────────────────────────────
             var pipeline = Group("After import (assemblies)");
@@ -99,6 +108,13 @@ namespace Peak.SwToBlender
             pipeline.Controls.Add(_syncPoses);
             pipeline.Controls.Add(_parent);
             pipeline.Controls.Add(_cleanup);
+            _relationStep = Combo(new[]
+            {
+                new Item { Label = "2 degrees (fine, slower export)", Value = "2" },
+                new Item { Label = "5 degrees", Value = "5" },
+                new Item { Label = "10 degrees (coarse, faster export)", Value = "10" },
+            }, settings.RelationStepDeg.ToString(CultureInfo.InvariantCulture));
+            pipeline.Controls.Add(Row("Cam and universal joint sampling:", _relationStep));
 
             // ── Appearance ──────────────────────────────────────────────────
             var appearance = Group("STEP appearance (STEP+)");
@@ -106,9 +122,30 @@ namespace Peak.SwToBlender
                 settings.DeInstance);
             _material = Check("Include engineering material", settings.EngineeringMaterial);
             _hidden = Check("Include hidden components", settings.IncludeHidden);
+            // Hidden components are left out by SolidWorks itself, so
+            // "only visible" is what an export already is; these two say
+            // what ELSE to leave out or put back.
+            _onlySelected = Check("Export only the selected components",
+                settings.OnlySelected);
             appearance.Controls.Add(_deInstance);
             appearance.Controls.Add(_material);
             appearance.Controls.Add(_hidden);
+            appearance.Controls.Add(_onlySelected);
+
+            // ── What Blender does with the file ─────────────────────────────
+            var importing = Group("Blender import");
+            _importCurves = Check(
+                "Import curves (free edges, into a \"Cad Curves\" collection)",
+                settings.ImportCurves);
+            _groupInCollection = Check(
+                "Group each file in a collection of its own",
+                settings.GroupInCollection);
+            _separateSolids = Check(
+                "Separate solids (one object per body of a multibody part)",
+                settings.SeparateSolids);
+            importing.Controls.Add(_importCurves);
+            importing.Controls.Add(_groupInCollection);
+            importing.Controls.Add(_separateSolids);
 
             // ── Application ─────────────────────────────────────────────────
             var appGroup = Group("Blender application");
@@ -173,6 +210,21 @@ namespace Peak.SwToBlender
             appGroup.Controls.Add(exeRow);
             appGroup.Controls.Add(Row("Export files to:", _exportFolder));
 
+            // ── Lab ─────────────────────────────────────────────────────────
+            var ribbonGroup = Group("Ribbon");
+            _advanced = Check(
+                "Show the advanced commands (Export STEP+, Export Rig). "
+                + "Takes effect when SolidWorks starts again",
+                settings.AdvancedCommands);
+            ribbonGroup.Controls.Add(_advanced);
+
+            var labGroup = Group("Test harness");
+            _labOps = Check(
+                "Let a local test harness open, close and change documents "
+                + "(the add-in never saves)",
+                settings.LabOps);
+            labGroup.Controls.Add(_labOps);
+
             // ── Status + buttons ────────────────────────────────────────────
             var running = BlenderBridge.Discover(AddIn.Log);
             var status = Prose(running.Count == 0
@@ -180,7 +232,10 @@ namespace Peak.SwToBlender
                 : running.Count + " Blender instance(s) listening: "
                   + string.Join("; ", running.ConvertAll(r => r.Describe()).ToArray()));
             status.ForeColor = SystemColors.GrayText;
-            status.Margin = new Padding(0, 8, 0, 10);
+            status.Margin = new Padding(0, 8, 0, 0);
+            var logNote = Prose("Log: " + AddIn.LogPath);
+            logNote.ForeColor = SystemColors.GrayText;
+            logNote.Margin = new Padding(0, 2, 0, 10);
 
             var buttons = new FlowLayoutPanel
             {
@@ -199,8 +254,12 @@ namespace Peak.SwToBlender
             root.Controls.Add(import);
             root.Controls.Add(pipeline);
             root.Controls.Add(appearance);
+            root.Controls.Add(importing);
             root.Controls.Add(appGroup);
+            root.Controls.Add(ribbonGroup);
+            root.Controls.Add(labGroup);
             root.Controls.Add(status);
+            root.Controls.Add(logNote);
             root.Controls.Add(buttons);
             Controls.Add(root);
             AcceptButton = ok;
@@ -216,11 +275,21 @@ namespace Peak.SwToBlender
             settings.SyncPoses = _syncPoses.Checked;
             settings.ParentGeometry = _parent.Checked;
             settings.CleanupEmpties = _cleanup.Checked;
+            int stepDeg;
+            if (int.TryParse(Selected(_relationStep, "5"), NumberStyles.Integer,
+                             CultureInfo.InvariantCulture, out stepDeg))
+                settings.RelationStepDeg = stepDeg;
             settings.DeInstance = _deInstance.Checked;
             settings.EngineeringMaterial = _material.Checked;
             settings.IncludeHidden = _hidden.Checked;
+            settings.OnlySelected = _onlySelected.Checked;
+            settings.ImportCurves = _importCurves.Checked;
+            settings.GroupInCollection = _groupInCollection.Checked;
+            settings.SeparateSolids = _separateSolids.Checked;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;
+            settings.LabOps = _labOps.Checked;
+            settings.AdvancedCommands = _advanced.Checked;
             settings.BlenderExe = Selected(_exe, settings.BlenderExe ?? "");
             settings.ExportFolderMode = Selected(_exportFolder, settings.ExportFolderMode);
         }

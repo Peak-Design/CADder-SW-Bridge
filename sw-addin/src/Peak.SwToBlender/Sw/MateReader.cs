@@ -11,7 +11,7 @@ namespace Peak.SwToBlender.Sw
 {
     /// <summary>
     /// Reads every mate the WYSIWYG walk can see into one MateGraph. The
-    /// output is plain data — the classifier and the unit tests never touch
+    /// output is plain data: the classifier and the unit tests never touch
     /// SolidWorks, so everything a mate means must be captured here.
     /// </summary>
     public static class MateReader
@@ -42,7 +42,7 @@ namespace Peak.SwToBlender.Sw
                 // document's mates, but through the top-context occurrence
                 // every entity's ReferenceComponent comes back null and so
                 // does the feature's selection list (live corpus 07,
-                // 2026-08-22 — the hinge joint vanished and the leaf exported
+                // 2026-08-22: the hinge joint vanished and the leaf exported
                 // as an island). Those mates are read below through the sub
                 // document's OWN components, where resolution behaves exactly
                 // as it does at top level.
@@ -95,7 +95,7 @@ namespace Peak.SwToBlender.Sw
 
         /// <summary>
         /// The internal mates of a flexible subassembly, read from the sub
-        /// document's own components — the only context where their entities
+        /// document's own components: the only context where their entities
         /// resolve. The sub node is the owner: name resolution joins the
         /// sub-context names onto its path, and mate residence lifts the
         /// sub-local geometry by its transform. Entities on the sub's own
@@ -161,11 +161,125 @@ namespace Peak.SwToBlender.Sw
             RecoverCurveEntities(mate, owner, byPath, gm, log);
             if (type == (int)swMateType_e.swMatePATH)
                 ReadPathCurve(mate, owner, byPath, gm, log);
+            if (type == (int)swMateType_e.swMateCAMFOLLOWER)
+                ReadCamFaces(mate, feat, owner, byPath, gm, log);
             return gm;
         }
 
+        /// <summary>Triangle budget for one cam path. Past it the cam is
+        /// left to the probe's table or the user's hand.</summary>
+        private const int MaxCamTriangles = 60000;
+
+        /// <summary>
+        /// Cam-follower mates: the cam path's faces, triangulated and lifted
+        /// to assembly space, onto the mate. The relation probe tables a cam
+        /// that turns about one fixed axis by dragging it. A cam free in its
+        /// plane (cam-follower2, 2026-09-15) has no one-input table, so the
+        /// faces themselves travel and the consumer holds the follower on
+        /// them. The feature data lists the cam path's faces apart from the
+        /// follower (swCamMateEntityType_e); the mate entities show only the
+        /// first face.
+        /// </summary>
+        private static void ReadCamFaces(
+            IMate2 mate, IFeature feat, WalkedComponent owner,
+            Dictionary<string, WalkedComponent> byPath, GraphMate gm, Action<string> log)
+        {
+            // A lightweight component's faces have no tessellation to read
+            // (live cam-follower2, 2026-09-15: the cam path came back as
+            // one face with no triangles). Resolving it loads the part, as
+            // the appearance pass does later anyway; the assembly is never
+            // saved by this add-in.
+            ResolveLightweight(mate, gm, log);
+            var faces = CamPathFaces(feat, gm, log);
+            if (faces == null || faces.Count == 0)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": no cam path faces in the feature data");
+                return;
+            }
+            faces = ExtrudedPath(faces, gm, log);
+
+            var points = new List<double[]>();
+            var index = new Dictionary<string, int>(StringComparer.Ordinal);
+            var tris = new List<int[]>();
+            string camComp = null;
+            double[,] camLift = null;
+            var pathFaces = new List<IFace2>();
+            int read = 0, unplaced = 0;
+            foreach (var o in faces)
+            {
+                var face = o as IFace2;
+                if (face == null) continue;
+                double[,] lift = null;
+                string compId = null;
+                try
+                {
+                    var entity = face as IEntity;
+                    var comp = entity == null ? null : entity.GetComponent() as Component2;
+                    var w = comp == null ? null : ResolveWalked(comp, owner, byPath);
+                    if (w != null)
+                    {
+                        lift = w.Graph.Transform;
+                        compId = w.Id;
+                    }
+                    else if (log != null)
+                        log("cam mate " + gm.FeatureName + ": a cam face has "
+                            + (entity == null ? "no IEntity" : comp == null ? "no component"
+                               : "an unwalked component " + SafeName(comp)));
+                }
+                catch (Exception ex)
+                {
+                    if (log != null)
+                        log("cam mate " + gm.FeatureName + ": placing a cam face failed: " + ex.Message);
+                }
+                if (compId == null)
+                {
+                    // A face nobody walked lifts nowhere: better one face
+                    // short than one face in the wrong place.
+                    unplaced++;
+                    continue;
+                }
+                if (camComp == null) camComp = compId;
+                if (camLift == null) camLift = lift;
+                pathFaces.Add(face);
+                double[] raw = null;
+                raw = TessTriangles(face);
+                if (raw == null || raw.Length < 9 || raw.Length % 9 != 0)
+                {
+                    if (log != null)
+                        log("cam mate " + gm.FeatureName + ": a cam face @" + compId
+                            + " has no tessellation (" + (raw == null ? "null" : raw.Length + " doubles") + ")");
+                    continue;
+                }
+                if (tris.Count + raw.Length / 9 > MaxCamTriangles)
+                {
+                    if (log != null)
+                        log("cam mate " + gm.FeatureName + ": the cam path exceeds "
+                            + MaxCamTriangles + " triangles; not carried");
+                    return;
+                }
+                AppendTessellation(raw, lift, points, index, tris);
+                read++;
+            }
+            if (tris.Count == 0 || camComp == null)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": no usable tessellation on the cam path ("
+                        + unplaced + " face(s) on no walked component)");
+                return;
+            }
+            gm.CamComponentId = camComp;
+            gm.CamSurfacePoints = points.ToArray();
+            gm.CamSurfaceTriangles = tris.ToArray();
+            if (log != null)
+                log("cam mate " + gm.FeatureName + ": " + read + " cam face(s) @" + camComp
+                    + ", " + tris.Count + " display triangle(s), " + points.Count + " point(s)"
+                    + (unplaced > 0 ? ", " + unplaced + " face(s) skipped" : ""));
+            FineCamPath(pathFaces, camLift, gm, log);
+        }
+
         /// <summary>The slot mate's constraint option (free / centered /
-        /// distance / percent) — the free one slides, the rest pin the
+        /// distance / percent): the free one slides, the rest pin the
         /// component along the slot and leave only the spin.</summary>
         private static void ReadSlotConstraint(IFeature feat, int type, GraphMate gm, Action<string> log)
         {
@@ -189,7 +303,7 @@ namespace Peak.SwToBlender.Sw
         /// exposes its underlying ICurve, an IReferenceCurve its segment
         /// list. Curves evaluate in the owning body's model space and lift to
         /// the assembly by the owning component's transform. Everything here
-        /// is defensive and logged — corpus 17 pins what path selections
+        /// is defensive and logged: corpus 17 pins what path selections
         /// actually arrive as; until then a failed sample leaves PathPoints
         /// null and the classifier warns instead of guessing.
         /// </summary>
@@ -300,15 +414,15 @@ namespace Peak.SwToBlender.Sw
         private const int PathMaxSamples = 2048;
 
         /// <summary>One curve to one polyline, assembly space. Evaluate2 over
-        /// the parameter range — GetTessPts needs trim endpoints this code
+        /// the parameter range. GetTessPts needs trim endpoints this code
         /// does not always have. A line's range is the whole representable
         /// axis (its API doc says so verbatim), which no path is; such
         /// segments are skipped with a log line rather than sampled absurd.
         ///
         /// Sampling is ADAPTIVE: a fixed count cannot hold a tolerance across
         /// the range of paths a real assembly holds (48 uniform samples left
-        /// a live 0.9 m spline 78 um off its own mate vertex — corpus 17,
-        /// 2026-08-23 — and would leave a cable run far worse), so intervals
+        /// a live 0.9 m spline 78 um off its own mate vertex, corpus 17,
+        /// 2026-08-23, and would leave a cable run far worse), so intervals
         /// bisect until the curve's midpoint sits within tolerance of the
         /// chord.</summary>
         private static List<double[]> SampleCurve(ICurve curve, double[,] lift, Action<string> log)
@@ -386,7 +500,7 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>Greedy end-to-end chaining of segment polylines, reversing
-        /// segments as needed. Gaps beyond tolerance are logged and bridged —
+        /// segments as needed. Gaps beyond tolerance are logged and bridged:
         /// a broken chain that follows the path approximately still beats no
         /// path at all.</summary>
         private static List<double[]> ChainPolylines(List<List<double[]>> segments)
@@ -426,8 +540,8 @@ namespace Peak.SwToBlender.Sw
 
         /// <summary>
         /// A mate flagged by SolidWorks (red error or yellow over-defined
-        /// warning in the tree) is one the solver is not honouring faithfully
-        /// — with an over-defined set, SolidWorks itself picks which mate to
+        /// warning in the tree) is one the solver is not honouring faithfully:
+        /// with an over-defined set, SolidWorks itself picks which mate to
         /// ignore, and this exporter cannot know which. The state is recorded
         /// here; ExportCommand refuses to export while any unsuppressed mate
         /// carries one, so the user fixes the assembly instead of getting a
@@ -443,7 +557,7 @@ namespace Peak.SwToBlender.Sw
             if (code == (int)swFeatureError_e.swFeatureErrorMateBroken)
             {
                 // Suppressed mate ENTITIES mean the mate is not solving
-                // anything — dead weight left behind by suppressed or
+                // anything: dead weight left behind by suppressed or
                 // deleted parts, not a modelling error the user must fix
                 // (Oscar, 2026-08-23: a clean large assembly carried a pile
                 // of these and the export refused). Treated exactly like an
@@ -491,9 +605,9 @@ namespace Peak.SwToBlender.Sw
         /// <summary>
         /// Limit range and current value.
         ///
-        /// The trap: IMate2.MinimumVariation/MaximumVariation are RELATIVE —
+        /// The trap: IMate2.MinimumVariation/MaximumVariation are RELATIVE,
         /// "Minimum_variation = minimum_value - dimension_value" (API help,
-        /// IMate2~MinimumVariation.html) — while the manifest contract wants
+        /// IMate2~MinimumVariation.html), while the manifest contract wants
         /// ABSOLUTE limits plus value_at_rest. The mate feature data carries
         /// the absolute values (IDistanceMateFeatureData.MinimumDistance /
         /// MaximumDistance / Distance, all metres; the angle twin in radians),
@@ -612,7 +726,7 @@ namespace Peak.SwToBlender.Sw
                 // by RevolutionType (API help, IScrewMateFeatureData~
                 // RevolutionType.html). The doc mentions the user's linear
                 // unit for the reciprocal form; the API convention everywhere
-                // else is metres, and that is what this code assumes — a live
+                // else is metres, and that is what this code assumes: a live
                 // check is the only way to settle it.
                 double v = data.RevolutionVal;
                 double lead;
@@ -626,8 +740,8 @@ namespace Peak.SwToBlender.Sw
                 // default screw mate behaved as a RIGHT-hand thread in
                 // SolidWorks while Reverse read true, so Reverse=true means
                 // +lead (advance along the rotation's right-hand direction).
-                // A lead's handedness is chirality — independent of which way
-                // the joint axis points — so no axis-sense term belongs here.
+                // A lead's handedness is chirality: independent of which way
+                // the joint axis points, so no axis-sense term belongs here.
                 // Single live sample; the log line is the tie-breaker if a
                 // future left-hand or re-reversed screw disagrees.
                 gm.LeadMPerRev = data.Reverse ? lead : -lead;
@@ -650,19 +764,41 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>
-        /// The profile-centre "lock rotation" tick. It lives NOWHERE in the
-        /// entity params — live corpus 05 (2026-08-22): planar4 (unlocked)
-        /// and planar5 (locked) export byte-identical raw entities — so the
-        /// feature data is the only source.
+        /// The "lock rotation" tick, which CONCENTRIC and PROFILECENTER both
+        /// carry. It lives NOWHERE in the entity params: live corpus 05
+        /// (2026-08-22): planar4 (unlocked) and planar5 (locked) export
+        /// byte-identical raw entities, so the feature data is the only
+        /// source.
+        ///
+        /// A locked concentric is not a pin: it kills the spin as well as the
+        /// tilt, leaving only the axial slide, and with any face contact the
+        /// pair is one body. Live ClampRig (2026-08-24): the ram's
+        /// grease nipples, dowty seals and BSP adapters are each held by one
+        /// locked concentric plus one coincident, are fully defined in
+        /// SolidWorks, and spun in Blender because this flag was read for
+        /// profile-centre mates only.
         /// </summary>
         private static void ReadLockRotation(IFeature feat, int type, GraphMate gm, Action<string> log)
         {
-            if (type != (int)swMateType_e.swMatePROFILECENTER) return;
-            var data = SafeDefinition(feat) as IProfileCenterMateFeatureData;
-            if (data == null) return;
-            try { gm.LockRotation = data.LockRotation; } catch { }
-            if (log != null)
-                log("profile-centre " + gm.FeatureName + " LockRotation=" + gm.LockRotation);
+            string kind;
+            if (type == (int)swMateType_e.swMatePROFILECENTER)
+            {
+                var pc = SafeDefinition(feat) as IProfileCenterMateFeatureData;
+                if (pc == null) return;
+                try { gm.LockRotation = pc.LockRotation; } catch { }
+                kind = "profile-centre";
+            }
+            else if (type == (int)swMateType_e.swMateCONCENTRIC)
+            {
+                var cc = SafeDefinition(feat) as IConcentricMateFeatureData;
+                if (cc == null) return;
+                try { gm.LockRotation = cc.LockRotation; } catch { }
+                kind = "concentric";
+            }
+            else return;
+
+            if (log != null && gm.LockRotation)
+                log(kind + " " + gm.FeatureName + " LockRotation=True");
         }
 
         // ── Entities ────────────────────────────────────────────────────────
@@ -722,10 +858,22 @@ namespace Peak.SwToBlender.Sw
             // One raw line per mate: what SolidWorks ACTUALLY reported.
             // Pinned by the ball-joint hunt (2026-08-22): a spherical face
             // arriving under a wrong entity kind with a leftover direction is
-            // invisible in the manifest — only this line can show it.
+            // invisible in the manifest, only this line can show it.
             var diag = new StringBuilder();
             diag.Append("mate ").Append(gm.FeatureName)
                 .Append(" [").Append(gm.TypeName).Append("]");
+            // Everything a replay needs that the entities do not carry. A
+            // suppressed mate is logged like any other, and a limit's range
+            // is what makes it a limit: without these on the line, a log
+            // replayed through the engine has to GUESS which of a
+            // configuration's alternative mates was live (live TongRig,
+            // 2026-09-14: four contradictory mates on one hydraulic cylinder).
+            if (gm.Suppressed) diag.Append(" suppressed");
+            if (gm.MinimumVariation != gm.MaximumVariation || !double.IsNaN(gm.CurrentValue))
+                diag.Append(" range=[")
+                    .Append(gm.MinimumVariation.ToString("G6", CultureInfo.InvariantCulture)).Append(',')
+                    .Append(gm.MaximumVariation.ToString("G6", CultureInfo.InvariantCulture)).Append(',')
+                    .Append(gm.CurrentValue.ToString("G6", CultureInfo.InvariantCulture)).Append(']');
 
             for (int i = 0; i < entities.Count; i++)
             {
@@ -748,18 +896,20 @@ namespace Peak.SwToBlender.Sw
                 {
                     ge.Point = SwFrames.LiftPoint(lift, new[] { p[0], p[1], p[2] });
                     // Only kinds whose EntityParams table row DEFINES a vector
-                    // get one recorded. Everything else carries FILLER there —
+                    // get one recorded. Everything else carries FILLER there:
                     // live corpus 04 (2026-08-22): coordinate-system mate
                     // entities arrived kind-unknown with direction (1,0,0),
                     // which downstream code then trusted as a joint axis.
                     bool directional = kind == (int)swMateEntityTypes_e.swMateLine
+                                    || (kind == (int)swMateEntityTypes_e.swMatePoint
+                                        && sel == (int)swSelectType_e.swSelDATUMAXES)
                                     || kind == (int)swMateEntityTypes_e.swMatePlane
                                     || kind == (int)swMateEntityTypes_e.swMateCylinder
                                     || kind == (int)swMateEntityTypes_e.swMateCone
                                     || kind == (int)swMateEntityTypes_e.swMateCircle;
                     // Parallel and perpendicular mates are ABOUT directions:
                     // SolidWorks records the measured normal in the direction
-                    // slots even when it types the entity as a point — live
+                    // slots even when it types the entity as a point, live
                     // corpus 06 parallelogram3 (2026-08-22): plane-face
                     // parallel mates arrived as point(1) carrying the face
                     // normal. The corpus-04 filler trap does not apply here;
@@ -785,17 +935,21 @@ namespace Peak.SwToBlender.Sw
                     .Append('@').Append(ge.ComponentId ?? "asm");
                 // An unresolved reference is the difference between "the
                 // subassembly's own geometry" (null, legitimate) and "a part
-                // face whose component this reader failed to map" (a bug) —
+                // face whose component this reader failed to map" (a bug):
                 // live corpus 07 (2026-08-22) was undiagnosable without it.
                 if (resolved[i] == null && i < refNames.Count && refNames[i] != null)
                     diag.Append("[!").Append(refNames[i]).Append(']');
                 if (p != null)
                 {
+                    // Round-trip precision, not five figures: this line is
+                    // what a replay rebuilds the mate graph from (LogReplay
+                    // in the tests), and five figures put a mirrored plane
+                    // 3 um off its reflection (live TongRig, 2026-09-14).
                     diag.Append(" raw=[");
                     for (int k = 0; k < p.Length; k++)
                     {
                         if (k > 0) diag.Append(',');
-                        diag.Append(p[k].ToString("G5", CultureInfo.InvariantCulture));
+                        diag.Append(p[k].ToString("R", CultureInfo.InvariantCulture));
                     }
                     diag.Append(']');
                 }
@@ -810,11 +964,11 @@ namespace Peak.SwToBlender.Sw
         /// <summary>
         /// Coincident mates onto curves lose their geometry in EntityParams:
         /// an EDGE arrives typed point(1) with filler direction slots (live
-        /// corpus 16 pt2, 2026-08-23 — the vertex-on-edge slide direction
+        /// corpus 16 pt2, 2026-08-23: the vertex-on-edge slide direction
         /// vanished and the pair became a ball at the edge's endpoint), and
         /// a 3D-sketch segment arrives kind-13 with all-zero params (pt4 /
         /// path1). The underlying curve is still reachable through
-        /// IMateEntity2.Reference — the same route the path-mate sampler
+        /// IMateEntity2.Reference: the same route the path-mate sampler
         /// uses. A LINE re-types the entity to "edge" with the real
         /// direction; any other curve is sampled into gm.PathPoints so the
         /// classifier can build a path joint.
@@ -904,12 +1058,12 @@ namespace Peak.SwToBlender.Sw
 
         /// <summary>
         /// The entity kind lies about curved faces, and only the mate
-        /// feature's own selection list — real faces, whose surfaces know
-        /// what they are — can straighten it out:
+        /// feature's own selection list: real faces, whose surfaces know
+        /// what they are, can straighten it out:
         ///
         ///  * swMateEntityTypes_e declares a Sphere member but SolidWorks
         ///    never emits it: a live spherical-face concentric (corpus 04,
-        ///    2026-08-22) arrived as cone(5) — sphere centre in the point
+        ///    2026-08-22) arrived as cone(5), sphere centre in the point
         ///    slots and a FILLER direction the classifier trusted as an
         ///    axis. Sphere-surfaced cone entities retype "sphere",
         ///    direction dropped.
@@ -917,12 +1071,12 @@ namespace Peak.SwToBlender.Sw
         ///    2026-08-23: every cone concentric/tangent came in edge(7/2))
         ///    with the HALF-ANGLE in the radius slot. Cone-surfaced
         ///    entities retype "cone", keep their axis, and carry the
-        ///    surface's half-angle — the number a tangent-on-plane
+        ///    surface's half-angle: the number a tangent-on-plane
         ///    decomposition needs for its tilted-axis gate.
         ///  * A face a POINT is coincident with is a case of its own: the
         ///    contact leaves five DOF whatever the surface is, and only the
         ///    plane and the cylinder have a carrier primitive for it. Every
-        ///    other face — torus, sphere, cone, fillet, loft, B-surface —
+        ///    other face (torus, sphere, cone, fillet, loft, B-surface)
         ///    retypes "surface" and carries its own triangulation, which is
         ///    the only description of it that survives the trip.
         /// </summary>
@@ -946,7 +1100,7 @@ namespace Peak.SwToBlender.Sw
             {
                 if (log != null)
                     log("no selection list for " + gm.FeatureName + " ["
-                        + gm.TypeName + "] — surface retype skipped");
+                        + gm.TypeName + "]: surface retype skipped");
                 return;
             }
 
@@ -979,7 +1133,7 @@ namespace Peak.SwToBlender.Sw
                         {
                             isCone = true;
                             // ConeParams: origin(3), axis(3), radius, half
-                            // angle — 8 doubles (API help, ISurface~
+                            // angle, 8 doubles (API help, ISurface~
                             // ConeParams.html).
                             var cp = surf.ConeParams as double[];
                             if (cp != null && cp.Length >= 8) halfAngle = cp[7];
@@ -1041,13 +1195,13 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>Triangle budget for one surface patch. A face past this
-        /// is coarsened rather than dropped — the patch is a contact surface,
+        /// is coarsened rather than dropped: the patch is a contact surface,
         /// not a render mesh, and the alternative is no joint at all.</summary>
         private const int MaxPatchTriangles = 20000;
 
         /// <summary>
         /// Reads a face's triangulation onto the entity, welded and lifted to
-        /// assembly space. GetTessTriangles hands back nine loose doubles per
+        /// assembly space. GetTessTriangles hands back nine loose floats per
         /// triangle, in the part's own space, in metres when NoConversion is
         /// set (the document's unit setting would otherwise reach the
         /// manifest). Welding matters: the raw form repeats every interior
@@ -1058,7 +1212,7 @@ namespace Peak.SwToBlender.Sw
             IFace2 face, GraphMateEntity ge, double[,] lift, GraphMate gm, Action<string> log)
         {
             double[] raw = null;
-            try { raw = face.GetTessTriangles(true) as double[]; } catch { }
+            raw = TessTriangles(face);
             if (raw == null || raw.Length < 9 || raw.Length % 9 != 0)
             {
                 if (log != null)
@@ -1078,6 +1232,484 @@ namespace Peak.SwToBlender.Sw
             var points = new List<double[]>();
             var index = new Dictionary<string, int>(StringComparer.Ordinal);
             var tris = new List<int[]>(triangles);
+            AppendTessellation(raw, lift, points, index, tris);
+            if (tris.Count == 0) return;
+
+            ge.EntityTypeName = "surface";
+            ge.SurfacePoints = points.ToArray();
+            ge.SurfaceTriangles = tris.ToArray();
+            if (log != null)
+                log("surface patch on " + gm.FeatureName + " @" + ge.ComponentId
+                    + ": " + tris.Count + " triangle(s), " + points.Count + " point(s)");
+        }
+
+        /// <summary>The cam path's faces. First choice: the feature data's
+        /// cam path list, which holds every face of the path. The interop
+        /// hands it back as an array, or as one object for a single face,
+        /// and the read is logged either way. Fallback: the mate entity on
+        /// the cam side, which is the path's first face only.</summary>
+        private static List<object> CamPathFaces(IFeature feat, GraphMate gm, Action<string> log)
+        {
+            var faces = new List<object>();
+            object def = SafeDefinition(feat);
+            var data = def as ICamFollowerMateFeatureData;
+            if (data == null)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": the feature definition is "
+                        + (def == null ? "null" : "not cam-follower data"));
+            }
+            else
+            {
+                object raw = null;
+                try
+                {
+                    raw = data.EntitiesToMate[(int)swCamMateEntityType_e.swCamMateEntityType_CamPath];
+                }
+                catch (Exception ex)
+                {
+                    if (log != null)
+                        log("cam mate " + gm.FeatureName + ": EntitiesToMate threw " + ex.Message);
+                }
+                var items = raw as object[];
+                if (items != null)
+                {
+                    foreach (var item in items) if (item != null) faces.Add(item);
+                }
+                else if (raw != null)
+                {
+                    faces.Add(raw);
+                }
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": feature data cam path = "
+                        + (raw == null ? "null" : items != null ? items.Length + " item(s)" : "one object")
+                        + ", " + faces.FindAll(f => f is IFace2).Count + " face(s)");
+            }
+            if (faces.Count > 0) return faces;
+
+            // The mate entities' own references: one face of the path.
+            IMate2 mate = null;
+            try { mate = feat.GetSpecificFeature2() as IMate2; } catch { }
+            if (mate == null) return faces;
+            int count = 0;
+            try { count = mate.GetMateEntityCount(); } catch { }
+            for (int i = 0; i < count; i++)
+            {
+                IMateEntity2 me = null;
+                try { me = mate.MateEntity(i) as IMateEntity2; } catch { }
+                if (me == null) continue;
+                object reference = null;
+                try { reference = me.Reference; } catch { }
+                if (reference is IFace2)
+                {
+                    faces.Add(reference);
+                    if (log != null)
+                        log("cam mate " + gm.FeatureName + ": using mate entity " + i
+                            + "'s face as the cam path (the feature data listed none)");
+                    break;
+                }
+            }
+            return faces;
+        }
+
+        /// <summary>Chord tolerance for a cam path, as a fraction of the
+        /// path's size. The display tessellation of the live cam-follower2
+        /// cam (76 mm radius) was 62 triangles, a sag of about 0.3 mm, and a
+        /// follower sat on it is off by the sag.</summary>
+        private const double CamChordFraction = 1e-4;
+
+        /// <summary>
+        /// Replaces the display triangles of a cam path with the cam body
+        /// tessellated at a chord tolerance chosen here, keeping only the path
+        /// faces' facets. The body's frame is not documented for a face read
+        /// in assembly context, so the finer mesh is placed whichever way
+        /// (lifted by the component or not) puts its bounding box on the
+        /// display triangles already placed, and is refused when neither
+        /// does. The display triangles stay otherwise.
+        /// </summary>
+        private static void FineCamPath(
+            List<IFace2> pathFaces, double[,] lift, GraphMate gm, Action<string> log)
+        {
+            if (pathFaces.Count == 0 || gm.CamSurfacePoints == null) return;
+            IBody2 body = null;
+            try { body = pathFaces[0].GetBody() as IBody2; } catch { }
+            if (body == null)
+            {
+                if (log != null) log("cam mate " + gm.FeatureName + ": no body for a fine tessellation");
+                return;
+            }
+            double[] lo, hi;
+            Bounds(gm.CamSurfacePoints, out lo, out hi);
+            double size = Math.Sqrt(MathOps.Distance2(lo, hi));
+            double tolerance = Math.Max(size * CamChordFraction, 2e-6);
+
+            var mesh = new MeshDefinition();
+            int added;
+            try
+            {
+                added = BodyTessellator.AppendFaces(body, mesh, tolerance, f =>
+                {
+                    foreach (var p in pathFaces)
+                    {
+                        try { if (ReferenceEquals(p, f) || p.IsSame(f)) return true; }
+                        catch { }
+                    }
+                    return false;
+                }, log);
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log("cam mate " + gm.FeatureName + ": fine tessellation failed: " + ex.Message);
+                return;
+            }
+            if (added == 0 || added > MaxCamTriangles)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": fine tessellation gave " + added
+                        + " facet(s); the display triangles stay");
+                return;
+            }
+
+            // Only the vertices the kept facets use, in both placements.
+            var remap = new Dictionary<int, int>();
+            var raw = new List<double[]>();
+            var tris = new List<int[]>();
+            for (int t = 0; t + 2 < mesh.Triangles.Count; t += 3)
+            {
+                var tri = new int[3];
+                for (int k = 0; k < 3; k++)
+                {
+                    int v = mesh.Triangles[t + k];
+                    int at;
+                    if (!remap.TryGetValue(v, out at))
+                    {
+                        at = raw.Count;
+                        remap[v] = at;
+                        raw.Add(new[] { mesh.Positions[v * 3], mesh.Positions[v * 3 + 1], mesh.Positions[v * 3 + 2] });
+                    }
+                    tri[k] = at;
+                }
+                tris.Add(tri);
+            }
+            var lifted = new List<double[]>(raw.Count);
+            foreach (var p in raw) lifted.Add(lift == null ? p : SwFrames.LiftPoint(lift, p));
+
+            double[] rlo, rhi, llo, lhi;
+            Bounds(raw.ToArray(), out rlo, out rhi);
+            Bounds(lifted.ToArray(), out llo, out lhi);
+            double rawOff = Math.Sqrt(MathOps.Distance2(rlo, lo)) + Math.Sqrt(MathOps.Distance2(rhi, hi));
+            double liftOff = Math.Sqrt(MathOps.Distance2(llo, lo)) + Math.Sqrt(MathOps.Distance2(lhi, hi));
+            // The display mesh sags inside the true surface, so the boxes
+            // differ by about the sag; anything past a percent of the size
+            // is a wrong frame.
+            double allowed = Math.Max(size * 0.01, 1e-4);
+            List<double[]> chosen = liftOff <= rawOff ? lifted : raw;
+            double off = Math.Min(liftOff, rawOff);
+            if (off > allowed)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": fine tessellation lands "
+                        + (off * 1000).ToString("F2", CultureInfo.InvariantCulture)
+                        + " mm off the display triangles either way; the display triangles stay");
+                return;
+            }
+            gm.CamSurfacePoints = chosen.ToArray();
+            gm.CamSurfaceTriangles = tris.ToArray();
+            if (log != null)
+                log("cam mate " + gm.FeatureName + ": fine cam path "
+                    + tris.Count + " triangle(s) at "
+                    + (tolerance * 1000).ToString("F3", CultureInfo.InvariantCulture) + " mm chord, "
+                    + (ReferenceEquals(chosen, lifted) ? "lifted" : "already in assembly space")
+                    + ", box within " + (off * 1000).ToString("F3", CultureInfo.InvariantCulture) + " mm");
+        }
+
+        private static void Bounds(double[][] pts, out double[] lo, out double[] hi)
+        {
+            lo = new[] { double.MaxValue, double.MaxValue, double.MaxValue };
+            hi = new[] { double.MinValue, double.MinValue, double.MinValue };
+            foreach (var p in pts)
+                for (int k = 0; k < 3; k++)
+                {
+                    lo[k] = Math.Min(lo[k], p[k]);
+                    hi[k] = Math.Max(hi[k], p[k]);
+                }
+        }
+
+        private static void ResolveLightweight(IMate2 mate, GraphMate gm, Action<string> log)
+        {
+            int count = 0;
+            try { count = mate.GetMateEntityCount(); } catch { }
+            for (int i = 0; i < count; i++)
+            {
+                Component2 comp = null;
+                try
+                {
+                    var me = mate.MateEntity(i) as IMateEntity2;
+                    comp = me == null ? null : me.ReferenceComponent as Component2;
+                }
+                catch { }
+                if (comp == null) continue;
+                int state = -1;
+                try { state = comp.GetSuppression(); } catch { }
+                if (state != (int)swComponentSuppressionState_e.swComponentLightweight
+                    && state != (int)swComponentSuppressionState_e.swComponentFullyLightweight)
+                    continue;
+                bool ok = false;
+                try
+                {
+                    comp.SetSuppression2((int)swComponentSuppressionState_e.swComponentFullyResolved);
+                    ok = true;
+                }
+                catch { }
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": resolved lightweight " + SafeName(comp)
+                        + (ok ? "" : " (failed)"));
+            }
+        }
+
+        /// <summary>A face's display triangles, nine coordinates per
+        /// triangle. The interop hands GetTessTriangles back as a float
+        /// array (BodyTessellator reads it that way), so a cast to double[]
+        /// is always null: the cam path and every surface patch read
+        /// nothing until 2026-09-15 (live cam-follower2).</summary>
+        private static double[] TessTriangles(IFace2 face)
+        {
+            object o = null;
+            try { o = face.GetTessTriangles(true); } catch { }
+            var d = o as double[];
+            if (d != null) return d;
+            var f = o as float[];
+            if (f == null) return null;
+            var r = new double[f.Length];
+            for (int i = 0; i < f.Length; i++) r[i] = f[i];
+            return r;
+        }
+
+        /// <summary>Most faces one cam path may hold. A real profile has a
+        /// handful to a few dozen.</summary>
+        private const int MaxCamFaces = 400;
+
+        /// <summary>
+        /// The whole cam path from the face the feature data names. The cam
+        /// mate stores only the face that was picked, and SolidWorks carries
+        /// the contact on across the rest of the profile (live cam-follower2,
+        /// 2026-09-15: every mate named one face of a profile of arcs and
+        /// flats). A cam path is an extrusion, so the rest of it is every
+        /// face reachable across edges whose normals are all perpendicular
+        /// to the extrusion direction. The top and bottom faces are not (their
+        /// normals lie along it), so the walk stops there and never reaches
+        /// the bore.
+        /// </summary>
+        private static List<object> ExtrudedPath(List<object> start, GraphMate gm, Action<string> log)
+        {
+            var seed = start.Count > 0 ? start[0] as IFace2 : null;
+            if (seed == null) return start;
+            var dir = ExtrusionDirection(seed, gm, log);
+            if (dir == null)
+            {
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": no extrusion direction from the picked face; "
+                        + "the cam path is that face alone");
+                return start;
+            }
+            var result = new List<object>();
+            var seen = new List<IFace2>();
+            var queue = new Queue<IFace2>();
+            foreach (var o in start)
+            {
+                var f = o as IFace2;
+                if (f == null || Seen(seen, f)) continue;
+                seen.Add(f);
+                queue.Enqueue(f);
+                result.Add(f);
+            }
+            while (queue.Count > 0 && result.Count < MaxCamFaces)
+            {
+                foreach (var next in Neighbours(queue.Dequeue()))
+                {
+                    if (Seen(seen, next)) continue;
+                    seen.Add(next);
+                    if (!AllPerpendicular(next, dir)) continue;
+                    result.Add(next);
+                    queue.Enqueue(next);
+                }
+            }
+            if (log != null)
+                log("cam mate " + gm.FeatureName + ": cam path spread from " + start.Count
+                    + " picked face(s) to " + result.Count + " along the extrusion");
+            return result;
+        }
+
+        private static bool Seen(List<IFace2> seen, IFace2 f)
+        {
+            foreach (var s in seen)
+                if (ReferenceEquals(s, f) || s.IsSame(f)) return true;
+            return false;
+        }
+
+        private static IEnumerable<IFace2> Neighbours(IFace2 face)
+        {
+            object[] edges = null;
+            try { edges = face.GetEdges() as object[]; } catch { }
+            if (edges == null) yield break;
+            foreach (var e in edges)
+            {
+                var edge = e as IEdge;
+                if (edge == null) continue;
+                object[] two = null;
+                try { two = edge.GetTwoAdjacentFaces2() as object[]; } catch { }
+                if (two == null) continue;
+                foreach (var t in two)
+                {
+                    var f = t as IFace2;
+                    if (f != null && !ReferenceEquals(f, face) && !f.IsSame(face)) yield return f;
+                }
+            }
+        }
+
+        /// <summary>A face's display normals as unit vectors, in its own
+        /// part's frame (directions only: no lift needed to compare them).
+        /// </summary>
+        private static List<double[]> TessNormals(IFace2 face)
+        {
+            var list = new List<double[]>();
+            object o = null;
+            try { o = face.GetTessNorms(); } catch { }
+            var f = o as float[];
+            var d = o as double[];
+            int n = f != null ? f.Length : d != null ? d.Length : 0;
+            for (int i = 0; i + 2 < n; i += 3)
+            {
+                double x = f != null ? f[i] : d[i];
+                double y = f != null ? f[i + 1] : d[i + 1];
+                double z = f != null ? f[i + 2] : d[i + 2];
+                double len = Math.Sqrt(x * x + y * y + z * z);
+                if (len > 1e-9) list.Add(new[] { x / len, y / len, z / len });
+            }
+            return list;
+        }
+
+        private static bool AllParallel(IFace2 face, double[] dir)
+        {
+            var normals = TessNormals(face);
+            if (normals.Count == 0) return false;
+            foreach (var n in normals)
+                if (Math.Abs(n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]) < 0.9998) return false;
+            return true;
+        }
+
+        private static bool AllPerpendicular(IFace2 face, double[] dir)
+        {
+            var normals = TessNormals(face);
+            if (normals.Count == 0) return false;
+            foreach (var n in normals)
+                if (Math.Abs(n[0] * dir[0] + n[1] * dir[1] + n[2] * dir[2]) > 0.02) return false;
+            return true;
+        }
+
+        /// <summary>The extrusion direction of a cam path face. A curved face
+        /// gives it from its own normals (the cross product of the two that
+        /// differ most). A flat face has one normal, so its neighbours vote:
+        /// each neighbour's normal crossed with the flat's normal is a
+        /// candidate, and the candidate the most neighbours are wholly
+        /// perpendicular to wins (a profile neighbour's candidate is the
+        /// extrusion direction, and the other profile neighbours agree; a
+        /// top face's candidate lies in the profile plane and only the bottom
+        /// face agrees).</summary>
+        private static double[] ExtrusionDirection(IFace2 seed, GraphMate gm, Action<string> log)
+        {
+            var normals = TessNormals(seed);
+            if (normals.Count == 0) return null;
+            double[] a = normals[0], b = null;
+            double least = 1.0;
+            foreach (var n in normals)
+            {
+                double dot = Math.Abs(a[0] * n[0] + a[1] * n[1] + a[2] * n[2]);
+                if (dot < least) { least = dot; b = n; }
+            }
+            if (b != null && least < Math.Cos(Math.PI / 90))
+            {
+                var curved = Unit(Cross(a, b));
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": curved seed, " + normals.Count
+                        + " normal(s), extrusion " + Fmt(curved));
+                return curved;
+            }
+
+            double[] best = null;
+            int bestVotes = 0;
+            var neighbours = new List<IFace2>(Neighbours(seed));
+            foreach (var nb in neighbours)
+            {
+                // The neighbour's normal that differs most from the flat's:
+                // a tangent neighbour shares the flat's normal along their
+                // common edge, and that one crosses to nothing.
+                var nn = TessNormals(nb);
+                double[] far = null;
+                double farDot = 1.0;
+                foreach (var n in nn)
+                {
+                    double dot = Math.Abs(a[0] * n[0] + a[1] * n[1] + a[2] * n[2]);
+                    if (dot < farDot) { farDot = dot; far = n; }
+                }
+                if (far == null || farDot > 0.9995) continue;
+                var c = Unit(Cross(a, far));
+                if (c == null) continue;
+                // Every neighbour of an extruded face lies either across
+                // the extrusion (the profile) or along it (the end caps). A
+                // direction in the profile plane has the end caps across it
+                // too, but the profile's arcs lie neither way, which rules
+                // it out (live cam-follower2, 2026-09-15: it tied the true
+                // direction on votes alone and took the caps).
+                int votes = 0;
+                bool consistent = true;
+                foreach (var other in neighbours)
+                {
+                    if (AllPerpendicular(other, c)) votes++;
+                    else if (!AllParallel(other, c)) consistent = false;
+                }
+                if (log != null)
+                    log("cam mate " + gm.FeatureName + ": flat seed, candidate " + Fmt(c)
+                        + " has " + votes + " of " + neighbours.Count + " neighbour(s) across it"
+                        + (consistent ? "" : ", and a neighbour lying neither way"));
+                if (consistent && votes > bestVotes) { bestVotes = votes; best = c; }
+            }
+            return best;
+        }
+
+        private static string Fmt(double[] v)
+        {
+            return v == null ? "null" : "[" + v[0].ToString("F3", CultureInfo.InvariantCulture) + ","
+                + v[1].ToString("F3", CultureInfo.InvariantCulture) + ","
+                + v[2].ToString("F3", CultureInfo.InvariantCulture) + "]";
+        }
+
+        private static double[] Cross(double[] a, double[] b)
+        {
+            return new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        }
+
+        private static double[] Unit(double[] v)
+        {
+            double len = Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            return len < 1e-6 ? null : new[] { v[0] / len, v[1] / len, v[2] / len };
+        }
+
+        private static string SafeName(Component2 comp)
+        {
+            try { return comp.Name2; } catch { return "?"; }
+        }
+
+        /// <summary>Welds one face's nine-doubles-per-triangle tessellation
+        /// onto a shared point list, lifted to assembly space. Welding on the
+        /// exact bits is enough: the duplicates are one tessellator writing
+        /// the same corner repeatedly, not two computations that might
+        /// disagree in the last place.</summary>
+        private static void AppendTessellation(
+            double[] raw, double[,] lift, List<double[]> points,
+            Dictionary<string, int> index, List<int[]> tris)
+        {
+            int triangles = raw.Length / 9;
             for (int t = 0; t < triangles; t++)
             {
                 var corner = new int[3];
@@ -1086,9 +1718,6 @@ namespace Peak.SwToBlender.Sw
                     int at = t * 9 + c * 3;
                     var p = new[] { raw[at], raw[at + 1], raw[at + 2] };
                     if (lift != null) p = SwFrames.LiftPoint(lift, p);
-                    // Welding on the exact bits is enough: the duplicates are
-                    // one tessellator writing the same corner repeatedly, not
-                    // two computations that might disagree in the last place.
                     string key = p[0].ToString("R", CultureInfo.InvariantCulture) + "|"
                         + p[1].ToString("R", CultureInfo.InvariantCulture) + "|"
                         + p[2].ToString("R", CultureInfo.InvariantCulture);
@@ -1105,14 +1734,6 @@ namespace Peak.SwToBlender.Sw
                     continue;    // degenerate: a sliver the tessellator collapsed
                 tris.Add(corner);
             }
-            if (tris.Count == 0) return;
-
-            ge.EntityTypeName = "surface";
-            ge.SurfacePoints = points.ToArray();
-            ge.SurfaceTriangles = tris.ToArray();
-            if (log != null)
-                log("surface patch on " + gm.FeatureName + " @" + ge.ComponentId
-                    + ": " + tris.Count + " triangle(s), " + points.Count + " point(s)");
         }
 
         /// <summary>
@@ -1122,7 +1743,7 @@ namespace Peak.SwToBlender.Sw
         /// Live corpus 07 (2026-08-22): every entity of a flexible
         /// subassembly's internal mates came back unresolved, so the hinge
         /// joint vanished and the leaf exported as a disconnected island.
-        /// Selection order is assumed to match mate-entity order — for the
+        /// Selection order is assumed to match mate-entity order: for the
         /// mates this rescues both sides are usually symmetric, and the
         /// diagnostic line records that the fallback ran.
         /// </summary>
@@ -1160,20 +1781,20 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>
-        /// The mate's selection list — the faces and edges the user picked,
+        /// The mate's selection list: the faces and edges the user picked,
         /// which is where the retype passes read real surface geometry.
         ///
         /// EntitiesToMate is declared SEPARATELY on each *MateFeatureData
         /// interface; the base IMateFeatureData has no such member, so every
         /// type needs its own cast. A missing one fails SILENTLY (the retype
         /// passes just never run): live corpus 15 cone3 (2026-08-23) went out
-        /// as a free joint for exactly that reason — TANGENT was absent, so
+        /// as a free joint for exactly that reason, TANGENT was absent, so
         /// the conical face kept its circle typing and lost the half-angle.
         /// All 17 interfaces that declare the member are listed here
         /// (reflected over the 2022 interop); the caller logs a miss.
         ///
         /// Three of them index the member by GROUP rather than returning one
-        /// list — a hinge's concentric, coincident and angle picks; a cam's
+        /// list: a hinge's concentric, coincident and angle picks; a cam's
         /// path and its follower; a rack and its pinion. Their groups are
         /// concatenated for callers that only need the SET of selections,
         /// and withheld from callers that read the list positionally, where
@@ -1295,7 +1916,7 @@ namespace Peak.SwToBlender.Sw
         /// <summary>
         /// The flexible subassembly whose document owns this mate, or null
         /// for the top assembly. Deepest candidate first; a candidate is the
-        /// residence only when every resolved entity sits STRICTLY below it —
+        /// residence only when every resolved entity sits STRICTLY below it:
         /// an entity on the candidate itself means a mate made one level up,
         /// grabbing the subassembly from outside.
         /// </summary>
@@ -1378,21 +1999,28 @@ namespace Peak.SwToBlender.Sw
         }
 
         /// <summary>
-        /// IMateEntity2.ReferenceType names the geometry (swMateEntityTypes_e
-        /// — the names the EntityParams table on its API help page keys on);
+        /// IMateEntity2.ReferenceType names the geometry (swMateEntityTypes_e:
+        /// the names the EntityParams table on its API help page keys on);
         /// ReferenceType2 (swSelectType_e) only refines a line into an axis
-        /// or an edge. A circle entity is a circular edge and gets "edge" —
+        /// or an edge. A circle entity is a circular edge and gets "edge":
         /// its direction and radius survive either way. A selected VERTEX
         /// arrives with ReferenceType 0 (live corpus 13/16, 2026-08-23:
         /// every vertex mate came in unknown(0/3)), so the selection type is
-        /// what names it — the point slots are real, the direction slots are
+        /// what names it: the point slots are real, the direction slots are
         /// filler.
         /// </summary>
         private static string EntityKind(int mateEntityType, int selectType)
         {
             switch (mateEntityType)
             {
-                case (int)swMateEntityTypes_e.swMatePoint: return "point";
+                case (int)swMateEntityTypes_e.swMatePoint:
+                    // A datum AXIS arrives typed as a point with the axis
+                    // direction in the direction slots (live cam-follower
+                    // sample, 2026-09-15: the cam's axis coincident with two
+                    // assembly planes came in as point(1/5)). The selection
+                    // type is what tells it from a real point.
+                    return selectType == (int)swSelectType_e.swSelDATUMAXES
+                        ? "axis" : "point";
                 case (int)swMateEntityTypes_e.swMateLine:
                     return selectType == (int)swSelectType_e.swSelEDGES ? "edge" : "axis";
                 case (int)swMateEntityTypes_e.swMatePlane: return "plane";

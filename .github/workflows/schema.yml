@@ -1,7 +1,7 @@
 # Validates the manifest contract: the JSON Schema itself and the golden
 # examples against it. The consumer-side parser test runs in the
 # STEPper_NEXT repo, next to the parser; the SolidWorks half has no CI at
-# all (hosted runners have no SolidWorks interops — see RELEASING.md).
+# all (hosted runners have no SolidWorks interops: see RELEASING.md).
 name: schema
 
 on:

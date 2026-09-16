@@ -8,7 +8,7 @@ namespace Peak.SwToBlender.Core
     /// <summary>
     /// Minimal JSON reader/writer for the bridge protocol and the settings
     /// file. House style bans Newtonsoft/System.Text.Json on net48 (see
-    /// PLAN.md), and ManifestWriter only writes — the bridge must also READ
+    /// PLAN.md), and ManifestWriter only writes: the bridge must also READ
     /// what Blender answers. Objects are Dictionary&lt;string, object&gt;,
     /// arrays List&lt;object&gt;, numbers double, plus string/bool/null.
     /// Invariant culture throughout: a comma decimal separator in a payload
@@ -264,6 +264,14 @@ namespace Peak.SwToBlender.Core
             return fallback;
         }
 
+        public static double Num(Dictionary<string, object> obj, string key, double fallback = 0.0)
+        {
+            object v;
+            if (obj != null && obj.TryGetValue(key, out v) && v is double)
+                return (double)v;
+            return fallback;
+        }
+
         public static Dictionary<string, object> Obj(Dictionary<string, object> obj, string key)
         {
             object v;
@@ -275,6 +283,21 @@ namespace Peak.SwToBlender.Core
         {
             object v;
             return obj != null && obj.TryGetValue(key, out v) ? v as List<object> : null;
+        }
+
+        /// <summary>A JSON array of numbers as doubles, or null when the key
+        /// is missing or any item is not a number.</summary>
+        public static double[] NumArray(Dictionary<string, object> obj, string key)
+        {
+            var list = Arr(obj, key);
+            if (list == null) return null;
+            var result = new double[list.Count];
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (!(list[i] is double)) return null;
+                result[i] = (double)list[i];
+            }
+            return result;
         }
     }
 }

@@ -50,9 +50,9 @@ namespace Peak.SwToBlender.Sw
         /// <summary>
         /// The component's placement in the assembly's global frame.
         ///
-        /// IComponent2.Transform2 is root-relative at every depth — "You must
+        /// IComponent2.Transform2 is root-relative at every depth: "You must
         /// specify the transform in relation to the root component" (API help,
-        /// IComponent2~Transform2.html) — so a child of a nested subassembly
+        /// IComponent2~Transform2.html), so a child of a nested subassembly
         /// needs no accumulation up the tree. Null for components whose
         /// transform SolidWorks does not hold (suppressed occurrences).
         /// </summary>

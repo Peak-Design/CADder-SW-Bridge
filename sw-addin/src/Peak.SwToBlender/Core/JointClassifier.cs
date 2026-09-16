@@ -10,7 +10,7 @@ namespace Peak.SwToBlender.Core
         public List<ManifestWarning> Warnings = new List<ManifestWarning>();
 
         /// <summary>Component-less rigid groups synthesized during
-        /// classification — the carrier links that split a tangent contact's
+        /// classification: the carrier links that split a tangent contact's
         /// residual motion into two primitive joints (live corpus 11,
         /// 2026-08-22). They join the manifest's rigid_groups and the loop
         /// analysis exactly like real groups; the Blender side gives them a
@@ -39,7 +39,7 @@ namespace Peak.SwToBlender.Core
     /// Turns each inter-group edge into the residual freedom its combined mate
     /// set leaves. The table is closed-world: every recognised pattern maps to
     /// one joint type, everything else is exported as "free" with a warning
-    /// rather than silently fixed. Format-neutral; no SolidWorks required —
+    /// rather than silently fixed. Format-neutral; no SolidWorks required:
     /// the optional oracle is the one hook a live SolidWorks can plug in.
     /// </summary>
     public static class JointClassifier
@@ -111,7 +111,7 @@ namespace Peak.SwToBlender.Core
                 {
                     // A vertex coincident WITH A CURVE is a path mate in all
                     // but name: slide along the sampled polyline, rotation
-                    // free — MateReader recovered the curve from the entity
+                    // free. MateReader recovered the curve from the entity
                     // reference (live corpus 16 pt4, 2026-08-23: a corner on
                     // an assembly 3D-sketch spline).
                     if (pathMate == null) pathMate = m;
@@ -120,7 +120,7 @@ namespace Peak.SwToBlender.Core
                 if (MateFacts.Is(m, "COINCIDENT") && SurfaceEntity(m) != null
                     && HasFollowerPoint(m))
                 {
-                    // A vertex coincident with a face no joint type models —
+                    // A vertex coincident with a face no joint type models:
                     // a torus, a fillet, a loft. MateReader carried the face's
                     // triangulation, so the consumer can hold the point on it.
                     if (surfaceMate == null) surfaceMate = m;
@@ -141,7 +141,7 @@ namespace Peak.SwToBlender.Core
             nextId++;
             joint.ParentGroup = edge.GroupA;
             joint.ChildGroup = edge.GroupB;
-            joint.Confidence = edge.FastenerOverride ? "medium" : "high";
+            joint.Confidence = "high";
             foreach (var m in edge.Mates)
                 joint.SourceMates.Add(new SourceMate { SwFeature = m.FeatureName, Type = m.TypeName });
 
@@ -163,7 +163,7 @@ namespace Peak.SwToBlender.Core
             // (the *MateFeatureData family simply has no path member), so the
             // curve arrives pre-sampled by MateReader through the mate
             // entities' underlying edges/sketch segments. Without a sampled
-            // curve there is nothing a consumer could follow — free plus a
+            // curve there is nothing a consumer could follow: free plus a
             // warning beats a joint that pretends.
             if (pathMate != null)
             {
@@ -216,15 +216,17 @@ namespace Peak.SwToBlender.Core
             {
                 // A cam profile is a curve-valued coupling: the follower's
                 // pose is a nonlinear function of the cam angle, which no
-                // bone driver expresses. The joint the OTHER mates make is
-                // still right (the follower's pivot or slide); the cam
-                // relation itself is the user's hand.
+                // mate records. The relation probe reads it off the model
+                // later, when the cam turns about one fixed axis, and takes
+                // this warning away (or fills in why it could not). The
+                // joint the OTHER mates make is still right (the follower's
+                // pivot or slide).
                 joint.Confidence = "medium";
                 joint.Notes = AppendNote(joint.Notes,
                     "A cam-follower mate rides this pair; the cam relation is not rigged.");
                 Warn(warnings, "CAM_FOLLOWER", joint,
-                    "Cam-follower mate " + (camMates[0].FeatureName ?? "?") + " is not modelled: "
-                    + "a cam profile cannot drive a bone driver. The follower's own joint is "
+                    "Cam-follower mate " + (camMates[0].FeatureName ?? "?") + " is not rigged: "
+                    + "the cam relation was not read off the model. The follower's own joint is "
                     + "exported; pose it by hand to match the cam.");
             }
 
@@ -267,7 +269,7 @@ namespace Peak.SwToBlender.Core
             {
                 // Canonical sign: the mate geometry fixes the axis LINE, but
                 // its direction along that line depended on entity order and
-                // the pose at export — live 2026-08-23, the hinge bone
+                // the pose at export, live 2026-08-23, the hinge bone
                 // flipped with the export pose. The sign along the line is
                 // now a pure function of the line itself; the limit VALUES
                 // carry the dimension's sense instead (ReconcileLimitSigns).
@@ -288,7 +290,7 @@ namespace Peak.SwToBlender.Core
                     // A prismatic/planar origin is kinematically arbitrary
                     // (no rotation axis line to stay on), and the mate
                     // entities put it wherever the touching faces happen to
-                    // sit — live corpus 02 variants: a free slider's bone
+                    // sit. Live corpus 02 variants: a free slider's bone
                     // landed on the rail's far corner. The child part's own
                     // origin is the WYSIWYG spot.
                     origin = anchor;
@@ -349,7 +351,7 @@ namespace Peak.SwToBlender.Core
         /// synthesized zero-size carrier link, one primitive per SIDE of the
         /// contact:
         ///   plane        →  planar (its normal)
-        ///   cylinder     →  revolute (its axis — the other side orbits it)
+        ///   cylinder     →  revolute (its axis, the other side orbits it)
         ///   axis/edge under a COINCIDENT  →  prismatic (a point ON a line
         ///                   slides along it; only an offset contact orbits)
         ///   sphere/vertex→  ball (its centre)
@@ -358,7 +360,7 @@ namespace Peak.SwToBlender.Core
         /// changes the dimension, never the freedom), or one COINCIDENT of a
         /// point with a face/line. Gates stay strict: no limit mates, and
         /// the REST of the mate set must leave exactly the freedom the
-        /// pattern expects — everything else falls through to the ordinary
+        /// pattern expects. Everything else falls through to the ordinary
         /// path, where the resolver's contact kills narrow what they can and
         /// the rest stays honestly unmodelled.
         /// </summary>
@@ -510,7 +512,11 @@ namespace Peak.SwToBlender.Core
             if (kind == "plane")
             {
                 var n = MathOps.Normalized(side.Direction);
-                var anchor = other.Point ?? side.Point;
+                // A cone resting on a plane pivots about its APEX, so both
+                // halves of the split anchor there rather than on whatever
+                // point the mate entity carried (live corpus 15 cone3: the
+                // base-circle centre, 27.5 mm away and 9.4 mm off the plate).
+                var anchor = ConeApex(other, side) ?? other.Point ?? side.Point;
                 double d = MathOps.Dot(n, new[]
                 {
                     anchor[0] - side.Point[0],
@@ -533,7 +539,7 @@ namespace Peak.SwToBlender.Core
                 {
                     // A vertex ON a cylindrical FACE rides the whole
                     // surface: spin about the axis AND slide along it stay
-                    // (live corpus 16 pt3, 2026-08-23 — the revolute side
+                    // (live corpus 16 pt3, 2026-08-23, the revolute side
                     // pinned the slide SolidWorks allows). Origin at the
                     // vertex's foot on the axis, so the bone sits at the
                     // contact height.
@@ -550,6 +556,21 @@ namespace Peak.SwToBlender.Core
                     return MakeCarrierJoint(
                         ref nextId, JointType.Cylindrical, a, foot, contact);
                 }
+                var apex = ConeApex(side, other);
+                if (apex != null)
+                {
+                    // A cone lying on a plane turns about its own axis and
+                    // precesses about the vertical, and BOTH of those pass
+                    // through the apex: where the axis meets the plane. The
+                    // axis is negated so it runs from the apex INTO the cone
+                    // (SolidWorks reports it pointing the other way), which
+                    // puts the bone along the body rather than through the
+                    // plate.
+                    var into = MathOps.Normalized(side.Direction);
+                    return MakeCarrierJoint(
+                        ref nextId, JointType.Revolute,
+                        new[] { -into[0], -into[1], -into[2] }, apex, contact);
+                }
                 // A point ON a line (coincident with an axis or edge) slides
                 // along it; any offset contact orbits the axis instead.
                 bool slides = MateFacts.Is(contact, "COINCIDENT")
@@ -561,6 +582,52 @@ namespace Peak.SwToBlender.Core
             }
             // ball
             return MakeCarrierJoint(ref nextId, JointType.Ball, null, side.Point, contact);
+        }
+
+        /// <summary>
+        /// Where a cone's axis meets the plane it is lying on: its APEX,
+        /// or null when this is not a cone resting on a plane.
+        ///
+        /// It really is the apex, not a coincidence. The tangency gate has
+        /// already established |dot(n, a)| = sin(half-angle), which says the
+        /// axis dips by exactly the half-angle; that is the one attitude in
+        /// which the lowest generator lies IN the plane, and a cone can only
+        /// touch a plane along a generator when its apex is on it. Verified
+        /// on live corpus 15 cone3: the intersection lands on the cone
+        /// part's own origin to 1e-16 m.
+        ///
+        /// Everything about the contact turns about that point: the spin
+        /// about the cone's own axis and the precession about the vertical
+        /// both pass through it, so it is where the joint belongs. The
+        /// alternative, the mate entity's own point, is the base-circle
+        /// centre: 27.5 mm away and 9.4 mm above the plate.
+        /// </summary>
+        private static double[] ConeApex(GraphMateEntity cone, GraphMateEntity plane)
+        {
+            if (cone == null || plane == null) return null;
+            if (cone.EntityTypeName != "cone" || cone.HalfAngle <= 0.0) return null;
+            if (ContactSideKind(plane) != "plane") return null;
+            if (cone.Point == null || cone.Direction == null
+                || plane.Point == null || plane.Direction == null) return null;
+
+            var a = MathOps.Normalized(cone.Direction);
+            var n = MathOps.Normalized(plane.Direction);
+            double denom = MathOps.Dot(n, a);
+            // The gate that got us here fixed |denom| at sin(half-angle) > 0,
+            // so this is never a grazing intersection, but a cone standing
+            // on its base would divide by nothing, and it must fall through
+            // to the old anchor instead.
+            if (Math.Abs(denom) < 1e-9) return null;
+
+            double t = (n[0] * (plane.Point[0] - cone.Point[0])
+                      + n[1] * (plane.Point[1] - cone.Point[1])
+                      + n[2] * (plane.Point[2] - cone.Point[2])) / denom;
+            return new[]
+            {
+                cone.Point[0] + t * a[0],
+                cone.Point[1] + t * a[1],
+                cone.Point[2] + t * a[2],
+            };
         }
 
         private static RigJoint MakeCarrierJoint(
@@ -639,7 +706,7 @@ namespace Peak.SwToBlender.Core
         /// <summary>
         /// Classification by residual motion: MotionResolver intersects the
         /// allowed motion of EVERY constraint mate, and the joint type is
-        /// whatever survives — the predecessor's pattern table returned on the
+        /// whatever survives: the predecessor's pattern table returned on the
         /// first recognised mate pair and mis-typed any pair with more mates
         /// than the pattern (the live fully-defined hinge came back revolute).
         /// Hinge and slot mates stay special-cased: a hinge IS the joint, and
@@ -679,7 +746,7 @@ namespace Peak.SwToBlender.Core
             var state = MotionResolver.Resolve(constraints);
             unmodelled = state.Unmodelled;
 
-            // Plane primitives are kept for origin refinement only — the
+            // Plane primitives are kept for origin refinement only: the
             // TYPE decision is the resolver's alone. Symmetric counts: its
             // net effect is a coincidence with the mid-plane, and the plane
             // entities carry the same normal.
@@ -879,18 +946,18 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>
-        /// The axis NEVER flips for a limit (it is canonical — a pure
+        /// The axis NEVER flips for a limit (it is canonical: a pure
         /// function of the geometry, so the bone direction is identical
         /// across exports no matter the pose; Oscar's invariant,
         /// 2026-08-23). What the mate's dimension sense decides is the limit
         /// VALUES: the manifest expresses limits as signed displacement
         /// about/along the exported axis, so when the dimension grows the
         /// left-handed way the values are mirrored (min,max,rest →
-        /// −max,−min,−rest — same physical range, axis-frame numbers).
+        /// −max,−min,−rest: same physical range, axis-frame numbers).
         /// Each DOF resolves and mirrors independently, which also retires
         /// the old rotation-vs-translation axis conflict. An unresolved
         /// sense (degenerate pose, every rung failed) leaves the values
-        /// as read plus the honest note — at worst the limits mirror,
+        /// as read plus the honest note: at worst the limits mirror,
         /// never the bone.
         /// </summary>
         private static void ReconcileLimitSigns(
@@ -900,7 +967,7 @@ namespace Peak.SwToBlender.Core
         {
             if (joint.Axis == null) return;
             // A ball's limit is an UNSIGNED swing band about the cone axis
-            // (BallConeAxes) — there is no sign to resolve.
+            // (BallConeAxes): there is no sign to resolve.
             if (joint.Type == JointType.Ball) return;
 
             bool unresolved = false;
@@ -912,11 +979,11 @@ namespace Peak.SwToBlender.Core
                 else if (s == 0)
                 {
                     // Every rung failed: the values ship on the as-read
-                    // branch — unless the mate's dimension is FLIPPED, which
+                    // branch, unless the mate's dimension is FLIPPED, which
                     // is exactly the other branch. The geometric rungs never
                     // see the tick (the flip moves the solved entities, not
                     // the recorded math), and at a readable pose they already
-                    // report the flipped sense from the entities themselves —
+                    // report the flipped sense from the entities themselves,
                     // so the tick applies ONLY here, never as a multiplier
                     // (live corpus 01 hinge5, 2026-08-23: parked at the stop,
                     // flip tick the only difference from hinge).
@@ -949,7 +1016,7 @@ namespace Peak.SwToBlender.Core
         /// cone axis (`axis`), the child-side direction is the vector that
         /// must stay within [Min, Max] of it (`secondary_axis`), and the
         /// limit values are the UNSIGNED angle band between the two. Neither
-        /// vector is canonicalized — the sign says which way the cone opens.
+        /// vector is canonicalized: the sign says which way the cone opens.
         /// Without this the consumer could only fake the cone about the
         /// child's REST pose, which broke the moment the stud exported
         /// tilted (live corpus 04, 2026-08-23: limits rode the tilted rest
@@ -1016,7 +1083,7 @@ namespace Peak.SwToBlender.Core
 
         /// <summary>
         /// Limit dimensions read through a flexible subassembly's document
-        /// report the DOCUMENT pose, not the flexed instance — live corpus 07
+        /// report the DOCUMENT pose, not the flexed instance: live corpus 07
         /// flexible-sub2 (2026-08-22): a hinge flexed from 30° to 75° still
         /// exported value_at_rest = 30°, so Blender allowed +45° past the
         /// limit and stopped 30° short of the other end. Each component's
@@ -1054,7 +1121,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>D(parent side)⁻¹ × D(child side) for the mate's entity
-        /// components, world frame — the motion the child ACTUALLY has beyond
+        /// components, world frame: the motion the child ACTUALLY has beyond
         /// what the mate geometry describes. Null when both sides sit at
         /// their described poses (the delta would be identity).</summary>
         private static double[,] RelativePoseDelta(
@@ -1082,7 +1149,7 @@ namespace Peak.SwToBlender.Core
         /// <summary>The signed right-handed rotation of a rigid delta about
         /// the given unit axis: transport any perpendicular vector and read
         /// the turn. Only the component about the axis is reported, which is
-        /// the joint's own DOF — off-axis parts belong to other joints.
+        /// the joint's own DOF: off-axis parts belong to other joints.
         /// Internal: the Sw limit-sign probe reads its perturbation results
         /// with the same convention.</summary>
         internal static double RotationAbout(double[] axis, double[,] delta)
@@ -1109,11 +1176,11 @@ namespace Peak.SwToBlender.Core
         /// mate geometry at the pose the mates describe, the same geometry
         /// transported to the ACTUAL flexed pose (a flexed instance moves the
         /// measurement faces off the degenerate alignment, so the sign
-        /// becomes readable — live 2026-08-23: the flexible hinge's sense
+        /// becomes readable, live 2026-08-23: the flexible hinge's sense
         /// depended on where the leaf happened to sit), the flexed-instance
         /// range check, and finally the live oracle. Each returns +1/−1 in
-        /// the same convention — the dimension grows with positive
-        /// right-handed motion about/along the probe axis — and 0 passes to
+        /// the same convention: the dimension grows with positive
+        /// right-handed motion about/along the probe axis, and 0 passes to
         /// the next rung.
         /// </summary>
         private static int ResolveSignLadder(
@@ -1139,10 +1206,10 @@ namespace Peak.SwToBlender.Core
         /// Sense from a flexed instance, when the doc-pose geometry is
         /// degenerate: the limit dimension at the ACTUAL pose is the recorded
         /// doc-pose value shifted by the pose delta projected on the axis,
-        /// and that actual value must lie inside [Min, Max] — the assembly
+        /// and that actual value must lie inside [Min, Max]: the assembly
         /// solver holds it there. When only one axis sense puts it in range,
         /// that sense is proven (live corpus 07, 2026-08-23: doc pose at the
-        /// 0° stop, instance flexed +40° in a 0..75° range — the wrong sense
+        /// 0° stop, instance flexed +40° in a 0..75° range: the wrong sense
         /// lands at −40°). Both-in-range (a tiny delta, a wide range) stays
         /// unresolved.
         /// </summary>
@@ -1188,7 +1255,7 @@ namespace Peak.SwToBlender.Core
         /// shrinks, 0 when the geometry is degenerate. For measurement-face
         /// normals n1 (parent side) and n2 (child side), the unsigned angle's
         /// derivative with respect to child rotation about axis a has the sign
-        /// of a · (n1 × n2) — zero exactly when the normals are parallel (the
+        /// of a · (n1 × n2): zero exactly when the normals are parallel (the
         /// mate rests at 0/180 deg) or lie on the axis.
         /// </summary>
         private static int RotationDimensionSign(
@@ -1251,7 +1318,7 @@ namespace Peak.SwToBlender.Core
         /// +1 when the distance dimension grows as the child group moves along
         /// +axis. D = |(p2 − p1) · n| for parallel measurement faces with
         /// normal n, so the derivative's sign is sign((p2 − p1) · n) · (a · n).
-        /// 0 when the faces touch in the rest pose (D = 0 — the sense is
+        /// 0 when the faces touch in the rest pose (D = 0: the sense is
         /// unknowable) or the normal is off the axis.
         /// </summary>
         private static int TranslationDimensionSign(
@@ -1274,7 +1341,23 @@ namespace Peak.SwToBlender.Core
                 }
                 else if (p1 == null) p1 = p;
             }
-            if (n == null || p1 == null || p2 == null) return 0;
+            if (p1 == null || p2 == null) return 0;
+            if (n == null)
+            {
+                // A point-to-point distance measures no NORMAL: its entities
+                // are bare vertices, and the direction slots are filler that
+                // MateReader correctly refuses to record. What the dimension
+                // grows along is the separation itself: move the child away
+                // from the parent point and the number goes up. Live
+                // ClampRig (2026-08-24): both hydraulic rams are limited
+                // by exactly such a mate, every geometric rung fell through to
+                // the probe, and the probe cannot read a dimension inside a
+                // flexible subassembly, so both shipped their limits as read,
+                // which is right for one ram and mirrored for the other.
+                var apart = new[] { p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2] };
+                if (MathOps.Norm(apart) < 1e-9) return 0;
+                n = MathOps.Normalized(apart);
+            }
 
             // A pin-slot's slide is its secondary axis; every other limited
             // type slides along the axis itself.
@@ -1371,7 +1454,7 @@ namespace Peak.SwToBlender.Core
                     // A universal joint averages to a 1:1 rotation transfer;
                     // the within-revolution fluctuation (cos of the bend
                     // angle) has no bone-driver expression, and posing does
-                    // not miss it. Sign convention unpinned live — the axes'
+                    // not miss it. Sign convention unpinned live: the axes'
                     // dot decides, straight-shaft-transfers-same-way.
                     coupling.Kind = "gear";
                     double s = driver.Axis != null && driven.Axis != null
@@ -1401,15 +1484,15 @@ namespace Peak.SwToBlender.Core
         /// The signed driven-per-driver ratio the Blender driver applies to
         /// bone-local channels. Everything here was pinned on live corpus 08
         /// (2026-08-22, gear-pair): the mate's numerator:denominator is the
-        /// ANGULAR ratio θ(entity1):θ(entity2) — the large gear (entity 1,
-        /// r=20 mm) carried num/den = 0.5 against the small one — so the
+        /// ANGULAR ratio θ(entity1):θ(entity2): the large gear (entity 1,
+        /// r=20 mm) carried num/den = 0.5 against the small one, so the
         /// driven side follows at den/num when the driver is entity 1 and at
         /// num/den when the sides are swapped. An UN-reversed gear mate
         /// counter-rotates (external mesh; the live pair rotated the same way
         /// in Blender until this sign), and the world-frame sign converts to
         /// bone-local through the two mount joints' axis senses. The linear
         /// coupler shares the number layout; its default direction is taken
-        /// as same-way (no live sample yet — the read-time log settles it
+        /// as same-way (no live sample yet: the read-time log settles it
         /// when one arrives).
         /// </summary>
         private static double? SignedPairRatio(
@@ -1427,7 +1510,7 @@ namespace Peak.SwToBlender.Core
             else if (mate.CouplingRatio.HasValue)
             {
                 // Legacy single-number recordings (old fixtures): keep them
-                // usable, magnitude only — the sign logic below still applies.
+                // usable, magnitude only: the sign logic below still applies.
                 magnitude = Math.Abs(mate.CouplingRatio.Value);
             }
             else
@@ -1456,7 +1539,7 @@ namespace Peak.SwToBlender.Core
         /// so the sign against the rack's slide axis is computable instead
         /// of guessed. Converted to bone-local through both mount joints'
         /// axis senses; the reader's Reverse sign rides on top. Not yet
-        /// pinned live (no rack in the corpus until 18) — the reader logs
+        /// pinned live (no rack in the corpus until 18): the reader logs
         /// the raw mate numbers for the day it disagrees.
         /// </summary>
         private static double? SignedRackRatio(
@@ -1496,7 +1579,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>Fills a path joint from the sampled curve: origin at the
-        /// follower's rest point, axis along the local tangent — so at rest
+        /// follower's rest point, axis along the local tangent, so at rest
         /// the bone behaves like the prismatic it locally is.</summary>
         private static void BuildPathJoint(RigJoint joint, GraphMate pathMate)
         {
@@ -1543,7 +1626,7 @@ namespace Peak.SwToBlender.Core
 
         /// <summary>Fills a surface joint from the carried patch: origin at
         /// the follower's rest point on the face, axis along the local
-        /// surface normal — so the rest frame reads like the planar contact
+        /// surface normal, so the rest frame reads like the planar contact
         /// it locally is.</summary>
         private static void BuildSurfaceJoint(RigJoint joint, GraphMate surfaceMate)
         {
@@ -1568,7 +1651,7 @@ namespace Peak.SwToBlender.Core
                 + "real surface to SolidWorks' tessellation tolerance.");
         }
 
-        /// <summary>The normal of the patch triangle nearest a point — the
+        /// <summary>The normal of the patch triangle nearest a point: the
         /// rest frame's up. Nearest by CENTROID: a contact point sits on a
         /// triangle it is nearly coplanar with, so plane distance cannot
         /// separate the candidates but centroid distance can.</summary>
@@ -1608,7 +1691,7 @@ namespace Peak.SwToBlender.Core
             return null;
         }
 
-        /// <summary>A direction-less point-carrying entity — the follower a
+        /// <summary>A direction-less point-carrying entity: the follower a
         /// point-on-curve coincidence moves along the sampled path.</summary>
         private static bool HasFollowerPoint(GraphMate m)
         {
@@ -1622,7 +1705,7 @@ namespace Peak.SwToBlender.Core
         /// <summary>First-entity component's group, then the first group that
         /// differs. The mate author picked the driver first; that convention
         /// is all the recorded graph carries.</summary>
-        private static bool EntityGroups(
+        internal static bool EntityGroups(
             GraphMate mate, RigidGroupingResult grouping, out string first, out string second)
         {
             first = null;
@@ -1652,8 +1735,8 @@ namespace Peak.SwToBlender.Core
         /// <summary>The joint that mounts a group to the rest of the rig:
         /// prefer joints where the group is the child, prefer the wanted
         /// types, then lowest id. The coupling edge's own joint (if any) is
-        /// excluded — a gear mate never drives itself.</summary>
-        private static RigJoint FindMountJoint(
+        /// excluded: a gear mate never drives itself.</summary>
+        internal static RigJoint FindMountJoint(
             List<RigJoint> joints, string groupId, string[] preferTypes, RigJoint exclude)
         {
             RigJoint best = null;
@@ -1719,6 +1802,96 @@ namespace Peak.SwToBlender.Core
         /// <summary>Deterministic roll reference: the global axis least
         /// parallel to the joint axis, orthogonalised and normalised. Ties
         /// resolve X before Y before Z.</summary>
+        // ── The solver's verdict ────────────────────────────────────────────
+
+        /// <summary>
+        /// The joint types the DOF probe has a vocabulary for. Everything else
+        /// the classifier can produce (path, surface, pin_slot, screw), is
+        /// invisible to the probe, which reads freedoms and cannot see a
+        /// curve, a mesh, or the coupling between two of them.
+        /// </summary>
+        public static bool IsSolverPrimitive(string type)
+        {
+            return type == JointType.Revolute || type == JointType.Prismatic
+                || type == JointType.Cylindrical || type == JointType.Planar
+                || type == JointType.Ball;
+        }
+
+        /// <summary>
+        /// Replaces a joint's kinematics with what SolidWorks' own solver
+        /// reported for the pair. The mate analysis infers the freedom from
+        /// mate geometry one pair at a time; the solver has actually solved
+        /// the assembly, so where the two disagree on a primitive the solver
+        /// is right.
+        ///
+        /// Only the freedom itself is adopted: type, axis, origin. Limits,
+        /// couplings and sampled geometry stay with the mate analysis, because
+        /// the probe cannot see them: it has to SUPPRESS limit mates to read
+        /// any freedom at all, and a screw reads as a plain cylindrical once
+        /// its coupling is invisible. Returns a note describing anything that
+        /// had to be dropped, or null.
+        /// </summary>
+        public static string AdoptSolverVerdict(
+            RigJoint joint, string type, double[] axis, double[] origin)
+        {
+            string previous = joint.Type;
+            bool sameLine = joint.Axis != null && axis != null
+                && Math.Abs(MathOps.Dot(MathOps.Normalized(joint.Axis),
+                                        MathOps.Normalized(axis))) > 0.999;
+
+            joint.Type = type;
+            if (axis != null)
+            {
+                joint.Axis = Canonical(MathOps.Threshold(MathOps.Normalized(axis), 1e-11));
+                joint.SecondaryAxis = SecondaryAxis(joint.Axis);
+            }
+            else if (type == JointType.Ball)
+            {
+                joint.Axis = null;
+                joint.SecondaryAxis = null;
+            }
+            // A prismatic or planar verdict carries no origin: the probe
+            // reports a direction, not a point, and the classifier already
+            // anchored the origin at the child's own reference frame, which is
+            // where a consumer wants the bone. Keep it.
+            if (origin != null) joint.Origin = MathOps.Threshold(origin, 1e-11);
+
+            // A limit is measured about a specific axis. Moved to a different
+            // line, or onto a freedom the new type does not have, it is no
+            // longer about anything.
+            var dropped = new List<string>();
+            if (joint.RotationLimit != null && (!sameLine || !HasRotation(type)))
+            {
+                joint.RotationLimit = null;
+                dropped.Add("its rotation limit");
+            }
+            if (joint.TranslationLimit != null && (!sameLine || !HasTranslation(type)))
+            {
+                joint.TranslationLimit = null;
+                dropped.Add("its translation limit");
+            }
+
+            string note = "The SolidWorks solver reads this pair as " + type
+                + "; the mate analysis said " + previous
+                + ", and the solver is authoritative.";
+            if (dropped.Count > 0)
+                note += " Dropped " + string.Join(" and ", dropped.ToArray())
+                    + ": the freedom it measured is not this joint's.";
+            return note;
+        }
+
+        private static bool HasRotation(string type)
+        {
+            return type == JointType.Revolute || type == JointType.Cylindrical
+                || type == JointType.Ball;
+        }
+
+        private static bool HasTranslation(string type)
+        {
+            return type == JointType.Prismatic || type == JointType.Cylindrical
+                || type == JointType.Planar;
+        }
+
         private static double[] SecondaryAxis(double[] axis)
         {
             var candidates = new[]
@@ -1769,7 +1942,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>Each group's reference point: the first listed component's
-        /// transform translation — the same fallback the Blender consumer uses
+        /// transform translation: the same fallback the Blender consumer uses
         /// for group placement, so the two sides agree on where a group "is".</summary>
         private static Dictionary<string, double[]> BuildGroupAnchors(
             MateGraph graph, RigidGroupingResult grouping)

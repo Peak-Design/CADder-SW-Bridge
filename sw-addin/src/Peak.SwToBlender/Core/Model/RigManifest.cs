@@ -4,7 +4,7 @@ namespace Peak.SwToBlender.Core.Model
 {
     /// <summary>
     /// The manifest DOM. This namespace has no dependency on
-    /// SolidWorks.Interop.* — the Sw\ layer fills it, ManifestWriter emits it,
+    /// SolidWorks.Interop.*: the Sw\ layer fills it, ManifestWriter emits it,
     /// and the unit tests build it directly. Shape and meaning are fixed by
     /// schema\rig-manifest.schema.json and schema\SCHEMA.md; this file follows
     /// them, never the other way round.
@@ -18,6 +18,7 @@ namespace Peak.SwToBlender.Core.Model
         public List<RigidGroup> RigidGroups = new List<RigidGroup>();
         public List<RigJoint> Joints = new List<RigJoint>();
         public List<RigLoop> Loops = new List<RigLoop>();
+        public List<RigMechanism> Mechanisms = new List<RigMechanism>();
         public List<ManifestWarning> Warnings = new List<ManifestWarning>();
     }
 
@@ -47,7 +48,6 @@ namespace Peak.SwToBlender.Core.Model
         public double[,] Transform;          // 4x4 row-major, global, metres
         public double[] BboxMin;             // null when unavailable
         public double[] BboxMax;
-        public bool IsFastener;
         public bool Suppressed;
         public string SubassemblySolving;    // "rigid" | "flexible" | null
     }
@@ -86,8 +86,8 @@ namespace Peak.SwToBlender.Core.Model
         /// across the surface and all three rotations. `axis` is the surface
         /// normal at the rest position and `origin` the contact point; the
         /// face itself travels triangulated in RigJoint.SurfacePoints. The
-        /// fallback for surfaces no analytic joint describes — a torus, a
-        /// fillet, a loft — which SolidWorks mates to as readily as a
+        /// fallback for surfaces no analytic joint describes: a torus, a
+        /// fillet, a loft, which SolidWorks mates to as readily as a
         /// plane.</summary>
         public const string Surface = "surface";
         public const string Free = "free";
@@ -145,18 +145,55 @@ namespace Peak.SwToBlender.Core.Model
 
     public sealed class JointCoupling
     {
-        public string Kind;                  // gear | rack_pinion | screw | linear_coupler | mirror
+        public string Kind;                  // gear | rack_pinion | screw | linear_coupler | mirror | table | cam
         public string DriverJoint;           // null for screw self-coupling
+
+        /// <summary>table only: the driven joint's value as a sampled
+        /// function of the driver's, [[x, y], ...] with x ascending, both
+        /// in the joints' own units (radians for a turn, metres for a
+        /// slide), relative to the exported pose. Periodic tables repeat
+        /// every Period of x. Read off the live model by RelationProbe,
+        /// which is how a cam profile or a universal joint's fluctuation
+        /// reaches the consumer without a formula.</summary>
+        public double[][] Samples;
+        public bool Periodic;
+        public double Period;
         public double? Ratio;                // gear (rad/rad, negative = reversal), linear_coupler (m/m)
         public double? MetersPerRadian;      // rack_pinion
         public double? LeadMPerRev;          // screw
 
         /// <summary>Mirror couplings only: the driven joint's body poses as
         /// the exact mirror image of the driver's body across this plane
-        /// (live corpus 14 sym4, 2026-08-23 — a symmetric mate between two
+        /// (live corpus 14 sym4, 2026-08-23, a symmetric mate between two
         /// otherwise unmated bodies).</summary>
         public double[] MirrorPlanePoint;
         public double[] MirrorPlaneNormal;   // unit, global
+
+        /// <summary>Mirror couplings only: HOW MUCH of the pose is mirrored.
+        /// "plane" is a symmetric MATE between two planar faces: a
+        /// plane-to-plane relation, so only the translation along the normal
+        /// and the two tilts follow; the bodies slide and spin within the
+        /// plane independently. "rigid" is an assembly MIRROR FEATURE, where
+        /// the mirrored instance is a full reflection of its source and every
+        /// channel follows.</summary>
+        public string MirrorScope;           // "plane" | "rigid"
+
+        /// <summary>Cam couplings only: the cam path's faces triangulated in
+        /// global metres, the cam's axis with a point on it (the cam joint's),
+        /// and the follower's contact entity. The consumer holds the follower
+        /// on the faces itself: a vertex or a roller by projection along its
+        /// slide, a flat face by the profile's support function. Written when
+        /// the relation probe could not table the cam (a cam free in its
+        /// plane, cam-follower2, 2026-09-15) or did not run.</summary>
+        public double[] CamAxis;
+        public double[] CamOrigin;
+        public double[][] CamSurfacePoints;
+        public int[][] CamSurfaceTriangles;
+        public string FollowerKind;          // vertex | roller | flat
+        public double[] FollowerPoint;       // the vertex, the roller's axis point, a point on the flat face
+        public double[] FollowerAxis;        // roller: the roller's axis; null otherwise
+        public double? FollowerRadius;       // roller (or a ball follower's sphere); null otherwise
+        public double[] FollowerNormal;      // flat: the face normal; null otherwise
     }
 
     public sealed class SourceMate
@@ -169,10 +206,90 @@ namespace Peak.SwToBlender.Core.Model
     {
         public string Id;
         public List<string> MemberJoints = new List<string>();
-        public string ClosureJoint;          // the cut edge — closed by IK, not parenting
+        public string ClosureJoint;          // the cut edge: re-closed, not parented
         public string SuggestedDriverJoint;
+
+        /// <summary>How the consumer should re-close the cut. "ik" (the
+        /// default) is a point coincidence solved by rotating the driven
+        /// chain. "aim_pair" is a slider-crank: the two bodies either side of
+        /// the cut each hang off their own pin and simply aim at each other,
+        /// because no rotational solver can lengthen a slide.</summary>
+        public string ClosureKind = "ik";
         public bool Planar;
         public double[] PlaneNormal;         // null when not planar
+
+        /// <summary>Every input the analyzer weighed for this loop, the
+        /// chosen one first, each with the cut and closure its choice
+        /// implies. A consumer that lets the user pick another input applies
+        /// the whole candidate, never the joint alone: the cut sits beside
+        /// the driver, so moving one moves the other.</summary>
+        public List<RigLoopCandidate> DriverCandidates = new List<RigLoopCandidate>();
+
+        /// <summary>Analysis-only, never serialised: the ring's groups in
+        /// ring order, the group the ring hangs from (nearest the root),
+        /// and the body the driver poses. The consumer's control rule
+        /// (a driver whose posed body another loop's chain solves is no
+        /// control) is replayed from these to name a mechanism's input.</summary>
+        public List<string> RingGroups;
+        public string AnchorGroup;
+        public string DriverChildGroup;
+    }
+
+    public sealed class RigLoopCandidate
+    {
+        public string DriverJoint;
+        public string ClosureJoint;
+        public string ClosureKind;
+
+        public RigLoopCandidate(string driver, string closure, string kind)
+        {
+            DriverJoint = driver;
+            ClosureJoint = closure;
+            ClosureKind = kind;
+        }
+    }
+
+    /// <summary>
+    /// Loops that share joints: one degree of freedom, one input. Each
+    /// input the mechanism can take is a COMPLETE alternative (every loop
+    /// of the mechanism re-chosen with that input, and the joints whose
+    /// tree direction turns round), so a consumer switches inputs by
+    /// applying an option whole. A per-loop candidate applied on its own
+    /// left the other loops on the old input: two drivers on one degree
+    /// of freedom, and a tree the loop members no longer described (live
+    /// plunger.sldasm, 2026-09-15).
+    /// </summary>
+    public sealed class RigMechanism
+    {
+        public string Id;
+        public List<string> LoopIds = new List<string>();
+        /// <summary>The exporter's own choice first.</summary>
+        public List<RigInputOption> Inputs = new List<RigInputOption>();
+    }
+
+    public sealed class RigInputOption
+    {
+        public string Joint;
+        /// <summary>The mechanism's loops under this input, same ids as
+        /// the mechanism's loops, in the same order.</summary>
+        public List<RigLoop> Loops = new List<RigLoop>();
+        /// <summary>Joints whose parent and child swap under this input
+        /// (relative to the manifest's joints), because the tree reaches
+        /// them from the other side.</summary>
+        public List<string> FlippedJoints = new List<string>();
+
+        /// <summary>Joints whose limits differ under this input: a stroke
+        /// limit derived onto a slider-crank's crank belongs to the
+        /// crank-driven configuration. A consumer applies these with the
+        /// option and restores the manifest's own when it leaves it.</summary>
+        public List<RigOptionLimit> JointLimits = new List<RigOptionLimit>();
+    }
+
+    public sealed class RigOptionLimit
+    {
+        public string Joint;
+        public JointLimit RotationLimit;     // null = unlimited under this input
+        public JointLimit TranslationLimit;
     }
 
     public sealed class ManifestWarning

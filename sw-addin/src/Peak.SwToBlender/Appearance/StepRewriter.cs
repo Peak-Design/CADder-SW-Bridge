@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285 — the STEP appearance engine, merged into SW To Blender.
+// Vendored from NEXT-STEP-SW (Peak.NextStep) @ b081285: the STEP appearance engine, merged into SW To Blender.
 
 namespace Peak.SwToBlender.Appearance
 {
@@ -276,7 +276,15 @@ namespace Peak.SwToBlender.Appearance
                     int location = placementRefs[0];
                     if (string.Equals(_step.TypeOf(location), "CARTESIAN_POINT",
                                       StringComparison.OrdinalIgnoreCase))
-                        return ReadTriple(location);
+                    {
+                        // In the unit of the parent's representation, which
+                        // is whatever the top document was modelled in; the
+                        // matcher compares millimetres.
+                        var xyz = ReadTriple(location);
+                        if (xyz == null) return null;
+                        double mm = _step.PlacementUnitMm(rel, placement);
+                        return new[] { xyz[0] * mm, xyz[1] * mm, xyz[2] * mm };
+                    }
                 }
             }
             return null;

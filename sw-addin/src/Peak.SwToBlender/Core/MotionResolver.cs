@@ -31,7 +31,7 @@ namespace Peak.SwToBlender.Core
 
         /// <summary>Constraint mates the resolver had no rule for (tangent,
         /// cam, ...). They can only REMOVE freedom, so a nonzero count means
-        /// the state may overstate the mobility — the caller decides whether
+        /// the state may overstate the mobility: the caller decides whether
         /// that demands a confidence downgrade.</summary>
         public int Unmodelled;
 
@@ -45,7 +45,7 @@ namespace Peak.SwToBlender.Core
     /// between a component pair. The predecessor pattern-matched mate PAIRS
     /// and returned on the first recognised shape, so a fully-defined hinge
     /// (concentric + face coincident + a side-face coincident that kills the
-    /// spin) came back "revolute" — found live on corpus assembly 01
+    /// spin) came back "revolute": found live on corpus assembly 01
     /// variants, 2026-08-22. Intersection cannot make that mistake: every
     /// mate narrows the state and the joint type is whatever survives all
     /// of them. RigidGrouper and JointClassifier both consume this, so
@@ -57,11 +57,14 @@ namespace Peak.SwToBlender.Core
         {
             var s = new MotionState();
             // An angle-family mate allows rotation about EITHER measured
-            // direction — a union, not a subspace — so it is only decidable
+            // direction (a union, not a subspace), so it is only decidable
             // once the other mates have narrowed the rotation. Deferred,
             // and kept as one entry PER MATE: the union is between one
             // mate's own directions.
             var anglePairs = new List<double[][]>();
+            // A line lying in a plane: {normal, line direction, line point}.
+            // Deferred for the same reason: see ApplyLinesInPlanes.
+            var linesInPlanes = new List<double[][]>();
             bool widthNoDirection = false;
 
             // Widths go last: a width with a cylindrical tab removes exactly
@@ -99,13 +102,18 @@ namespace Peak.SwToBlender.Core
                 if (MateFacts.Is(m, "CONCENTRIC"))
                 {
                     ApplyLineCoincidence(s, m);
+                    // "Lock rotation" on a concentric kills the spin too, so
+                    // what is left is the axial slide alone, and with any
+                    // face contact, nothing (live ClampRig, 2026-08-24:
+                    // the ram's seals and grease nipples).
+                    if (m.LockRotation) RotNone(s);
                     continue;
                 }
                 if (MateFacts.Is(m, "COORDINATE"))
                 {
                     // Pinned on live corpus 04 (2026-08-22): an origin mate
                     // WITHOUT "align axes" exports as swMateCOINCIDENT, and
-                    // the align-axes variant exports swMateCOORDINATE — the
+                    // the align-axes variant exports swMateCOORDINATE: the
                     // API exposes no align flag anywhere (2024 interop and
                     // docs both checked), the mate TYPE is the flag. Aligned
                     // origins are a full lock.
@@ -125,20 +133,21 @@ namespace Peak.SwToBlender.Core
                     else if (planes.Count == 1 && point != null)
                     {
                         // A vertex on a face pins ONE translation and no
-                        // rotation at all — treating it like a plane pair
+                        // rotation at all: treating it like a plane pair
                         // (the old rule) invented two dead rotations.
                         RestrictTransToPlane(s, planes[0][0]);
                     }
                     else if (planes.Count == 1 && line != null)
                     {
-                        // An edge lying in a plane: the normal translation
-                        // dies, and so does the one tilt that would lift the
-                        // edge out of the plane — the same single-direction
-                        // kill a width's cylindrical tab uses.
-                        RestrictTransToPlane(s, planes[0][0]);
-                        var l = MathOps.Normalized(line.Direction);
-                        if (!MateFacts.IsParallel(planes[0][0], l))
-                            KillRotDirection(s, MathOps.Cross(planes[0][0], l));
+                        // An edge or axis lying in a plane. Applied after the
+                        // other mates, and in pairs where two of them share
+                        // the line: see ApplyLinesInPlanes.
+                        linesInPlanes.Add(new[]
+                        {
+                            MathOps.Normalized(planes[0][0]),
+                            MathOps.Normalized(line.Direction),
+                            line.Point,
+                        });
                     }
                     else if (planes.Count == 1)
                     {
@@ -156,7 +165,7 @@ namespace Peak.SwToBlender.Core
                     else if (line != null && point != null)
                     {
                         // A vertex on a curved FACE (cylinder, cone): only
-                        // the radial translation dies — the same kill as the
+                        // the radial translation dies: the same kill as the
                         // equivalent tangency. The old fall-through hit the
                         // concentric rule and killed four DOF that exist
                         // (live corpus 16 pt3, 2026-08-23).
@@ -171,7 +180,7 @@ namespace Peak.SwToBlender.Core
                     }
                     else
                     {
-                        // Typed points first; then ANY point-carrying entity —
+                        // Typed points first; then ANY point-carrying entity:
                         // an origin coincidence (no align axes) arrives with
                         // kind-unknown entities holding only points (live
                         // corpus 04 variant ball2, 2026-08-22), and it pins
@@ -187,7 +196,7 @@ namespace Peak.SwToBlender.Core
                 {
                     // A fixed distance between planes is a coincident plane
                     // at an offset; between curved entities it is a contact
-                    // at an offset — the same kill set as the tangency it
+                    // at an offset: the same kill set as the tangency it
                     // generalises.
                     var planes = MateFacts.Planes(m);
                     if (planes.Count > 1)
@@ -232,11 +241,11 @@ namespace Peak.SwToBlender.Core
                 {
                     // Profile centring pins all three translations at the
                     // profile centre. The "lock rotation" tick arrives ONLY on
-                    // the feature data — live corpus 05 (2026-08-22): planar4
+                    // the feature data. Live corpus 05 (2026-08-22): planar4
                     // (unlocked) and planar5 (locked) export byte-identical
                     // entity params. Unlocked, the child spins about the mated
                     // faces' shared normal through the centre (the entity
-                    // point IS the centre — confirmed live).
+                    // point IS the centre: confirmed live).
                     s.TransDirs.Clear();
                     if (m.LockRotation)
                     {
@@ -251,6 +260,8 @@ namespace Peak.SwToBlender.Core
                 s.Unmodelled++;
             }
 
+            ApplyLinesInPlanes(s, linesInPlanes);
+
             if (widthNoDirection && s.Rot == RotFreedom.AboutLine && s.RotDir != null)
             {
                 // The recorded width mate carried no direction; the one thing
@@ -264,13 +275,13 @@ namespace Peak.SwToBlender.Core
                 {
                     // The angle survives rotation about EITHER measured
                     // direction (spin keeps one normal fixed, precession
-                    // keeps the cone angle) — a union over the MATE's own
+                    // keeps the cone angle): a union over the MATE's own
                     // directions. Applying each direction as an independent
                     // kill welded every perpendicular-carrying pair rigid:
                     // a perpendicular's two normals are mutually
                     // perpendicular by construction, so the rotation can be
                     // parallel to at most one of them (live corpus 12
-                    // perp1, 2026-08-23 — a redundant perpendicular fused
+                    // perp1, 2026-08-23: a redundant perpendicular fused
                     // the hinge with no joint and no warning).
                     bool survives = false;
                     foreach (var n in dirs)
@@ -292,10 +303,59 @@ namespace Peak.SwToBlender.Core
 
         // ── Per-mate rules ──────────────────────────────────────────────────
 
+        /// <summary>
+        /// A line lying in a plane (a datum axis or an edge coincident with
+        /// a face) leaves rotation about the plane's normal AND about the
+        /// line: a two-direction freedom the rotation lattice cannot hold,
+        /// so on an unnarrowed state the single mate can only count as
+        /// unmodelled. Two such mates on the SAME line with different
+        /// normals pin the line outright: that is a line coincidence,
+        /// exactly what a concentric does. Live cam-follower sample
+        /// (2026-09-15): the cam's datum axis lies in two perpendicular
+        /// assembly planes, and with a face on the third the cam is a
+        /// hinge, which the per-mate reading called free. The singles run
+        /// after every other mate so the tilt kill lands on a state the
+        /// others have narrowed, the way widths go last.
+        /// </summary>
+        private static void ApplyLinesInPlanes(MotionState s, List<double[][]> entries)
+        {
+            var pinned = new bool[entries.Count];
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (pinned[i]) continue;
+                for (int j = i + 1; j < entries.Count; j++)
+                {
+                    if (pinned[j] || !SameLine(entries[i], entries[j])) continue;
+                    if (MateFacts.IsParallel(entries[i][0], entries[j][0])) continue;
+                    RestrictTransToLine(s, entries[i][1]);
+                    RestrictRotToLine(s, entries[i][1], entries[i][2]);
+                    pinned[i] = pinned[j] = true;
+                    break;
+                }
+            }
+            for (int i = 0; i < entries.Count; i++)
+            {
+                double[] n = entries[i][0], l = entries[i][1];
+                // The normal translation dies, and so does the one tilt that
+                // would lift the line out of the plane (the same
+                // single-direction kill a width's cylindrical tab uses).
+                RestrictTransToPlane(s, n);
+                if (pinned[i]) continue;    // the line cannot tilt at all
+                if (!MateFacts.IsParallel(n, l)) KillRotDirection(s, MathOps.Cross(n, l));
+            }
+        }
+
+        private static bool SameLine(double[][] a, double[][] b)
+        {
+            if (a[2] == null || b[2] == null) return false;
+            if (!MateFacts.IsParallel(a[1], b[1])) return false;
+            return MateFacts.DistancePointToLine(b[2], a[1], a[2]) <= MateFacts.CollinearTol;
+        }
+
         private static void ApplyLineCoincidence(MotionState s, GraphMate m)
         {
             // Sphere before axis: a concentric with a spherical side pins the
-            // CENTRES — a ball, not a pin — and must win even when the other
+            // CENTRES (a ball, not a pin) and must win even when the other
             // entity carries a direction. EntityParams direction slots are
             // undefined for point-like geometry, so a direction next to a
             // sphere is noise, not an axis.
@@ -311,13 +371,13 @@ namespace Peak.SwToBlender.Core
                 RestrictTransToLine(s, dir);
                 RestrictRotToLine(s, dir, pt);
                 // Cone-cone concentric: PINNED live (corpus 15 cone1,
-                // 2026-08-23) — SolidWorks leaves the axial slide alive,
+                // 2026-08-23). SolidWorks leaves the axial slide alive,
                 // exactly like a cylinder pair, so the cylindrical reading
                 // needs no honesty flag.
                 return;
             }
             // No direction anywhere: point-like entities on a concentric are
-            // spheres in different clothes (centres pinned) — the honest
+            // spheres in different clothes (centres pinned): the honest
             // reading is a ball, not an unmodelled shrug.
             var point = FindPoint(m);
             if (point != null)
@@ -338,7 +398,7 @@ namespace Peak.SwToBlender.Core
         /// A width mate's plane entities are the width pair (normal w); the
         /// tab may be planes, or a cylindrical/conical face or axis. A plane
         /// tab behaves like a coincident plane pair. A line-like tab centred
-        /// between the faces keeps BOTH its own spin and the tilt about w —
+        /// between the faces keeps BOTH its own spin and the tilt about w:
         /// the mate kills exactly one rotation direction, w × axis. Live
         /// corpus 05 (2026-08-22): treating the cylinder tab like a plane tab
         /// cost planar2 its spin and merged planar3 rigid. Returns false when
@@ -389,11 +449,11 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>
-        /// The kill set of a surface contact — tangency, or a distance held
+        /// The kill set of a surface contact: tangency, or a distance held
         /// between curved entities (the offset changes the dimension, never
         /// the freedom). Contacts remove translations along the contact
         /// normal; only the plane-against-line-like case also removes a
-        /// rotation (the tilt that would lift the line off the plane —
+        /// rotation (the tilt that would lift the line off the plane:
         /// surface tangency in SolidWorks keeps the axis parallel to the
         /// plane). Point contacts (spheres, vertices) kill no rotation.
         /// Returns false when the entity combination has no rule.
@@ -482,14 +542,14 @@ namespace Peak.SwToBlender.Core
         /// <summary>
         /// A symmetric mate makes one side's geometry the mirror of the
         /// other about the symmetry plane. Between TWO bodies (the plane on
-        /// one, both mirrored entities on the other — the common "centre
+        /// one, both mirrored entities on the other: the common "centre
         /// this part" use) the net effect is a plane coincidence with the
         /// mid-plane: one translation and two tilts die. Every recorded
         /// direction agrees on that normal once solved; when none is
         /// recorded, two mirrored points define it. Mixed directions (line
         /// pairs mirrored about an off-axis plane) have no rule yet and stay
         /// unmodelled. A symmetric mate spanning THREE bodies is a motion
-        /// coupling this resolver cannot see at all — ExportCommand warns.
+        /// coupling this resolver cannot see at all. ExportCommand warns.
         /// </summary>
         private static void ApplySymmetric(MotionState s, GraphMate m)
         {
@@ -506,6 +566,26 @@ namespace Peak.SwToBlender.Core
             {
                 ApplyPlane(s, n);
                 return;
+            }
+            if (mixed)
+            {
+                // The mirrored planes are NOT parallel to each other: two
+                // faces of one body meeting at an angle, held symmetric about
+                // a plane. That says exactly one thing about the body: its
+                // own bisector of those two faces lies IN the mirror plane.
+                // So it is a plane coincidence on the mirror's normal, and
+                // the mirror is whichever entity reflects the other two onto
+                // each other. Live TongRig (2026-09-14): the base section's
+                // two side faces sit 15 degrees either side of X, mirrored
+                // about the assembly's own Right plane. Unmodelled, the base
+                // kept a slide along X it does not have, and the whole tong
+                // exported as sliding relative to its ground.
+                var mirror = MirrorOf(m);
+                if (mirror != null)
+                {
+                    ApplyPlane(s, MathOps.Normalized(mirror.Direction));
+                    return;
+                }
             }
             if (n == null)
             {
@@ -525,6 +605,52 @@ namespace Peak.SwToBlender.Core
             s.Unmodelled++;
         }
 
+        /// <summary>The one plane of a symmetric mate that reflects the
+        /// other two onto each other, or null. Compared as plane equations
+        /// (unit normal plus signed offset, sign allowed to flip), never as
+        /// entity points: the mirrored entities ride the moving bodies and
+        /// only their PLANES are related to the mirror.</summary>
+        private static GraphMateEntity MirrorOf(GraphMate m)
+        {
+            var planes = new List<GraphMateEntity>();
+            foreach (var e in m.Entities)
+                if (e.Direction != null && e.Point != null
+                    && MathOps.Norm(e.Direction) > 1e-9)
+                    planes.Add(e);
+            if (planes.Count != 3) return null;
+            for (int k = 0; k < 3; k++)
+            {
+                var mirror = planes[k];
+                var a = planes[(k + 1) % 3];
+                var b = planes[(k + 2) % 3];
+                var n = MathOps.Normalized(mirror.Direction);
+                var na = MathOps.Normalized(a.Direction);
+                var nb = MathOps.Normalized(b.Direction);
+                double d = MathOps.Dot(na, n);
+                var ra = new[] { na[0] - 2.0 * d * n[0],
+                                 na[1] - 2.0 * d * n[1],
+                                 na[2] - 2.0 * d * n[2] };
+                if (!MateFacts.IsParallel(ra, nb)) continue;
+                // The plane of `a`, carried through the mirror, must be the
+                // plane of `b`: same signed offset along the shared normal.
+                double away = MathOps.Dot(Delta(a.Point, mirror.Point), n);
+                var pa = new[] { a.Point[0] - 2.0 * away * n[0],
+                                 a.Point[1] - 2.0 * away * n[1],
+                                 a.Point[2] - 2.0 * away * n[2] };
+                double da = MathOps.Dot(ra, pa);
+                double db = MathOps.Dot(nb, b.Point);
+                if (MathOps.Dot(ra, nb) < 0.0) da = -da;
+                // The planes of a SOLVED symmetric agree to SolidWorks' own
+                // mate tolerance, around 1e-8 m. Ten microns is a hundred
+                // times that and still a thousand times finer than any real
+                // clearance, so it admits a logged value rounded to five
+                // figures without admitting a plane that is somewhere else.
+                double tol = 1e-5 * Math.Max(1.0, Math.Abs(db));
+                if (Math.Abs(da - db) <= tol) return mirror;
+            }
+            return null;
+        }
+
         private static double[] Delta(double[] to, double[] from)
         {
             return new[] { to[0] - from[0], to[1] - from[1], to[2] - from[2] };
@@ -542,7 +668,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>First direction-carrying entity that is not a plane or a
-        /// sphere — the line-likes: axis, edge, cylinder, cone.</summary>
+        /// sphere, that is the line-likes: axis, edge, cylinder, cone.</summary>
         private static GraphMateEntity FirstLineEntity(GraphMate m)
         {
             foreach (var e in m.Entities)
@@ -555,7 +681,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>An entity that is DEFINITELY a point: typed as one, with
-        /// no direction. Kind-unknown point-carriers stay out — they may be a
+        /// no direction. Kind-unknown point-carriers stay out: they may be a
         /// plane that lost its normal, and weakening a plane rule on their
         /// account would free motion that does not exist.</summary>
         private static GraphMateEntity FindTypedPointEntity(GraphMate m)
@@ -571,7 +697,7 @@ namespace Peak.SwToBlender.Core
         }
 
         /// <summary>Removes one direction from the allowed rotation set. Exact
-        /// only against a state already narrowed to a single direction — the
+        /// only against a state already narrowed to a single direction: the
         /// lattice cannot hold a two-direction span, so Full/AboutPoint stay
         /// as they are and flag Unmodelled (overstating mobility, which is the
         /// flag's contract; those pairs have no recognised joint type anyway).</summary>
@@ -764,7 +890,7 @@ namespace Peak.SwToBlender.Core
             return null;
         }
 
-        /// <summary>First entity carrying a point, whatever its kind — for
+        /// <summary>First entity carrying a point, whatever its kind: for
         /// mate types whose entities are always point-like (COORDINATE).</summary>
         private static double[] FindAnyPoint(GraphMate m)
         {

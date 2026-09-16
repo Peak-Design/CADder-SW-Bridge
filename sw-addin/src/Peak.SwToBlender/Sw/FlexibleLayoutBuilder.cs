@@ -10,7 +10,7 @@ namespace Peak.SwToBlender.Sw
     /// Builds the FlexiblePoseFixer's input from the walked tree: for every
     /// subassembly document that is inserted more than once AND has at least
     /// one flexed flexible instance, one request describing each instance's
-    /// correct internal layout — the flexed instance's from its walked
+    /// correct internal layout: the flexed instance's from its walked
     /// children's actual world transforms, every other instance's from the
     /// document's saved layout (captured on the flexible instance's walk,
     /// because a rigid twin's interior is never walked).

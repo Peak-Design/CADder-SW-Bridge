@@ -19,7 +19,7 @@ namespace Peak.SwToBlender
     /// rigid pairs, classify the residual freedoms, cut the loops, export the
     /// STEP, match the occurrences, write the manifest. The STEP and the
     /// manifest are written in the same pass so every name in the manifest
-    /// matches the file exactly — that is the whole contract.
+    /// matches the file exactly: that is the whole contract.
     /// </summary>
     /// <summary>What ExportBundle produced, for the caller's reporting.</summary>
     public sealed class RigExportOutcome
@@ -28,6 +28,10 @@ namespace Peak.SwToBlender
         public string StepPath;
         public string ManifestPath;
         public int Warnings;
+
+        /// <summary>The assembly had mate errors and the user chose to
+        /// export the geometry without a rig. There is no manifest.</summary>
+        public bool GeometryOnly;
     }
 
     public static class ExportCommand
@@ -81,7 +85,9 @@ namespace Peak.SwToBlender
                 // the DOF probe, when a later milestone enables it, restores
                 // fix flags and mate suppression). This catch is the last
                 // line of defence, not the restore path.
-                var outcome = ExportBundle(app, model, assembly, stepPath, manifestPath, settings);
+                var outcome = ExportBundle(
+                    app, model, assembly, stepPath, manifestPath, settings,
+                    mateErrorPrompt: message => AskWithoutRig(app, message));
                 app.SendMsgToUser2(outcome.Report,
                     (int)swMessageBoxIcon_e.swMbInformation,
                     (int)swMessageBoxBtn_e.swMbOk);
@@ -110,7 +116,7 @@ namespace Peak.SwToBlender
         /// analysis on a large assembly must not pay for a STEP write every
         /// time). Same pipeline minus the STEP/appearance stages; occurrence
         /// matching runs against the EXISTING STEP beside the manifest when
-        /// one is there. No options dialog — the saved settings drive the
+        /// one is there. No options dialog: the saved settings drive the
         /// probes, straight to the file picker.
         /// </summary>
         public static void RunManifestOnly(ISldWorks app)
@@ -169,7 +175,40 @@ namespace Peak.SwToBlender
 
         /// <summary>The STEP file a manifest describes: the same base name
         /// beside it. Path.ChangeExtension alone would turn x.rig.json into
-        /// x.rig.step — the .rig marker must go with the .json.</summary>
+        /// x.rig.step: the .rig marker must go with the .json.</summary>
+        /// <summary>The mate errors, at most ten of them named.</summary>
+        internal static string MateErrorReport(List<string> mateErrors)
+        {
+            const int shown = 10;
+            var list = string.Join("\n  ",
+                mateErrors.GetRange(0, Math.Min(shown, mateErrors.Count)).ToArray());
+            if (mateErrors.Count > shown)
+                list += "\n  ... and " + (mateErrors.Count - shown) + " more";
+            return "Mate errors or over-defined mates are in this assembly:\n  " + list;
+        }
+
+        /// <summary>What the user is asked. Yes exports the geometry with no
+        /// rig, No stops the export.</summary>
+        internal static string MateErrorQuestion(string trouble)
+        {
+            return trouble
+                + "\n\nSolidWorks does not solve these mates as they are modelled, "
+                + "so a rig made from them would move wrongly.\n\n"
+                + "Do you want to export the geometry without a rig?\n\n"
+                + "Yes: export the geometry only, with no rig.\n"
+                + "No: stop the export, so you can fix the mates.";
+        }
+
+        /// <summary>Asks whether to export the geometry without a rig.
+        /// Yes continues, No stops the export.</summary>
+        internal static bool AskWithoutRig(ISldWorks app, string message)
+        {
+            int answer = app.SendMsgToUser2(message,
+                (int)swMessageBoxIcon_e.swMbQuestion,
+                (int)swMessageBoxBtn_e.swMbYesNo);
+            return answer == (int)swMessageBoxResult_e.swMbHitYes;
+        }
+
         private static string ManifestStepPath(string manifestPath)
         {
             if (manifestPath.EndsWith(".rig.json", StringComparison.OrdinalIgnoreCase))
@@ -189,7 +228,7 @@ namespace Peak.SwToBlender
         public static RigExportOutcome ExportBundle(
             ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
             string stepPath, string manifestPath, AppSettings settings,
-            bool manifestOnly = false)
+            bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null)
         {
             int ap = settings.Ap == 203 ? 203 : 214;
             bool runDofProbe = settings.RunDofProbe;
@@ -201,40 +240,140 @@ namespace Peak.SwToBlender
             if (walked.Count == 0)
                 throw new InvalidOperationException("The assembly has no components to export.");
             var graph = MateReader.Read(walked, AddIn.Log);
+            // Mirror features carry no mate, so they are read straight off the
+            // feature tree and paired by geometry.
+            MirrorFeatureReader.Read(model, walked, graph, AddIn.Log);
 
-            // ── 1b. Errored mates abort the export ──────────────────────────
+            // ── 1b. Errored mates: the user decides ─────────────────────────
             // An errored or over-defining mate is one SolidWorks itself is
-            // not solving faithfully — with an over-defined set, SolidWorks
+            // not solving faithfully: with an over-defined set, SolidWorks
             // picks which mate to ignore and the classifier cannot know
-            // which. Exporting anyway would bake that guess into the rig, so
-            // the user is sent to fix the assembly instead. Suppressed mates
-            // are exempt: they are intentionally off and skipped everywhere.
+            // which. A rig built on that would be wrong, so the export
+            // offers the geometry without a rig instead, and stops when the
+            // caller has no one to ask (the listener and the test harness).
+            // Suppressed mates are exempt: they are intentionally off and
+            // skipped everywhere.
             var mateErrors = new List<string>();
             foreach (var gm in graph.Mates)
                 if (gm.Error != null && !gm.Suppressed)
                     mateErrors.Add(gm.FeatureName + " " + gm.Error);
             if (mateErrors.Count > 0)
             {
-                const int shown = 10;
-                var list = string.Join("\n  ",
-                    mateErrors.GetRange(0, Math.Min(shown, mateErrors.Count)).ToArray());
-                if (mateErrors.Count > shown)
-                    list += "\n  ... and " + (mateErrors.Count - shown) + " more";
-                throw new InvalidOperationException(
-                    "The assembly has mate errors, so the exported kinematics "
-                    + "would be wrong. Fix or delete these mates and re-export:\n  "
-                    + list);
+                string trouble = MateErrorReport(mateErrors);
+                AddIn.Log("export: " + mateErrors.Count + " mate error(s)");
+                bool withoutRig = mateErrorPrompt != null
+                    && mateErrorPrompt(MateErrorQuestion(trouble));
+                if (!withoutRig)
+                    throw new InvalidOperationException(
+                        trouble + "\n\nFix or delete these mates and export again.");
+                AddIn.Log("export: the user chose the geometry without a rig");
+                var geometry = new RigExportOutcome
+                {
+                    GeometryOnly = true,
+                    Report = "Exported the geometry without a rig: the assembly has "
+                        + mateErrors.Count + " mate error(s).",
+                };
+                if (manifestOnly) return geometry;
+                StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
+                geometry.StepPath = stepPath;
+                return geometry;
             }
 
-            // ── 2. Groups, joints, loops — pure Core, no SolidWorks ─────────
+            // ── 2. Groups, joints, loops ────────────────────────────────────
+            // The mate analysis supplies the TOPOLOGY, which bodies hang off
+            // which, the one thing SolidWorks will not tell you, because
+            // "how much freedom does this have" is always answered relative to
+            // ground and never relative to a parent you have yet to choose.
+            // The solver supplies the KINEMATICS of each connection, which it
+            // has already worked out for the whole assembly at once.
             var grouping = RigidGrouper.Group(graph);
+            // The probe mutates model state (fix flags, limit-mate
+            // suppression) and restores it per batch, so it runs BEFORE the
+            // STEP export: whatever a restore missed would at least be visible
+            // in the exported geometry rather than baked into an earlier file.
+            var verdicts = runDofProbe
+                ? ProbePairs(model, walked, grouping)
+                : new List<PairVerdict>();
+            // The verdicts are read as a SET: a pair whose child is mated to a
+            // third body is a weld when the probe called that third body rigid
+            // too (the bolted-on buoyancy module) and a follower when it did
+            // not (the cutting head on the lead screw rod). See SolverWelds.
+            // The probe FIXES the parent body before reading, so pinning
+            // an intermediate link of a mechanism freezes the mechanism and
+            // every pair in it then reads rigid: live corpus 06
+            // (2026-08-25): the four-bar's crank was welded into its coupler
+            // and the linkage stopped working. The GROUND is already fixed,
+            // so a ground-parent reading is the only one that leaves the
+            // model untouched, and "no freedom relative to the world" is
+            // then a fact about the assembly rather than about what the
+            // probe just pinned.
+            //
+            // Keyed on the Grounded FLAG. GroupA is only "the group with the
+            // lower list index", which coincides with the ground until an
+            // assembly has none at all.
+            string groundGroup = null;
+            foreach (var g in grouping.Groups)
+                if (g.Grounded) { groundGroup = g.Id; break; }
+            if (groundGroup == null && verdicts.Count > 0)
+                AddIn.Log("DOF probe: nothing grounds this assembly, so no "
+                    + "reading can be taken relative to the world; the mate "
+                    + "analysis stands alone for every pair");
+
+            // The closure answers a DIFFERENT question from the weld gate:
+            // not "may we merge this pair" but "which bodies did the probe
+            // find rigid", which is what tells a bolted cluster from a
+            // follower. So every rigid reading feeds it, whatever its parent
+            // was: filtering by parent here would drop a member of a
+            // genuine cluster and unweld the whole of it, and the
+            // ground-parent rule is about what we ACT on, not about what the
+            // probe saw.
+            var claimed = new List<string[]>();
+            foreach (var v in verdicts)
+                if (v.Type == JointType.Fixed && !v.ProbeBlind && v.Weldable)
+                    claimed.Add(new[] { v.GroupA, v.GroupB });
+            var welds = new SolverWelds(graph, grouping, claimed);
+
+            var solverRigid = new List<string[]>();
+            foreach (var v in verdicts)
+            {
+                // Same three conditions `trustworthy` names above, taken
+                // one at a time so the log can say which one failed.
+                if (v.Type != JointType.Fixed || v.ProbeBlind || !v.Weldable)
+                    continue;
+                if (groundGroup == null || v.GroupA != groundGroup)
+                {
+                    AddIn.Log("DOF probe " + v.GroupA + "/" + v.GroupB
+                        + ": reads rigid, but the probe had to FIX " + v.GroupA
+                        + " to read it, and pinning a moving body freezes "
+                        + "everything downstream of it; only a ground parent "
+                        + "leaves the model as it was");
+                    continue;
+                }
+                if (!welds.Believable(v.GroupA, v.GroupB))
+                {
+                    AddIn.Log("DOF probe " + v.GroupA + "/" + v.GroupB
+                        + ": reads rigid, but the child is mated to a body the "
+                        + "probe did NOT read rigid, so it may be a follower "
+                        + "rather than welded");
+                    continue;
+                }
+                solverRigid.Add(new[] { v.ComponentA, v.ComponentB });
+            }
+            if (solverRigid.Count > 0)
+            {
+                AddIn.Log("DOF probe: the solver reads " + solverRigid.Count
+                    + " pair(s) as having no relative freedom; regrouping");
+                grouping = RigidGrouper.Group(graph, solverRigid);
+            }
+            LogGrounding(grouping);
             // The limit-sign probe only fires when a limit rests at a
-            // degenerate pose (dragged to its hard stop and exported — live
+            // degenerate pose (dragged to its hard stop and exported: live
             // corpus 01, 2026-08-23: the hinge at its horizontal limit rigged
             // mirrored). It nudges one component and restores, so like the
             // DOF probe it runs BEFORE the STEP export.
             var signOracle = new LimitSignProbe(app, model, walked, grouping, AddIn.Log);
             var classification = JointClassifier.Classify(graph, grouping, signOracle);
+            ApplySolverVerdicts(grouping, classification, verdicts, groundGroup);
             // Carrier links synthesized for tangent contacts are groups like
             // any other from here on: they join the loop graph and the
             // manifest, they just own no components.
@@ -244,28 +383,85 @@ namespace Peak.SwToBlender
             // Symmetric couplings annotate the FINAL joint list and may
             // APPEND a mirror pair (two ground-rooted free joints for a
             // symmetric-only body pair), so they resolve before the manifest
-            // is assembled — island detection must see those joints.
+            // is assembled: island detection must see those joints.
             var symWarnings = SymmetricCoupler.Resolve(graph, grouping, loops.Joints);
-
-            // ── 2b. DOF probe cross-check (optional) ────────────────────────
-            // The SolidWorks solver's own view of each pair's remaining
-            // freedom, against the mate analysis. The probe mutates model
-            // state (fix flags, limit-mate suppression) and restores it per
-            // pair, so it runs BEFORE the STEP export: whatever the restore
-            // missed would at least be visible in the exported geometry
-            // rather than silently baked into a file exported earlier.
-            if (runDofProbe)
-                ProbeCrossCheck(model, walked, grouping, classification);
+            symWarnings.AddRange(
+                MirrorFeatureCoupler.Resolve(graph, grouping, loops.Joints));
+            // Cam profiles and universal joints are functions the solver
+            // knows and no mate records: the probe turns the driver through
+            // a revolution and tables the driven joint. Same model-moving
+            // rules as the DOF probe, so it runs only when that does, and
+            // it restores every transform it touched.
+            {
+                var unread = new Dictionary<string, string>();
+                var modelled = runDofProbe
+                    ? RelationProbe.Resolve(
+                        app, model, walked, grouping, graph, loops.Joints, AddIn.Log,
+                        settings.RelationStepDeg, unread)
+                    : new List<string>();
+                // A cam the probe could not table (free in its plane, on a
+                // slide) or did not turn (probe off) travels as its faces
+                // instead, and the consumer holds the follower on them.
+                var contacts = CamContact.Resolve(
+                    grouping, graph, loops.Joints, modelled, unread, AddIn.Log);
+                modelled.AddRange(contacts);
+                // A cam neither route could read keeps its warning, with the
+                // reasons in it, so the user hears why rather than "not
+                // rigged".
+                foreach (var w in classification.Warnings)
+                {
+                    if (w.Code != "CAM_FOLLOWER") continue;
+                    foreach (var kv in unread)
+                    {
+                        if (!w.Message.Contains("mate " + kv.Key + " ")) continue;
+                        w.Message = "Cam-follower mate " + kv.Key + " is not rigged: " + kv.Value
+                            + ". The follower's own joint is exported; pose it by hand to match the cam.";
+                        break;
+                    }
+                }
+                if (modelled.Count > 0)
+                {
+                    classification.Warnings.RemoveAll(w =>
+                        w.Code == "CAM_FOLLOWER"
+                        && modelled.Exists(n => w.Message.Contains(n)));
+                    // The cam-follower pair's own joint carried the "not
+                    // rigged" note; the relation now lives on the follower's
+                    // mount joint as a table.
+                    foreach (var j in loops.Joints)
+                    {
+                        if (string.IsNullOrEmpty(j.Notes)) continue;
+                        bool contact = j.SourceMates.Exists(s => contacts.Contains(s.SwFeature));
+                        if (!contact && !j.SourceMates.Exists(s => modelled.Contains(s.SwFeature))) continue;
+                        j.Notes = j.Notes.Replace(
+                            "A cam-follower mate rides this pair; the cam relation is not rigged.",
+                            contact
+                                ? "A cam-follower mate rides this pair; the cam relation is a cam "
+                                  + "contact on the follower's own joint."
+                                : "A cam-follower mate rides this pair; the cam relation is a table "
+                                  + "coupling on the follower's own joint.");
+                    }
+                }
+            }
 
             // ── 3. The STEP file, its post-processing, then the manifest ────
+            // Every pass below: write, parse, rewrite, hash, parse again:
+            // runs on the STAGING path, which is a local scratch file when the
+            // target sits on a network drive. The finished file crosses the
+            // wire once, at Publish.
             string sha1 = null;
             Appearance.AppearancePipelineResult post;
+            MatchResult matches;
+            using (var staging = manifestOnly
+                ? StepStaging.ForRead(stepPath, AddIn.Log)
+                : StepStaging.ForWrite(stepPath, AddIn.Log))
+            {
+            string workingStep = staging.WorkingPath;
             if (manifestOnly)
             {
                 post = new Appearance.AppearancePipelineResult();
-                if (File.Exists(stepPath))
+                if (File.Exists(workingStep))
                 {
-                    sha1 = StepExporter.Sha1Hex(stepPath);
+                    sha1 = StepExporter.Sha1Hex(workingStep);
                     post.Notes.Add("Manifest only: the STEP was not re-written; "
                         + "occurrences were matched against the existing "
                         + Path.GetFileName(stepPath) + ".");
@@ -279,22 +475,29 @@ namespace Peak.SwToBlender
             }
             else
             {
-                var step = StepExporter.Export(app, model, stepPath, ap, AddIn.Log,
+                // Null means no restriction. Sw.Selection.KeepSet returns
+                // null when nothing is selected, so an empty selection
+                // exports everything rather than nothing.
+                var keep = settings.OnlySelected
+                    ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
+
+                var step = StepExporter.Export(app, model, workingStep, ap, AddIn.Log,
                     exportAppearances: repairAppearances,
-                    includeHidden: settings.IncludeHidden);
+                    includeHidden: settings.IncludeHidden,
+                    keep: keep);
 
                 // Flexible-twin fix + appearance repair + materials, one parse,
                 // one save. Errors here must not kill the export: the file as
                 // SolidWorks wrote it is still usable.
-                // NB: types under Appearance.* stay namespace-qualified here — a
+                // NB: types under Appearance.* stay namespace-qualified here, a
                 // using would make Part21 ambiguous against Sw.Part21.
                 var flexRequests = FlexibleLayoutBuilder.Build(walked, AddIn.Log);
                 try
                 {
-                    post = Appearance.AppearancePipeline.Run(model, stepPath,
+                    post = Appearance.AppearancePipeline.Run(model, workingStep,
                         repairAppearances, settings.DeInstance,
                         settings.EngineeringMaterial, settings.IncludeHidden,
-                        flexRequests, AddIn.Log);
+                        flexRequests, AddIn.Log, keep);
                 }
                 catch (Exception ex)
                 {
@@ -303,21 +506,21 @@ namespace Peak.SwToBlender
                     post.Notes.Add("STEP post-processing failed (" + ex.Message
                         + "); the file is as SolidWorks wrote it.");
                 }
-                sha1 = post.FileModified ? StepExporter.Sha1Hex(stepPath) : step.Sha1;
+                sha1 = post.FileModified ? StepExporter.Sha1Hex(workingStep) : step.Sha1;
+                staging.Publish();
             }
 
-            MatchResult matches;
-            if (File.Exists(stepPath))
+            if (File.Exists(workingStep))
             {
                 try
                 {
-                    var matcher = new OccurrenceMatcher(new Part21(stepPath), AddIn.Log);
+                    var matcher = new OccurrenceMatcher(new Part21(workingStep), AddIn.Log);
                     matches = matcher.Match(walked);
                 }
                 catch (Exception ex)
                 {
                     // A manifest with null occurrence paths is degraded but
-                    // usable — the Blender side falls back to transform
+                    // usable: the Blender side falls back to transform
                     // matching. A dead export over a matcher bug is not.
                     AddIn.Log("occurrence matching failed: " + ex);
                     matches = new MatchResult();
@@ -327,6 +530,18 @@ namespace Peak.SwToBlender
             {
                 matches = new MatchResult();
             }
+            }   // staging: the scratch STEP, if any, is removed here
+
+            // A joint whose channel a coupling writes cannot be an input:
+            // a driver is one-way, and pushing a cam's follower never turns
+            // the cam. The relation probe runs after the loop analysis
+            // chose the inputs, so with couplings added the analysis runs
+            // again on its own joints (it is a fixed point of itself) and
+            // chooses with the couplings known. Anything still driven is
+            // pruned with a note.
+            if (loops.Joints.Exists(j => j.Coupling != null && !string.IsNullOrEmpty(j.Coupling.DriverJoint)))
+                loops = LoopAnalyzer.Analyze(allGroups, loops.Joints);
+            LoopAnalyzer.PruneDrivenInputs(loops);
 
             var manifest = BuildManifest(
                 app, model, walked, grouping, allGroups, classification, loops, matches,
@@ -346,7 +561,7 @@ namespace Peak.SwToBlender
                 + manifest.Loops.Count + " loop(s).\n"
                 + matches.MatchedCount + " of " + matches.ExportedCount
                 + " occurrence(s) matched in the STEP file.\n"
-                + manifest.Warnings.Count + " warning(s) — see the manifest for details.";
+                + manifest.Warnings.Count + " warning(s). See the manifest for details.";
             if (post.Notes.Count > 0)
                 report += "\n\n" + string.Join("\n", post.Notes.ToArray());
 
@@ -358,101 +573,455 @@ namespace Peak.SwToBlender
             return outcome;
         }
 
-        // ── DOF probe cross-check ───────────────────────────────────────────
+        // ── Grounding diagnostics ───────────────────────────────────────────
 
         /// <summary>
-        /// Joint types the probe can name, and what counts as agreement. A
-        /// screw reads as any 1-DOF verdict (the probe cannot see the
-        /// rot-slide coupling once its limit mates are suppressed); pin_slot
-        /// and path have no probe vocabulary and are skipped, as are fixed
-        /// and free joints (both already carry their own warnings).
+        /// What the grouping produced, and the one thing about it that can be
+        /// checked against SolidWorks: a component the solver calls
+        /// UNDER-defined has freedom of its own, so finding it merged into a
+        /// group means the rig has lost a degree of freedom.
+        ///
+        /// The reverse check is not available and it is worth saying why:
+        /// "fully defined" means a component has no freedom of its OWN, not
+        /// that it cannot move. The cutting head of live ClampRig is
+        /// fully defined and slides half a metre, because its mates inherit
+        /// the lead screw rod's motion (2026-08-24).
         /// </summary>
-        private static bool ProbeAgrees(RigJoint joint, ProbeVerdict verdict)
+        private static void LogGrounding(RigidGroupingResult grouping)
         {
-            if (joint.Type == JointType.Screw)
-                return verdict.Type == JointType.Cylindrical
-                    || verdict.Type == JointType.Revolute
-                    || verdict.Type == JointType.Prismatic;
-            if (verdict.Type != joint.Type) return false;
+            int grounded = 0;
+            foreach (var g in grouping.Groups) if (g.Grounded) grounded++;
 
-            // Same type: the axes must be the same line where both exist.
-            if (joint.Axis != null && verdict.Axis != null)
-            {
-                if (Math.Abs(MathOps.Dot(joint.Axis, verdict.Axis)) < 0.999) return false;
-                if ((joint.Type == JointType.Revolute || joint.Type == JointType.Cylindrical)
-                    && joint.Origin != null && verdict.Origin != null)
-                {
-                    var foot = MathOps.ClosestPointOnLineToPoint(
-                        joint.Origin, verdict.Axis, verdict.Origin);
-                    if (Math.Sqrt(MathOps.Distance2(joint.Origin, foot)) > 0.001) return false;
-                }
-            }
-            return true;
+            AddIn.Log("grounding: " + grouping.Groups.Count + " rigid group(s) from "
+                + grouping.ComponentGroup.Count + " component(s)");
+            foreach (string path in grouping.MergedAwayDofs)
+                AddIn.Log("  WARNING SolidWorks calls this under-defined, but it "
+                    + "was merged into a rigid group: " + path);
+
+            // BuildResult unions every fixed component into one root, so this
+            // cannot fire: it is here because the alternative failure is
+            // silent in the add-in and cryptic in Blender ("child gNNN is
+            // grounded; the exporter's spanning tree roots at grounded groups").
+            if (grounded > 1)
+                AddIn.Log("grounding WARNING: " + grounded + " grounded groups; a "
+                    + "joint landing on any but the first will be rejected by the "
+                    + "consumer");
         }
 
-        private static void ProbeCrossCheck(
-            IModelDoc2 model, List<WalkedComponent> walked,
-            RigidGroupingResult grouping, ClassificationResult classification)
+        // ── The solver's verdict on each pair ───────────────────────────────
+
+        /// <summary>One probe reading, keyed by the two REPRESENTATIVE
+        /// components rather than by group id, because the grouping is rebuilt
+        /// once the verdicts are in and the ids do not survive that.</summary>
+        private sealed class PairVerdict
         {
+            public string GroupA;
+            public string GroupB;
+            public string ComponentA;
+            public string ComponentB;
+            public string Type = JointType.Free;
+            public double[] Axis;
+            public double[] Origin;
+            public string RawStatuses;
+
+            /// <summary>A mate spans this pair that the probe cannot neutralise:
+            /// a path, a free slot, a coupling. SolidWorks counts several of
+            /// those as constraints, so a "fixed" reading here would weld a
+            /// mechanism shut; the verdict is kept for the log but never merges
+            /// and never overrides.</summary>
+            public bool ProbeBlind;
+
+            /// <summary>Every slot came back Unused: the solver found
+            /// nothing this body can do, which is the only reading that may
+            /// merge a pair.</summary>
+            public bool Weldable;
+
+            /// <summary>Every freedom the solver reported, it also NAMED:
+            /// a Static point AND a Static direction. Anything less is a
+            /// reading that cannot overrule the mate analysis: a ball comes
+            /// back with a Static centre and no particular axis, which is
+            /// indistinguishable from a hinge without this.</summary>
+            public bool Characterised;
+        }
+
+        /// <summary>
+        /// Probes every connected pair of rigid groups. This runs BEFORE the
+        /// classifier, because the solver's verdict decides two things the
+        /// classifier would otherwise decide alone: whether the pair is one
+        /// body at all, and which primitive it is.
+        /// </summary>
+        private static List<PairVerdict> ProbePairs(
+            IModelDoc2 model, List<WalkedComponent> walked,
+            RigidGroupingResult grouping)
+        {
+            var results = new List<PairVerdict>();
+            if (grouping.Edges.Count == 0) return results;
+
             var byId = new Dictionary<string, WalkedComponent>();
             foreach (var w in walked)
                 if (w.Comp != null) byId[w.Id] = w;
 
+            // One representative per group NAMES the group in a verdict and
+            // is the component read for a child. The full member list is what
+            // gets FIXED for a parent: a rigid group is one body, and fixing a
+            // single member of it leaves the rest of that body free to drift.
             var groupRep = new Dictionary<string, WalkedComponent>();
+            var groupBody = new Dictionary<string, List<Component2>>();
             foreach (var g in grouping.Groups)
+            {
+                var body = new List<Component2>();
                 foreach (var cid in g.Components)
                 {
                     WalkedComponent w;
-                    if (byId.TryGetValue(cid, out w)) { groupRep[g.Id] = w; break; }
+                    if (!byId.TryGetValue(cid, out w)) continue;
+                    if (!groupRep.ContainsKey(g.Id)) groupRep[g.Id] = w;
+                    body.Add(w.Comp);
                 }
+                groupBody[g.Id] = body;
+            }
 
-            var probe = new DofProbe(model, AddIn.Log);
-            foreach (var j in classification.Joints)
+            // Batched by parent: fixing and unfixing the parent chain solves
+            // the whole assembly, so every pair sharing a parent shares one
+            // solve. Batches follow first appearance and pairs follow edge
+            // order, so a re-run reads the same.
+            var batchOrder = new List<string>();
+            var batches = new Dictionary<string, List<GroupEdge>>();
+            foreach (var edge in grouping.Edges)
             {
-                if (j.Type == JointType.Fixed || j.Type == JointType.Free
-                    || j.Type == JointType.PinSlot || j.Type == JointType.Path)
-                    continue;
-                // A carrier chain shares one mate set across two joints; the
-                // probe sees the PAIR's whole freedom and can confirm neither
-                // half alone.
                 WalkedComponent p, c;
-                if (!groupRep.TryGetValue(j.ParentGroup, out p)
-                    || !groupRep.TryGetValue(j.ChildGroup, out c))
+                if (!groupRep.TryGetValue(edge.GroupA, out p)
+                    || !groupRep.TryGetValue(edge.GroupB, out c))
+                {
+                    AddIn.Log("DOF probe skipped " + edge.GroupA + "/"
+                        + edge.GroupB + ": one side owns no component to fix"
+                        + " (a carrier, or an assembly-geometry ground), so"
+                        + " no reading can be taken against it");
                     continue;
+                }
                 // The solver reads a flexible sub's internal pair through the
                 // top document as fixed (live corpus 07, 2026-08-23: the
-                // in-sub revolute probed [R1=0 R2=0 L1=0 L2=0 remaining=0]) —
+                // in-sub revolute probed [R1=0 R2=0 L1=0 L2=0 remaining=0]),
                 // in-sub limit mates cannot be suppressed through top-context
-                // handles, so the probe has no valid reading there.
+                // handles, so the probe has no valid reading there and the
+                // mate analysis stands alone.
                 if (p.Parent != null || c.Parent != null)
                 {
-                    AddIn.Log("DOF probe skipped " + j.Id
+                    AddIn.Log("DOF probe skipped " + edge.GroupA + "/" + edge.GroupB
                         + ": pair lives inside a flexible subassembly");
                     continue;
                 }
-
-                var verdict = probe.Probe(p.Comp, c.Comp);
-                AddIn.Log("DOF probe " + j.Id + " (" + j.Type + "): solver says "
-                    + verdict.Type + " [" + verdict.RawStatuses + "]");
-                if (ProbeAgrees(j, verdict)) continue;
-
-                j.Confidence = "low";
-                j.Notes = string.IsNullOrEmpty(j.Notes)
-                    ? "" : j.Notes + " ";
-                j.Notes += "The SolidWorks solver reads this pair as "
-                    + verdict.Type + "; the mate analysis said " + j.Type
-                    + ". The mate analysis is exported.";
-
-                var w2 = new ManifestWarning();
-                w2.Code = "PROBE_DISAGREES";
-                w2.Joints.Add(j.Id);
-                w2.Message = "Joint " + j.Id + ": the mate analysis classified "
-                    + j.Type + " but the SolidWorks DOF probe reports "
-                    + verdict.Type + " (" + verdict.RawStatuses + "). The mate "
-                    + "analysis is exported; check this joint first when the rig "
-                    + "moves wrong.";
-                classification.Warnings.Add(w2);
+                List<GroupEdge> batch;
+                if (!batches.TryGetValue(edge.GroupA, out batch))
+                {
+                    batch = new List<GroupEdge>();
+                    batches[edge.GroupA] = batch;
+                    batchOrder.Add(edge.GroupA);
+                }
+                batch.Add(edge);
             }
+
+            var probe = new DofProbe(model, AddIn.Log);
+            var started = DateTime.UtcNow;
+            int probed = 0;
+            // Every limit mate in the assembly goes for the whole session,
+            // not just the probed pair's own: the solver counts a limit as a
+            // fixed dimension wherever it sits, and one in a closed loop
+            // through the child reads the child rigid against ANY parent
+            // (live TongRig, 2026-09-14: both arms welded to the base by
+            // the stroke limit on the cylinder between them).
+            var limitsOff = probe.SuppressLimitMates();
+            try
+            {
+                foreach (string parentGroup in batchOrder)
+                {
+                    var batch = batches[parentGroup];
+                    var kids = new List<Component2>();
+                    foreach (var edge in batch) kids.Add(groupRep[edge.GroupB].Comp);
+                    var got = probe.ProbeAgainst(groupBody[parentGroup], kids);
+                    for (int i = 0; i < batch.Count && i < got.Count; i++)
+                    {
+                        var v = new PairVerdict
+                        {
+                            GroupA = batch[i].GroupA,
+                            GroupB = batch[i].GroupB,
+                            ComponentA = groupRep[batch[i].GroupA].Id,
+                            ComponentB = groupRep[batch[i].GroupB].Id,
+                            Type = got[i].Type,
+                            Axis = got[i].Axis,
+                            Origin = got[i].Origin,
+                            RawStatuses = got[i].RawStatuses,
+                            ProbeBlind = ProbeIsBlind(batch[i])
+                                      || CoupledElsewhere(grouping, batch[i]),
+                            Weldable = got[i].Weldable,
+                            Characterised = got[i].Characterised,
+                        };
+                        results.Add(v);
+                        AddIn.Log("DOF probe " + batch[i].GroupA + "/" + batch[i].GroupB
+                            + ": solver says " + v.Type + " [" + v.RawStatuses + "]"
+                            + (v.ProbeBlind
+                                ? " (advisory: a mate here is one the probe cannot neutralise)"
+                                : ""));
+                    }
+                    probed += batch.Count;
+                }
+            }
+            finally
+            {
+                probe.RestoreLimitMates(limitsOff);
+            }
+            if (probed > 0)
+                AddIn.Log("DOF probe: " + probed + " pair(s) in " + batchOrder.Count
+                    + " parent batch(es), "
+                    + ((int)(DateTime.UtcNow - started).TotalSeconds) + " s");
+            return results;
+        }
+
+        /// <summary>True when a mate on this pair permits motion the probe
+        /// cannot see past. The probe suppresses limit mates before reading,
+        /// but it does nothing about a path, a free slot or a coupling, and
+        /// SolidWorks' own DOF accounting counts several of those as
+        /// constraints, so its answer would be "fixed" for something that
+        /// plainly moves.</summary>
+        private static bool ProbeIsBlind(GroupEdge edge)
+        {
+            foreach (var m in edge.Mates)
+                if (MateFacts.PermitsMotion(m) && !MateFacts.IsLimitMate(m))
+                    return true;
+            return false;
+        }
+
+        /// <summary>True when a coupling mate ties the CHILD of this pair to
+        /// a third body. The solver counts the tie as a constraint on the
+        /// child, so the reading says how that third body is held, not how
+        /// the child is mated to its parent. Live universal joint sample
+        /// (2026-09-15): the female yoke read fixed to the bracket with the
+        /// joint mate in place and revolute with it suppressed, and the
+        /// chain of fixed verdicts it seeded welded the yoke to ground.</summary>
+        private static bool CoupledElsewhere(RigidGroupingResult grouping, GroupEdge pair)
+        {
+            foreach (var edge in grouping.Edges)
+            {
+                if (ReferenceEquals(edge, pair)) continue;
+                if (edge.GroupA != pair.GroupB && edge.GroupB != pair.GroupB) continue;
+                foreach (var m in edge.Mates)
+                    if (!m.Suppressed && MateFacts.IsCoupling(m)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The solver's verdict, applied to the classified joints. Where both
+        /// name a primitive and they differ, the solver wins outright; where
+        /// the solver names something it cannot really have seen: a screw
+        /// read as a cylindrical, a path pair read as fixed: the mate
+        /// analysis stands and the disagreement becomes a warning.
+        /// </summary>
+        private static void ApplySolverVerdicts(
+            RigidGroupingResult grouping, ClassificationResult classification,
+            List<PairVerdict> verdicts, string groundGroup)
+        {
+            if (verdicts.Count == 0) return;
+
+            var groupOf = grouping.ComponentGroup;
+            foreach (var j in classification.Joints)
+            {
+                PairVerdict verdict = null;
+                foreach (var v in verdicts)
+                {
+                    string ga, gb;
+                    if (!groupOf.TryGetValue(v.ComponentA, out ga)) continue;
+                    if (!groupOf.TryGetValue(v.ComponentB, out gb)) continue;
+                    if ((ga == j.ParentGroup && gb == j.ChildGroup)
+                        || (ga == j.ChildGroup && gb == j.ParentGroup))
+                    {
+                        verdict = v;
+                        break;
+                    }
+                }
+                if (verdict == null) continue;
+
+                bool adoptable = j.Coupling == null && VerdictMayOverrule(
+                    j, verdict.Type, verdict.Characterised, verdict.ProbeBlind);
+                if (adoptable && verdict.Type != j.Type
+                    && PinnedReadingIsLoopLocked(classification.Joints, j,
+                                                 verdict.GroupA, groundGroup))
+                {
+                    // Not a disagreement either: the reading is an artefact
+                    // of the pinning, the same one the weld gate discounts.
+                    AddIn.Log("DOF probe " + j.Id + ": reads " + verdict.Type
+                        + ", but the probe had to FIX " + verdict.GroupA
+                        + " to read a pair that sits on a loop, which freezes the "
+                        + "loop; the reading is the loop's, not the joint's, and "
+                        + "the mate analysis stands");
+                    continue;
+                }
+
+                if (verdict.Type == j.Type)
+                {
+                    // Same type: the axes must be the same line where both
+                    // exist, or one of the two is measuring something else.
+                    if (adoptable && j.Axis != null && verdict.Axis != null
+                        && Math.Abs(MathOps.Dot(j.Axis, verdict.Axis)) < 0.999)
+                        Disagree(classification, j, verdict,
+                            "the axes are not the same line");
+                    continue;
+                }
+
+                if (adoptable)
+                {
+                    string note = JointClassifier.AdoptSolverVerdict(
+                        j, verdict.Type, verdict.Axis, verdict.Origin);
+                    j.Notes = string.IsNullOrEmpty(j.Notes) ? note : j.Notes + " " + note;
+                    AddIn.Log("DOF probe: " + j.Id + " adopted the solver's " + verdict.Type);
+                    continue;
+                }
+
+                if (!DisagreementIsWorthReporting(j, verdict.Type,
+                                                  verdict.Characterised))
+                {
+                    if (verdict.Type == JointType.Fixed)
+                        AddIn.Log("DOF probe " + j.Id + ": reads rigid ["
+                            + verdict.RawStatuses + "], which was refused as "
+                            + "a weld, so it is not reported against the joint");
+                    continue;
+                }
+
+                Disagree(classification, j, verdict, null);
+            }
+        }
+
+        /// <summary>
+        /// Whether the solver's reading may replace what the mates said.
+        ///
+        /// Two conditions beyond the obvious. It must have NAMED what it saw:
+        /// every freedom reported with a Static point and a Static
+        /// direction, because an unnamed reading names a type it did not
+        /// really see (live 2026-08-25: a puck flat on a plate reads
+        /// "prismatic" off a Free rotation and one Static slide).
+        ///
+        /// And a BALL is never overruled. GetRemainingDOFs has two rotation
+        /// slots; a ball has three rotations, so no reading it can produce
+        /// tells a ball from a hinge. Live corpus 04 (2026-08-25): all three
+        /// ball assemblies read revolute and were adopted, and the studs
+        /// stopped tumbling. A limit of the API, not a judgement about the
+        /// geometry.
+        /// </summary>
+        /// <summary>
+        /// Whether a probe reading of this joint was taken with the loop it
+        /// sits on frozen. The probe pins one body of the pair (GroupA) and
+        /// reads the other's freedom. Pinning the ground changes nothing.
+        /// Pinning a moving body of a pair that lies on a LOOP removes the
+        /// mechanism's freedom: a one-degree loop with one more body held is
+        /// rigid, and whatever slop is left (a con-rod sliding along its own
+        /// parallel pins) reads as the pair's joint type. Welds from such
+        /// readings were always refused; narrowings must be too. Live
+        /// claw-mechanism.sldasm (2026-09-15): the con-rod's two pins read
+        /// prismatic with the collar pinned, the ring then welded the
+        /// collar's slide, and the claw shipped solid. A pair that is a
+        /// bridge of the joint graph (no loop through it) keeps its own
+        /// freedom whatever is pinned, so its reading stands.
+        /// </summary>
+        public static bool PinnedReadingIsLoopLocked(
+            IList<RigJoint> joints, RigJoint joint, string pinnedGroup, string groundGroup)
+        {
+            if (joint == null) return false;
+            if (pinnedGroup == null || pinnedGroup == groundGroup) return false;
+            // Is the child still reachable from the parent without this
+            // joint? Then the joint is on a loop.
+            var adjacency = new Dictionary<string, List<RigJoint>>();
+            foreach (var j in joints)
+            {
+                if (ReferenceEquals(j, joint) || j.Type == JointType.Free) continue;
+                if (!adjacency.ContainsKey(j.ParentGroup)) adjacency[j.ParentGroup] = new List<RigJoint>();
+                if (!adjacency.ContainsKey(j.ChildGroup)) adjacency[j.ChildGroup] = new List<RigJoint>();
+                adjacency[j.ParentGroup].Add(j);
+                adjacency[j.ChildGroup].Add(j);
+            }
+            var seen = new HashSet<string> { joint.ParentGroup };
+            var queue = new Queue<string>();
+            queue.Enqueue(joint.ParentGroup);
+            while (queue.Count > 0)
+            {
+                string g = queue.Dequeue();
+                if (g == joint.ChildGroup) return true;
+                List<RigJoint> edges;
+                if (!adjacency.TryGetValue(g, out edges)) continue;
+                foreach (var e in edges)
+                {
+                    string other = e.ParentGroup == g ? e.ChildGroup : e.ParentGroup;
+                    if (seen.Add(other)) queue.Enqueue(other);
+                }
+            }
+            return false;
+        }
+
+        public static bool VerdictMayOverrule(
+            RigJoint joint, string verdictType, bool characterised, bool blind)
+        {
+            if (joint == null || blind || !characterised) return false;
+            if (joint.Type == JointType.Ball) return false;
+            return JointClassifier.IsSolverPrimitive(joint.Type)
+                && JointClassifier.IsSolverPrimitive(verdictType);
+        }
+
+        /// <summary>
+        /// Whether a verdict that differs from the mate analysis is worth
+        /// putting in the manifest as a PROBE_DISAGREES warning.
+        ///
+        /// A warning here is a claim that the MATE ANALYSIS is suspect, so it
+        /// must not be raised when it is the reading that is:
+        ///
+        ///   * an unnamed reading named a type it did not really see;
+        ///   * a ball cannot be seen at all through two rotation slots;
+        ///   * a screw reads as any 1-DOF verdict once its coupling is
+        ///     invisible, which is agreement rather than disagreement;
+        ///   * and a RIGID verdict can only reach this point by having been
+        ///     refused as a weld: a trusted one merges the pair, and then no
+        ///     joint spans it to disagree with. Every one that arrives is the
+        ///     artefact the ground-parent rule exists to discount: the probe
+        ///     pinned a moving body and the mechanism froze. Live corpus 06
+        ///     (2026-08-25) would otherwise stamp two of the four-bar's four
+        ///     correct revolutes "low confidence: the solver reads this pair
+        ///     as fixed", against a README that asks for no warnings at all.
+        /// </summary>
+        public static bool DisagreementIsWorthReporting(
+            RigJoint joint, string verdictType, bool characterised)
+        {
+            if (joint == null || !characterised) return false;
+            if (joint.Type == verdictType) return false;
+            if (joint.Type == JointType.Fixed || joint.Type == JointType.Free) return false;
+            if (joint.Type == JointType.Ball) return false;
+            if (verdictType == JointType.Fixed) return false;
+            if (joint.Type == JointType.Screw
+                && (verdictType == JointType.Cylindrical
+                    || verdictType == JointType.Revolute
+                    || verdictType == JointType.Prismatic))
+                return false;
+            return true;
+        }
+
+        private static void Disagree(
+            ClassificationResult classification, RigJoint j, PairVerdict verdict,
+            string detail)
+        {
+            j.Confidence = "low";
+            string note = "The SolidWorks solver reads this pair as "
+                + verdict.Type + "; the mate analysis said " + j.Type
+                + (detail == null ? "" : " (" + detail + ")")
+                + ". The mate analysis is exported.";
+            j.Notes = string.IsNullOrEmpty(j.Notes) ? note : j.Notes + " " + note;
+
+            var w = new ManifestWarning();
+            w.Code = "PROBE_DISAGREES";
+            w.Joints.Add(j.Id);
+            w.Message = "Joint " + j.Id + ": the mate analysis classified "
+                + j.Type + " but the SolidWorks DOF probe reports "
+                + verdict.Type + " (" + verdict.RawStatuses + "), and the "
+                + "verdict could not be adopted"
+                + (detail == null ? "" : ": " + detail)
+                + ". The mate analysis is exported; check this joint first when "
+                + "the rig moves wrong.";
+            classification.Warnings.Add(w);
         }
 
         // ── Manifest assembly ───────────────────────────────────────────────
@@ -490,7 +1059,6 @@ namespace Peak.SwToBlender
                 c.Transform = g.Transform;
                 c.BboxMin = g.BboxMin;
                 c.BboxMax = g.BboxMax;
-                c.IsFastener = MateFacts.IsFastener(g);
                 c.Suppressed = g.Suppressed;
                 c.SubassemblySolving = g.Solving;
 
@@ -517,6 +1085,8 @@ namespace Peak.SwToBlender
             manifest.RigidGroups.AddRange(allGroups);
             manifest.Joints.AddRange(loops.Joints);
             manifest.Loops.AddRange(loops.Loops);
+            manifest.Mechanisms.AddRange(loops.Mechanisms);
+            foreach (var note in loops.Notes) AddIn.Log("mechanism: " + note);
 
             // Loop analysis can retire a classifier warning: a free joint
             // whose rotation lock became a coupling IS modelled, and one that
@@ -546,7 +1116,11 @@ namespace Peak.SwToBlender
                     + "belong to no rigid group and are absent from the STEP file.";
                 manifest.Warnings.Add(w);
             }
-            if (unmatched.Count > 0)
+            // No STEP file, no occurrences to match: a mesh-only export
+            // carries its component ids in the .swmesh, so every component
+            // is "unmatched" here by construction and the warning would
+            // only say so (live cam-follower, 2026-09-15).
+            if (unmatched.Count > 0 && !string.IsNullOrEmpty(sha1))
             {
                 var w = new ManifestWarning();
                 w.Code = "OCCURRENCE_UNMATCHED";
@@ -571,7 +1145,7 @@ namespace Peak.SwToBlender
         /// 2026-08-22: the rigid twin imported at the flexible twin's angle).
         ///
         /// FlexiblePoseFixer now de-instances the definition in the STEP and
-        /// reposes every instance — when that succeeded the manifest carries
+        /// reposes every instance: when that succeeded the manifest carries
         /// FLEXIBLE_DEINSTANCED (informational) instead. The warning survives
         /// only where the fix could not apply, and then names the two cures:
         /// the automatic one on import (STEPper NEXT's Snap to SW Poses) and
@@ -664,7 +1238,7 @@ namespace Peak.SwToBlender
                 adjacency[b].Add(a);
             }
             // Synthesized joints (carrier chains, mirror pairs) connect
-            // groups no mate-level edge covers — the manifest's own joint
+            // groups no mate-level edge covers: the manifest's own joint
             // list is the other half of the connectivity truth.
             foreach (var j in manifest.Joints)
             {

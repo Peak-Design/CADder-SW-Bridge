@@ -28,7 +28,7 @@ namespace Peak.SwToBlender.Appearance
             IModelDoc2 model, string stepPath,
             bool repairAppearances, bool deInstance, bool includeMaterial,
             bool includeHidden, List<FlexFixRequest> flexRequests,
-            Action<string> log)
+            Action<string> log, System.Collections.Generic.HashSet<string> keep = null)
         {
             var result = new AppearancePipelineResult();
             bool anythingToDo = repairAppearances || includeMaterial
@@ -61,7 +61,7 @@ namespace Peak.SwToBlender.Appearance
             // ── Appearance repair (NEXT-STEP engine) ────────────────────────
             if (repairAppearances && assembly != null)
             {
-                var occurrences = AppearanceLadder.Resolve(model, log, includeHidden);
+                var occurrences = AppearanceLadder.Resolve(model, log, includeHidden, keep);
 
                 int skipped = occurrences.Count(o => !o.Exported);
                 if (skipped > 0)

@@ -27,7 +27,7 @@ namespace Peak.SwToBlender.Tests
 
         public static GraphComponent Comp(
             string id, string name, bool isFixed = false, bool suppressed = false,
-            bool toolbox = false, string fileName = null,
+            string fileName = null,
             double[] bboxMin = null, double[] bboxMax = null, double[] at = null)
         {
             var c = new GraphComponent();
@@ -44,9 +44,39 @@ namespace Peak.SwToBlender.Tests
             }
             c.IsFixed = isFixed;
             c.Suppressed = suppressed;
-            c.IsToolboxPart = toolbox;
             c.BboxMin = bboxMin;
             c.BboxMax = bboxMax;
+            return c;
+        }
+
+        /// <summary>What IComponent2.GetConstrainedStatus returns for a
+        /// component SolidWorks has solved to zero remaining freedom: the
+        /// component the FeatureManager shows without a "(-)" prefix.</summary>
+        public static GraphComponent FullyDefined(GraphComponent c)
+        {
+            c.ConstrainedStatus = 3;    // swFullyConstrained
+            return c;
+        }
+
+        public static GraphComponent UnderDefined(GraphComponent c)
+        {
+            c.ConstrainedStatus = 2;    // swUnderConstrained
+            return c;
+        }
+
+        /// <summary>Fixed inside its subassembly document: rigid to the
+        /// sub's frame, never to the world.</summary>
+        public static GraphComponent InSubFixed(GraphComponent c)
+        {
+            c.FixedInSubassembly = true;
+            return c;
+        }
+
+        /// <summary>Places a component inside a walked (flexible) subassembly
+        /// node, which is the only way a walked component has a parent.</summary>
+        public static GraphComponent Inside(GraphComponent c, string parentId)
+        {
+            c.ParentId = parentId;
             return c;
         }
 
@@ -112,7 +142,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>A selected vertex as live SolidWorks delivers it:
         /// ReferenceType 0 with swSelVERTICES, which EntityKind names
-        /// "vertex" — point only, the direction slots are filler (live
+        /// "vertex", point only, the direction slots are filler (live
         /// corpus 13/16, 2026-08-23).</summary>
         public static GraphMateEntity VertexEnt(string compId, double[] point)
         {
@@ -123,7 +153,7 @@ namespace Peak.SwToBlender.Tests
             return e;
         }
 
-        /// <summary>A model edge with its direction — either delivered as a
+        /// <summary>A model edge with its direction: either delivered as a
         /// line-typed entity, or recovered by MateReader from the underlying
         /// curve when SolidWorks reduced the edge to a directionless point
         /// (live corpus 16 pt2, 2026-08-23).</summary>
@@ -150,7 +180,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>The sampled-curve side of a coincidence or path mate onto
-        /// assembly-owned sketch geometry: no component, no direction — the
+        /// assembly-owned sketch geometry: no component, no direction, the
         /// polyline itself lives on the MATE (GraphMate.PathPoints), the way
         /// MateReader's curve recovery stores it (live corpus 16/17,
         /// 2026-08-23).</summary>
@@ -164,7 +194,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>A face MateReader triangulated because no analytic joint
-        /// describes it — a torus, a fillet, a loft.</summary>
+        /// describes it: a torus, a fillet, a loft.</summary>
         public static GraphMateEntity SurfaceEnt(
             string compId, double[][] points, int[][] triangles)
         {
@@ -176,7 +206,7 @@ namespace Peak.SwToBlender.Tests
             return e;
         }
 
-        /// <summary>A quad of the z = height plane, as two triangles — the
+        /// <summary>A quad of the z = height plane, as two triangles: the
         /// smallest patch a surface joint can ride, standing in for whatever
         /// free-form face the live reader tessellated.</summary>
         public static GraphMateEntity PatchEnt(string compId, double height)
@@ -198,7 +228,7 @@ namespace Peak.SwToBlender.Tests
 
         /// <summary>A conical face after MateReader's surface retype: axis
         /// direction, a point on the axis, and the surface's half-angle
-        /// (live corpus 15, 2026-08-23 — the raw entity arrives as a CIRCLE
+        /// (live corpus 15, 2026-08-23, the raw entity arrives as a CIRCLE
         /// with the half-angle in the radius slot).</summary>
         public static GraphMateEntity ConeEnt(
             string compId, double[] dir, double[] point, double halfAngle)
@@ -223,7 +253,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>An entity whose kind fell outside swMateEntityTypes_e but
-        /// whose EntityParams still carried a (leftover) direction — the shape
+        /// whose EntityParams still carried a (leftover) direction: the shape
         /// a misreported spherical face arrives in (live corpus 04, 2026-08-22).</summary>
         public static GraphMateEntity UnknownEnt(string compId, double[] point, double[] dir = null)
         {
@@ -256,7 +286,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>Solved limit-mate geometry: the measurement faces sit the
-        /// current dimension APART — identical entities would put the mate at
+        /// current dimension APART, identical entities would put the mate at
         /// its zero, where the dimension's direction is undefined. The B-side
         /// plane is offset by <paramref name="current"/> along the normal.</summary>
         public static GraphMate DistanceLimit(
@@ -275,7 +305,7 @@ namespace Peak.SwToBlender.Tests
         }
 
         /// <summary>An angle limit mate measures between two faces whose
-        /// normals sit off the rotation axis — that is what lets the angle
+        /// normals sit off the rotation axis: that is what lets the angle
         /// change as the joint spins. The two normals are given separately
         /// because in the solved rest pose they differ by the current angle;
         /// their cross product against the axis is what fixes the direction

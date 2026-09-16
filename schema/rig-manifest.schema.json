@@ -65,7 +65,6 @@
             "required": ["min", "max"],
             "properties": { "min": { "$ref": "#/$defs/vec3" }, "max": { "$ref": "#/$defs/vec3" } }
           },
-          "is_fastener": { "type": "boolean", "default": false },
           "suppressed": { "type": "boolean", "default": false },
           "subassembly_solving": { "type": ["string", "null"], "enum": ["rigid", "flexible", null] }
         }
@@ -113,16 +112,61 @@
             "type": ["object", "null"],
             "required": ["kind"],
             "properties": {
-              "kind": { "type": "string", "enum": ["gear", "rack_pinion", "screw", "linear_coupler", "mirror"] },
+              "kind": { "type": "string", "enum": ["gear", "rack_pinion", "screw", "linear_coupler", "mirror", "table", "cam"] },
               "driver_joint": { "type": ["string", "null"], "description": "Joint id whose motion drives this one; null for screw self-coupling" },
               "ratio": { "type": ["number", "null"], "description": "gear: rad/rad, negative = reversal. linear_coupler: m/m" },
               "meters_per_radian": { "type": ["number", "null"], "description": "rack_pinion only" },
               "lead_m_per_rev": { "type": ["number", "null"], "description": "screw only" },
+              "samples": {
+                "type": "array",
+                "minItems": 2,
+                "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
+                "description": "table only: the driven joint's value as a sampled function of the driver's, [[x, y], ...] with x ascending, both relative to the exported pose and in the joints' own units (radians for a turn, metres for a slide). Read off the live model: a cam profile, or a universal joint's fluctuation with the yokes' phase in it. The consumer interpolates between samples."
+              },
+              "periodic": { "type": "boolean", "description": "table only: the relation repeats every `period` of x (a full turn of the driver)" },
+              "period": { "type": "number", "description": "table only: the period of x when periodic, else 0" },
+              "mirror_scope": {
+                "type": ["string", "null"],
+                "enum": ["plane", "rigid", null],
+                "description": "mirror only: how much of the pose is mirrored. plane = a symmetric mate between planar faces, so only the translation along the normal and the two tilts follow. rigid = an assembly mirror feature, so every freedom follows. Absent means plane."
+              },
+              "cam": {
+                "type": "object",
+                "required": ["axis", "origin", "surface", "follower"],
+                "additionalProperties": false,
+                "description": "cam only: the cam path's faces and the follower's contact entity. The consumer holds the follower on the faces live: a vertex or a roller by projection along the follower's slide, a flat face by the support function of the faces along the face normal. Written when the exporter could not table the cam (a cam free in its plane, or on a slide) or did not turn it",
+                "properties": {
+                  "axis": { "$ref": "#/$defs/vec3", "description": "The cam's joint axis, unit, global" },
+                  "origin": { "$ref": "#/$defs/vec3", "description": "A point on the cam's joint axis, global metres" },
+                  "surface": {
+                    "type": "object",
+                    "required": ["points", "triangles"],
+                    "additionalProperties": false,
+                    "description": "The cam path's faces triangulated in global metres at the exported pose",
+                    "properties": {
+                      "points": { "type": "array", "items": { "$ref": "#/$defs/vec3" }, "minItems": 3 },
+                      "triangles": { "type": "array", "items": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 3, "maxItems": 3 }, "minItems": 1 }
+                    }
+                  },
+                  "follower": {
+                    "type": "object",
+                    "required": ["kind", "point"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["vertex", "roller", "flat"] },
+                      "point": { "$ref": "#/$defs/vec3", "description": "vertex: the vertex. roller: a point on the roller's axis (or a ball follower's centre). flat: a point on the face. Global metres" },
+                      "axis": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }], "description": "roller only: the roller's axis, unit, global" },
+                      "radius": { "type": ["number", "null"], "description": "roller only: the roller's (or ball's) radius, metres" },
+                      "normal": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }], "description": "flat only: the face normal, unit, global" }
+                    }
+                  }
+                }
+              },
               "mirror_plane": {
                 "type": "object",
                 "required": ["point", "normal"],
                 "additionalProperties": false,
-                "description": "mirror only: the driven joint's body poses as the exact mirror image of the driver's body across this plane",
+                "description": "mirror only: the plane the driven joint's body is reflected across; mirror_scope says how much of the pose follows",
                 "properties": {
                   "point": { "$ref": "#/$defs/vec3" },
                   "normal": { "$ref": "#/$defs/vec3" }
@@ -174,17 +218,50 @@
     },
     "loops": {
       "type": "array",
+      "items": { "$ref": "#/$defs/loop" }
+    },
+    "mechanisms": {
+      "type": "array",
+      "description": "Loops that share joints, each with every input the mechanism can take as a COMPLETE alternative. A consumer that lets the user pick the input applies an option whole: it replaces the mechanism's loops with the option's and swaps parent and child on the option's flipped joints. The exporter's own choice is inputs[0], whose loops equal the top-level loops and whose flipped list is empty.",
       "items": {
         "type": "object",
-        "required": ["id", "member_joints", "closure_joint"],
+        "required": ["id", "loops", "inputs"],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string" },
-          "member_joints": { "type": "array", "items": { "type": "string" }, "minItems": 3 },
-          "closure_joint": { "type": "string", "description": "The cut edge; Blender closes it with IK instead of parenting" },
-          "suggested_driver_joint": { "type": ["string", "null"] },
-          "planar": { "type": "boolean", "default": false },
-          "plane_normal": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }] }
+          "loops": { "type": "array", "items": { "type": "string" }, "description": "Ids of the mechanism's loops in the top-level list" },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["joint", "loops", "flipped_joints"],
+              "additionalProperties": false,
+              "properties": {
+                "joint": { "type": "string", "description": "The joint that drives the mechanism under this option" },
+                "loops": { "type": "array", "items": { "$ref": "#/$defs/loop" }, "description": "The mechanism's loops under this input: same ids, same order, re-chosen cuts, closures and members" },
+                "flipped_joints": { "type": "array", "items": { "type": "string" }, "description": "Joints whose parent_group and child_group swap under this input, because the tree reaches them from the other side" },
+                "joint_limits": {
+                  "type": "array",
+                  "description": "Joints whose limits differ under this input, with the limits that apply then (null = unlimited). A stroke limit derived onto a slider-crank's crank belongs to the crank-driven configuration. A consumer applies these with the option and restores the joints' own limits when it leaves it.",
+                  "items": {
+                    "type": "object",
+                    "required": ["joint", "limits"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "joint": { "type": "string" },
+                      "limits": {
+                        "type": ["object", "null"],
+                        "properties": {
+                          "rotation": { "oneOf": [{ "$ref": "#/$defs/limit" }, { "type": "null" }] },
+                          "translation": { "oneOf": [{ "$ref": "#/$defs/limit" }, { "type": "null" }] }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -204,6 +281,39 @@
   },
   "$defs": {
     "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "loop": {
+      "type": "object",
+      "required": ["id", "member_joints", "closure_joint"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "member_joints": { "type": "array", "items": { "type": "string" }, "minItems": 3 },
+        "closure_joint": { "type": "string", "description": "The cut edge; the consumer re-closes it instead of parenting through it" },
+        "closure_kind": {
+          "type": "string",
+          "enum": ["ik", "aim_pair", "none"],
+          "default": "ik",
+          "description": "How to re-close the cut. 'ik' is a point coincidence solved by rotating the driven chain. 'aim_pair' is a slider-crank: the bodies either side of the cut hang off their own pins and aim at each other, because no rotational solver can lengthen a slide. 'none' means the tree already carries the motion and the consumer must not solve the cut at all."
+        },
+        "suggested_driver_joint": { "type": ["string", "null"] },
+        "planar": { "type": "boolean", "default": false },
+        "plane_normal": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }] },
+        "driver_candidates": {
+          "type": "array",
+          "description": "Every input the exporter weighed for this loop, the chosen one first, with the cut each implies. Informative: to switch inputs a consumer applies a mechanism option, never a candidate on its own.",
+          "items": {
+            "type": "object",
+            "required": ["joint", "closure_joint"],
+            "additionalProperties": false,
+            "properties": {
+              "joint": { "type": "string", "description": "The joint that becomes suggested_driver_joint" },
+              "closure_joint": { "type": "string", "description": "The cut that choice implies" },
+              "closure_kind": { "type": "string", "enum": ["ik", "aim_pair", "none"], "default": "ik" }
+            }
+          }
+        }
+      }
+    },
     "mat4": {
       "type": "array",
       "minItems": 4,
