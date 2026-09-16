@@ -1,0 +1,214 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.Cadder",
+    "version": "v0.1.0",
+    "solidworks_version": "30.5.0",
+    "exported_utc": "2026-09-16T19:39:03Z"
+  },
+  "units": {
+    "length": "meter",
+    "angle": "radian"
+  },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "spurgear.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": "peak-nauo-tree/1"
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "spurgear-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8TcwBwAHUAcgBnAGUAYQByAC0AMQBAAHMAcAB1AHIAZwBlAGEAcgAEAAAAEAAAAAEAAAABAAAADgAAAA==",
+      "step_name": "spurgear",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.9337718333134849, -0.35786891917345037, -2.7358912052235624E-17, 1.1615509229833611E-16],
+        [0.35786891917345037, 0.9337718333134849, 6.1031124814640363E-18, 6.0203746510287787E-17],
+        [2.3362867197142922E-17, -1.5489818816630103E-17, 1, -0.0174625],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.029615878082247318, -0.029615878082247662, -0.034925],
+        "max": [0.029615878082247048, 0.029615878082247856, 0]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "spurgear-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8TcwBwAHUAcgBnAGUAYQByAC0AMgBAAHMAcAB1AHIAZwBlAGEAcgAEAAAAEAAAAAEAAAABAAAADwAAAA==",
+      "step_name": "spurgear",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.66925068783532771, -0.7430366860606149, 1.6888102705796677E-15, 0.0431799999999998],
+        [0.7430366860606149, -0.66925068783532771, 8.9981531473467943E-17, -7.0852611971927715E-17],
+        [1.0633778562561039E-15, 1.3150681886677408E-15, 0.99999999999999989, -0.017462499999999988],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.010797829801461753, -0.032382170198538326, -0.034925000000000039],
+        "max": [0.075562170198537962, 0.032382170198537688, 6.2450045135165055E-17]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "assembly",
+      "components": [],
+      "grounded": true,
+      "frame": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": null
+    },
+    {
+      "id": "g001",
+      "name": "spurgear",
+      "components": [
+        "c001"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.9337718333134849, -0.35786891917345037, -2.7358912052235624E-17, 1.1615509229833611E-16],
+        [0.35786891917345037, 0.9337718333134849, 6.1031124814640363E-18, 6.0203746510287787E-17],
+        [2.3362867197142922E-17, -1.5489818816630103E-17, 1, -0.0174625],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.090755481937238189
+    },
+    {
+      "id": "g002",
+      "name": "spurgear",
+      "components": [
+        "c002"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.66925068783532771, -0.7430366860606149, 1.6888102705796677E-15, 0.0431799999999998],
+        [0.7430366860606149, -0.66925068783532771, 8.9981531473467943E-17, -7.0852611971927715E-17],
+        [1.0633778562561039E-15, 1.3150681886677408E-15, 0.99999999999999989, -0.017462499999999988],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.098023442089822041
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "revolute",
+      "parent_group": "g000",
+      "child_group": "g001",
+      "origin": [0, 0, 0],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident1",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident2",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident4",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j002",
+      "type": "free",
+      "parent_group": "g000",
+      "child_group": "g002",
+      "origin": null,
+      "axis": null,
+      "secondary_axis": null,
+      "limits": null,
+      "coupling": {
+        "kind": "gear",
+        "driver_joint": "j001",
+        "ratio": -1,
+        "meters_per_radian": null,
+        "lead_m_per_rev": null
+      },
+      "source_mates": [
+        {
+          "sw_feature": "Coincident3",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident5",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "GearMate1",
+          "type": "swMateGEAR"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j003",
+      "type": "free",
+      "parent_group": "g002",
+      "child_group": "g001",
+      "origin": null,
+      "axis": null,
+      "secondary_axis": null,
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Distance1",
+          "type": "swMateDISTANCE"
+        },
+        {
+          "sw_feature": "GearMate1",
+          "type": "swMateGEAR"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    }
+  ],
+  "loops": [],
+  "mechanisms": [],
+  "warnings": [
+    {
+      "code": "UNDER_DEFINED",
+      "components": [],
+      "joints": [
+        "j002"
+      ],
+      "message": "Mates between g000 and g002 leave 3 or more DOF with no recognised pattern; joint exported as free."
+    },
+    {
+      "code": "UNDER_DEFINED",
+      "components": [],
+      "joints": [
+        "j003"
+      ],
+      "message": "Mates between g001 and g002 leave 3 or more DOF with no recognised pattern; joint exported as free."
+    }
+  ]
+}

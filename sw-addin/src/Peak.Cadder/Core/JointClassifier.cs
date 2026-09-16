@@ -74,10 +74,262 @@ namespace Peak.Cadder.Core
                 if (joint != null) result.Joints.Add(joint);
             }
 
+            BorrowFixedLines(
+                grouping, groupBoxes, groupAnchors, poseDeltas, result,
+                jointByEdge, signOracle);
+
             for (int i = 0; i < grouping.Edges.Count; i++)
                 AttachCouplings(grouping, grouping.Edges[i], jointByEdge[i], result);
 
             return result;
+        }
+
+        // ── Constraints spread over more than one pair ──────────────────────
+
+        /// <summary>
+        /// Finishes a joint whose constraints are spread over more than one
+        /// pair of bodies.
+        ///
+        /// Every joint above is read from the mates between ONE pair, which
+        /// is right as long as the mates that hold a body are written against
+        /// the body it is jointed to. They often are not. A part is commonly
+        /// placed by a couple of mates to assembly planes and then spaced off
+        /// some OTHER part's shaft, and then no pair has enough mates on its
+        /// own while the two together have plenty.
+        ///
+        /// Live spurgear.sldasm (2026-09-16, Oscar): "one of the gears comes
+        /// in as a revolute, the other is unrestrained". The second gear had
+        /// its axis in one assembly plane and its face on another, which
+        /// leaves it sliding along the line where those planes meet, and what
+        /// stopped that slide was a distance mate to the FIRST GEAR'S axis.
+        ///
+        /// What makes it sound to move a mate from one pair to another is
+        /// that some entities cannot move. A hinge's axis is a line, and
+        /// turning the body on it leaves the line exactly where it was, so
+        /// that line is as fixed in the body's parent as any assembly plane.
+        /// A mate naming it therefore belongs to the parent's pair as much as
+        /// to the pair it was written between. Only entities like that are
+        /// borrowed, only into a pair that came out free, and only when the
+        /// result is a better answer than free: this can add certainty, never
+        /// take it away.
+        /// </summary>
+        private static void BorrowFixedLines(
+            RigidGroupingResult grouping,
+            Dictionary<string, double[][]> groupBoxes,
+            Dictionary<string, double[]> groupAnchors,
+            Dictionary<string, double[,]> poseDeltas,
+            ClassificationResult result,
+            List<RigJoint> jointByEdge,
+            ILimitSignOracle signOracle)
+        {
+            var turning = new Dictionary<string, RigJoint>();
+            for (int i = 0; i < grouping.Edges.Count; i++)
+            {
+                var j = jointByEdge[i];
+                if (j == null || j.Axis == null || j.Origin == null) continue;
+                if (j.Type != JointType.Revolute && j.Type != JointType.Cylindrical
+                    && j.Type != JointType.Screw) continue;
+                turning[PairKey(j.ParentGroup, j.ChildGroup)] = j;
+            }
+            if (turning.Count == 0) return;
+
+            var railed = new HashSet<string>();
+            foreach (var e in grouping.Edges)
+                foreach (var m in e.Mates)
+                {
+                    if (!MateFacts.Is(m, "RACKPINION")
+                        && !MateFacts.Is(m, "LINEARCOUPLER")) continue;
+                    railed.Add(e.GroupA);
+                    railed.Add(e.GroupB);
+                    foreach (var ent in m.Entities)
+                    {
+                        string owner;
+                        if (ent.ComponentId != null
+                            && grouping.ComponentGroup.TryGetValue(
+                                ent.ComponentId, out owner))
+                            railed.Add(owner);
+                    }
+                }
+
+            for (int i = 0; i < grouping.Edges.Count; i++)
+            {
+                var stuck = jointByEdge[i];
+                if (stuck == null || stuck.Type != JointType.Free) continue;
+                var edge = grouping.Edges[i];
+                // A body a rack-and-pinion or linear-coupler mate names is
+                // finished from that mate instead: it knows the travel per
+                // revolution, and so the slide's direction as well as its
+                // line, which beats anything general borrowed from a
+                // neighbour. A gear mate says no such thing and does not
+                // stand in the way.
+                if (railed.Contains(edge.GroupA) || railed.Contains(edge.GroupB))
+                    continue;
+
+                // Either end of the stuck pair may be the one that is
+                // already placed, so both are tried as the anchor.
+                var borrowed = new List<GraphMate>();
+                var donors = new List<int>();
+                foreach (var ends in new[]
+                         {
+                             new[] { edge.GroupA, edge.GroupB },
+                             new[] { edge.GroupB, edge.GroupA },
+                         })
+                {
+                    string anchor = ends[0], loose = ends[1];
+                    for (int d = 0; d < grouping.Edges.Count; d++)
+                    {
+                        var other = grouping.Edges[d];
+                        if (ReferenceEquals(other, edge)) continue;
+                        string third;
+                        if (other.GroupA == loose) third = other.GroupB;
+                        else if (other.GroupB == loose) third = other.GroupA;
+                        else continue;
+                        if (third == anchor) continue;
+                        RigJoint held;
+                        if (!turning.TryGetValue(PairKey(anchor, third), out held))
+                            continue;
+
+                        foreach (var m in other.Mates)
+                        {
+                            if (MateFacts.Is(m, "GEAR") || MateFacts.Is(m, "RACKPINION")
+                                || MateFacts.Is(m, "LINEARCOUPLER")
+                                || MateFacts.Is(m, "UNIVERSALJOINT")
+                                || MateFacts.Is(m, "CAMFOLLOWER")
+                                || MateFacts.IsLimitMate(m)) continue;
+                            if (!NamesTheLine(m, grouping, third, held)) continue;
+                            if (borrowed.Contains(m)) continue;
+                            borrowed.Add(m);
+                            if (!donors.Contains(d)) donors.Add(d);
+                        }
+                    }
+                }
+                if (borrowed.Count == 0) continue;
+
+                var wider = new GroupEdge { GroupA = edge.GroupA, GroupB = edge.GroupB };
+                wider.Mates.AddRange(edge.Mates);
+                wider.Mates.AddRange(borrowed);
+
+                int scratch = 1;
+                var trial = new List<ManifestWarning>();
+                var better = ClassifyEdge(
+                    wider, grouping, groupBoxes, groupAnchors, poseDeltas,
+                    trial, ref scratch, signOracle);
+                if (better == null || better.Type == JointType.Free) continue;
+
+                // The joint keeps its id: loops, couplings and the manifest
+                // all name it, and only what it IS has changed.
+                better.Id = stuck.Id;
+                foreach (var w in trial)
+                    for (int k = 0; k < w.Joints.Count; k++)
+                        if (w.Joints[k] != stuck.Id) w.Joints[k] = stuck.Id;
+                better.Notes = AppendNote(better.Notes,
+                    "completed from " + borrowed.Count + " mate(s) written "
+                    + "against another body, on a line that body's own joint "
+                    + "cannot move.");
+                result.Warnings.RemoveAll(w => w.Joints.Contains(stuck.Id));
+                result.Warnings.AddRange(trial);
+                int at = result.Joints.IndexOf(stuck);
+                if (at >= 0) result.Joints[at] = better;
+                else result.Joints.Add(better);
+                jointByEdge[i] = better;
+                DropSpentDonors(grouping, jointByEdge, result, donors, borrowed);
+            }
+        }
+
+        /// <summary>
+        /// A point on the line the mates name along <paramref name="dir"/>,
+        /// or null when they name none. Planes are not lines, however their
+        /// normal happens to lie: their point is a point on the plane and
+        /// says nothing about where an axis runs.
+        /// </summary>
+        private static double[] AxisLineAmong(
+            List<GraphMate> constraints, double[] dir, HashSet<string> owners)
+        {
+            var d = MathOps.Normalized(dir);
+            if (d == null) return null;
+            foreach (var m in constraints)
+            {
+                foreach (var e in m.Entities)
+                {
+                    if (e.Direction == null || e.Point == null) continue;
+                    if (e.EntityTypeName == "plane") continue;
+                    if (owners != null && e.ComponentId != null
+                        && !owners.Contains(e.ComponentId)) continue;
+                    if (!MateFacts.IsParallel(e.Direction, d)) continue;
+                    return new[] { e.Point[0], e.Point[1], e.Point[2] };
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Takes away a joint that has nothing left to say.
+        ///
+        /// A pair whose every constraint mate has just been read as part of
+        /// ANOTHER pair, and which could not be classified on its own, states
+        /// nothing that is not stated better elsewhere. Live spurgear.sldasm
+        /// (2026-09-16, Oscar): the only mates between the two gears are the
+        /// distance that places the second one against the first one's shaft,
+        /// now read where it belongs, and the gear mate, which is a coupling
+        /// and was never a joint. Left standing, the pair is a free joint
+        /// closing a ring that is not a mechanism, and an under-defined
+        /// warning about an assembly that is fully defined.
+        /// </summary>
+        private static void DropSpentDonors(
+            RigidGroupingResult grouping, List<RigJoint> jointByEdge,
+            ClassificationResult result, List<int> donors, List<GraphMate> borrowed)
+        {
+            foreach (int d in donors)
+            {
+                var spent = jointByEdge[d];
+                if (spent == null || spent.Type != JointType.Free) continue;
+                bool everything = true;
+                foreach (var m in grouping.Edges[d].Mates)
+                {
+                    if (MateFacts.Is(m, "GEAR") || MateFacts.Is(m, "RACKPINION")
+                        || MateFacts.Is(m, "LINEARCOUPLER")
+                        || MateFacts.Is(m, "UNIVERSALJOINT")
+                        || MateFacts.Is(m, "CAMFOLLOWER")
+                        || MateFacts.IsLimitMate(m)) continue;
+                    if (borrowed.Contains(m)) continue;
+                    everything = false;
+                    break;
+                }
+                if (!everything) continue;
+                result.Joints.Remove(spent);
+                result.Warnings.RemoveAll(w => w.Joints.Contains(spent.Id));
+                jointByEdge[d] = null;
+            }
+        }
+
+        private static string PairKey(string a, string b)
+        {
+            return string.CompareOrdinal(a, b) <= 0 ? a + "\u0000" + b : b + "\u0000" + a;
+        }
+
+        /// <summary>
+        /// True when one of the mate's entities belongs to <paramref name="group"/>
+        /// and lies exactly on that body's own turning axis, which is the one
+        /// line about it that the body's freedom cannot move.
+        /// </summary>
+        private static bool NamesTheLine(
+            GraphMate mate, RigidGroupingResult grouping, string group, RigJoint held)
+        {
+            var axis = MathOps.Normalized(held.Axis);
+            if (axis == null) return false;
+            foreach (var e in mate.Entities)
+            {
+                if (e.ComponentId == null || e.Direction == null || e.Point == null)
+                    continue;
+                string owner;
+                if (!grouping.ComponentGroup.TryGetValue(e.ComponentId, out owner)) continue;
+                if (owner != group) continue;
+                if (!MateFacts.IsParallel(e.Direction, axis)) continue;
+                var onAxis = MathOps.ClosestPointOnLineToPoint(e.Point, axis, held.Origin);
+                if (MathOps.Distance2(onAxis, e.Point) > 1e-12) continue;
+                return true;
+            }
+            return false;
         }
 
         // ── Per-edge classification ─────────────────────────────────────────
@@ -207,9 +459,17 @@ namespace Peak.Cadder.Core
             double[] axis, origin, slideDir;
             GraphMate hingeMate;
             int unmodelled;
+            // Only the two bodies of this pair (or the assembly itself) may
+            // say where their shared axis runs. A mate borrowed from a third
+            // body names a line that stands still, which is what made it
+            // worth borrowing, and never the line these two turn on.
+            var axisOwners = new HashSet<string>();
+            foreach (var kv in grouping.ComponentGroup)
+                if (kv.Value == edge.GroupA || kv.Value == edge.GroupB)
+                    axisOwners.Add(kv.Key);
             string type = ResolveType(
                 constraints, screwMate, out axis, out origin, out slideDir,
-                out hingeMate, out unmodelled);
+                out hingeMate, out unmodelled, axisOwners);
             joint.Type = type;
 
             if (camMates.Count > 0)
@@ -717,7 +977,8 @@ namespace Peak.Cadder.Core
         private static string ResolveType(
             List<GraphMate> constraints, GraphMate screwMate,
             out double[] axis, out double[] origin, out double[] slideDir,
-            out GraphMate hingeMate, out int unmodelled)
+            out GraphMate hingeMate, out int unmodelled,
+            HashSet<string> axisOwners = null)
         {
             axis = null;
             origin = null;
@@ -806,6 +1067,30 @@ namespace Peak.Cadder.Core
             {
                 origin = state.RotPoint;
                 return JointType.Ball;
+            }
+
+            if (state.TransDim == 0 && state.Rot == RotFreedom.AboutDirection)
+            {
+                // Nothing may move and one direction may turn: that is a
+                // hinge. The resolver knows the DIRECTION of the turn but
+                // not which line it is on, because the mates that killed
+                // the last of the translation need not have said. The
+                // mates themselves do say: one of them names a line along
+                // that direction, and a line is where a body turns.
+                //
+                // Only a line the PAIR owns counts. Live spurgear.sldasm
+                // (2026-09-16, Oscar): the mate that finishes the second
+                // gear is a distance to the FIRST gear's axis, and that
+                // axis is a line along the same direction sitting 43.18 mm
+                // away. Reading the origin off it would hinge the gear
+                // about its neighbour.
+                var line = AxisLineAmong(constraints, state.RotDir, axisOwners);
+                if (line != null)
+                {
+                    axis = state.RotDir;
+                    origin = line;
+                    return JointType.Revolute;
+                }
             }
 
             if (state.TransDim == 2 && state.Rot == RotFreedom.AboutDirection

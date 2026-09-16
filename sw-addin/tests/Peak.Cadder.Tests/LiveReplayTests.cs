@@ -336,6 +336,64 @@ namespace Peak.Cadder.Tests
         }
 
         /// <summary>
+        /// The SolidWorks API sample spurgear.sldasm (2026-09-16, Oscar):
+        /// "one of the gears comes in as a revolute, the other is
+        /// unrestrained".
+        ///
+        /// Both gears are the same part twice. The first is held by three
+        /// mates to assembly planes: its axis on two of them and its face on
+        /// the third, which is a hinge and comes out as one. The second has
+        /// only two mates to the assembly (its axis in one plane, its face on
+        /// another), which leaves it free to slide along the line where those
+        /// planes meet. What stops that slide is a DISTANCE mate holding its
+        /// axis 43.18 mm from the FIRST GEAR'S axis.
+        ///
+        /// So the constraints that pin the second gear are spread over two
+        /// pairs of bodies, and a classifier that reads one pair at a time
+        /// sees too few on each. The first gear's axis is a line its own
+        /// turning cannot move, which makes it as good as assembly geometry:
+        /// a mate that names it belongs to the pair it is fixed in as much
+        /// as to the pair it was written between.
+        /// </summary>
+        [Fact]
+        public void BothSpurGearsTurnOnTheirOwnAxes()
+        {
+            var graph = Fixture("spurgear", new LogReplay.Options());
+            var outcome = LogReplay.Run(graph);
+            _out.WriteLine(LogReplay.Report(graph, outcome));
+
+            var byChild = new Dictionary<string, RigJoint>();
+            foreach (var j in outcome.Classification.Joints)
+                byChild[j.ChildGroup] = j;
+
+            var turning = new List<RigJoint>();
+            foreach (var j in outcome.Classification.Joints)
+                if (j.Type == JointType.Revolute) turning.Add(j);
+            Assert.Equal(2, turning.Count);
+
+            // Both axes run the same way, 43.18 mm apart: that is the mate
+            // the second gear needed and could not see.
+            var a = turning[0];
+            var b = turning[1];
+            Assert.True(MateFacts.IsParallel(a.Axis, b.Axis),
+                        "the two gear axes came out crossed");
+            var span = new[]
+            {
+                b.Origin[0] - a.Origin[0],
+                b.Origin[1] - a.Origin[1],
+                b.Origin[2] - a.Origin[2],
+            };
+            double along = MathOps.Dot(span, MathOps.Normalized(a.Axis));
+            double across = Math.Sqrt(Math.Max(
+                0.0, MathOps.Dot(span, span) - along * along));
+            Assert.Equal(0.04318, across, 5);
+
+            foreach (var w in outcome.Classification.Warnings)
+                Assert.False(w.Code == "UNDER_DEFINED",
+                             "still under-defined: " + w.Message);
+        }
+
+        /// <summary>
         /// The SolidWorks 2022 tutorials lens_mount.sldasm and
         /// plunger.sldasm (2026-09-15): loops whose rings share edges. A
         /// later loop's cut swap moved an edge of an earlier ring into the
