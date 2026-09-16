@@ -105,6 +105,7 @@ namespace Peak.SwToBlender
             _decals = Check("Send the decals", settings.ExportDecals);
             _textureMapping = Check("Send the texture mapping",
                 settings.ExportTextureMapping);
+            _buildRig = Check("Build the rig (assemblies)", settings.BuildRig);
             // A decal and a mapping are parts of an appearance, so they
             // mean nothing on their own.
             EventHandler follow = (s, e) =>
@@ -131,6 +132,7 @@ namespace Peak.SwToBlender
                 new Item { Label = "5 degrees", Value = "5" },
                 new Item { Label = "10 degrees (coarse, faster export)", Value = "10" },
             }, settings.RelationStepDeg.ToString(CultureInfo.InvariantCulture));
+            import.Controls.Add(_buildRig);
             import.Controls.Add(Row("Cam and universal joint sampling:", _relationStep));
 
             // ── 2. STEP+, behind the advanced commands ──────────────────────
@@ -149,11 +151,6 @@ namespace Peak.SwToBlender
             step.Controls.Add(_hidden);
             step.Controls.Add(_importCurves);
             step.Visible = settings.AdvancedCommands;
-
-            // ── 3. What Blender does once the parts are in ──────────────────
-            var pipeline = Group("After import (assemblies)");
-            _buildRig = Check("Build the rig", settings.BuildRig);
-            pipeline.Controls.Add(_buildRig);
 
             // ── Application ─────────────────────────────────────────────────
             var appGroup = Group("Blender application");
@@ -262,7 +259,6 @@ namespace Peak.SwToBlender
 
             root.Controls.Add(import);
             root.Controls.Add(step);
-            root.Controls.Add(pipeline);
             root.Controls.Add(appGroup);
             root.Controls.Add(ribbonGroup);
             root.Controls.Add(labGroup);

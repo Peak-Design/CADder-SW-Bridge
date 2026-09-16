@@ -41,6 +41,7 @@ namespace Peak.SwToBlender.Bridge
                 case "retessellate": return Retessellate(app, request);
                 case "poses": return Poses(app, request);
                 case "documents": return Documents(app);
+                case "ribbon": return Ribbon();
                 case "log": return LogTail(request);
                 case "screenshot": return Screenshot(app, request);
                 case "apply_appearance": return Lab(request, () => ApplyAppearance(app, request));
@@ -1185,6 +1186,59 @@ namespace Peak.SwToBlender.Bridge
                 { "instances", scene.Instances.Count },
                 { "triangles", triangles },
                 { "tolerance_m", scene.Tolerance },
+            };
+        }
+
+        /// <summary>
+        /// What the add-in put on the ribbon, for each document type.
+        ///
+        /// A button that a user cannot find is either one the add-in never
+        /// added or one SolidWorks dropped. This reads the tab back from
+        /// SolidWorks, so the answer says which.
+        /// </summary>
+        private static Dictionary<string, object> Ribbon()
+        {
+            var manager = AddIn.LabCommandManager;
+            if (manager == null) return Fail("the add-in built no command UI");
+
+            var tabs = new List<object>();
+            foreach (var docType in new[] { swDocumentTypes_e.swDocASSEMBLY,
+                                            swDocumentTypes_e.swDocPART })
+            {
+                var buttons = new List<object>();
+                var tab = manager.GetCommandTab((int)docType, AddIn.AddInTitle);
+                if (tab != null)
+                {
+                    var boxes = tab.CommandTabBoxes() as object[];
+                    foreach (var raw in boxes ?? new object[0])
+                    {
+                        var box = raw as ICommandTabBox;
+                        if (box == null) continue;
+                        object ids, styles;
+                        box.GetCommands(out ids, out styles);
+                        foreach (var id in (ids as int[]) ?? new int[0])
+                        {
+                            string title;
+                            buttons.Add(AddIn.CommandTitles.TryGetValue(id, out title)
+                                ? title : "command " + id);
+                        }
+                    }
+                }
+                tabs.Add(new Dictionary<string, object>
+                {
+                    { "document", docType == swDocumentTypes_e.swDocASSEMBLY
+                                  ? "assembly" : "part" },
+                    { "tab", tab != null },
+                    { "buttons", buttons },
+                });
+            }
+
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "advanced", AppSettings.Load(AddIn.Log).AdvancedCommands },
+                { "commands", new List<object>(AddIn.CommandOrder) },
+                { "tabs", tabs },
             };
         }
 

@@ -5,6 +5,7 @@
     python swlab.py start                     launch SolidWorks, wait for the listener
     python swlab.py open <file.sldasm>
     python swlab.py documents
+    python swlab.py ribbon               what the add-in put on the ribbon
     python swlab.py export [--step] [--mesh] [--dir D] [--quality Q]
     python swlab.py send [--step] [--timeout S]   (default: direct link, native mesh)
     python swlab.py mates [--json]

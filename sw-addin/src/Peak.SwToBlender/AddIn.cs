@@ -50,6 +50,17 @@ namespace Peak.SwToBlender
         private ICommandManager _cmdMgr;
         private CommandCallbacks _callbacks;
 
+        /// <summary>
+        /// The command manager of the running add-in, and the title of every
+        /// command by its SolidWorks command id. The lab "ribbon" operation
+        /// reads both to report what reached the ribbon. Nothing else uses
+        /// them.
+        /// </summary>
+        internal static ICommandManager LabCommandManager { get; private set; }
+
+        internal static readonly Dictionary<int, string> CommandTitles =
+            new Dictionary<int, string>();
+
         /// <summary>The CommandGroup UserID. SolidWorks keeps it in the registry
         /// with the toolbar layout of the user, so it must never change.
         /// 71 is NEXT-STEP, 74 is this add-in.</summary>
@@ -275,8 +286,18 @@ namespace Peak.SwToBlender
             group.HasMenu = true;
             group.Activate();
 
-            // Parts get the appearance/bridge commands; the rig export needs
-            // mates and stays assembly-only.
+            // Keep the command ids beside their titles, so the lab can say
+            // which buttons the ribbon holds.
+            LabCommandManager = _cmdMgr;
+            CommandTitles.Clear();
+            for (int i = 0; i < CommandOrder.Length; i++)
+                CommandTitles[group.get_CommandID(i)] = CommandOrder[i];
+
+            // Both document types get the same buttons. Refresh Poses and
+            // Export Rig need mates, so EnableExportRig greys them on a
+            // part. A grey button is what SolidWorks does elsewhere, and a
+            // button that disappears reads as a broken add-in (Oscar,
+            // 2026-09-16: "the buttons are now missing", on a part).
             //
             // SolidWorks keeps the tab between sessions. A call to
             // AddCommandTabBox() and AddCommands() on every launch therefore
@@ -298,20 +319,14 @@ namespace Peak.SwToBlender
                 var box = tab.AddCommandTabBox();
                 if (box == null) { Log($"AddCommandTabBox failed for docType {docType}"); continue; }
 
-                // get_CommandID takes the command's INDEX in the group, in
-                // the order AddCommandItem2 was called: 0 Send to Blender,
-                // 1 Export Options, 2 Refresh Poses, 3 Export STEP+,
-                // 4 Export Rig. Passing the user ids here put the wrong
-                // buttons on the ribbon (Oscar, 2026-09-15). Refresh Poses
-                // and Export Rig need mates: assemblies.
-                int[] indexes;
-                bool isAssembly = docType == swDocumentTypes_e.swDocASSEMBLY;
-                if (!advanced)
-                    indexes = isAssembly ? new[] { 0, 1, 2 } : new[] { 0, 1 };
-                else if (isAssembly)
-                    indexes = new[] { 0, 1, 2, 3, 4 };
-                else
-                    indexes = new[] { 0, 1, 3 };
+                // get_CommandID takes the command's INDEX in the group, the
+                // order CommandOrder lists. Passing the user ids here put
+                // the wrong buttons on the ribbon (Oscar, 2026-09-15).
+                // Without the advanced commands, Export STEP+ and Export Rig
+                // are menu items only, so the tab cannot hold them.
+                int[] indexes = advanced
+                    ? new[] { 0, 1, 2, 3, 4 }
+                    : new[] { 0, 1, 2 };
                 var commandIds = indexes.Select(i => group.get_CommandID(i)).ToArray();
                 var styles = indexes.Select(
                     _ => (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow).ToArray();
@@ -319,6 +334,16 @@ namespace Peak.SwToBlender
                 if (!added) Log($"AddCommands failed for docType {docType}");
             }
         }
+
+        /// <summary>
+        /// The commands in the order AddCommandItem2 adds them, which is the
+        /// order of the icon strip and the index that get_CommandID takes.
+        /// </summary>
+        internal static readonly string[] CommandOrder =
+        {
+            "Send to Blender", "Export Options", "Refresh Poses",
+            "Export STEP+", "Export Rig",
+        };
 
         /// <summary>The icon sizes that SolidWorks asks for, smallest first.</summary>
         private static readonly int[] IconSizes = { 20, 32, 40, 64, 96, 128 };
