@@ -48,9 +48,10 @@ on purpose: the rig moves what you can drag in SolidWorks, and nothing else.
 
 ## Files the add-in writes
 
-- Exports go into a per-assembly folder under
-  `%LOCALAPPDATA%\PeakDesign\CADder\exports`, or next to the assembly
-  when Export Options says so.
+- Every export writes into a folder of its own, named after the document.
+  Export Options says where that folder goes: under
+  `%LOCALAPPDATA%\PeakDesign\CADder\exports`, next to the assembly, or
+  in a folder you pick.
 - Settings: `%APPDATA%\PeakDesign\CADder\settings.json`.
 - Log: `%LOCALAPPDATA%\PeakDesign\CADder\cadder-debug.log`. The
   log rotates at 8 MB. Attach it to a bug report.

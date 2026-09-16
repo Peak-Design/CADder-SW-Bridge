@@ -61,9 +61,17 @@ namespace Peak.Cadder.Core
         public bool FocusBlender = true;
         /// <summary>Explicit blender.exe; empty = newest found install.</summary>
         public string BlenderExe = "";
-        /// <summary>"temp" exports into a per-assembly folder under
-        /// %LOCALAPPDATA%; "beside" writes next to the .SLDASM.</summary>
+        /// <summary>Where an export goes: "temp" for the app-data exports
+        /// folder, "beside" for the folder the .SLDASM is in, "custom" for
+        /// ExportFolder. Every one of them gets a folder of its own named
+        /// after the document, so one export does not land on the last
+        /// one's files (Oscar, 2026-09-16).</summary>
         public string ExportFolderMode = "temp";
+
+        /// <summary>The folder "custom" writes into. Empty falls back to the
+        /// app-data exports folder, which is what a user who picks the mode
+        /// and cancels the browser gets.</summary>
+        public string ExportFolder = "";
 
         // The lab: the add-in's localhost listener also accepts operations
         // that CHANGE the open model (open and close documents, suppress a
@@ -136,6 +144,7 @@ namespace Peak.Cadder.Core
                 settings.FocusBlender = MiniJson.Flag(obj, "focus_blender", settings.FocusBlender);
                 settings.BlenderExe = MiniJson.Str(obj, "blender_exe", settings.BlenderExe);
                 settings.ExportFolderMode = MiniJson.Str(obj, "export_folder_mode", settings.ExportFolderMode);
+                settings.ExportFolder = MiniJson.Str(obj, "export_folder", settings.ExportFolder);
                 settings.LabOps = MiniJson.Flag(obj, "lab_ops", settings.LabOps);
                 settings.AdvancedCommands = MiniJson.Flag(obj, "advanced_commands", settings.AdvancedCommands);
             }
@@ -175,6 +184,7 @@ namespace Peak.Cadder.Core
                     { "focus_blender", FocusBlender },
                     { "blender_exe", BlenderExe ?? "" },
                     { "export_folder_mode", ExportFolderMode },
+                    { "export_folder", ExportFolder ?? "" },
                     { "lab_ops", LabOps },
                     { "advanced_commands", AdvancedCommands },
                 };

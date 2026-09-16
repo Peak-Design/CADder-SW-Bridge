@@ -203,17 +203,17 @@ namespace Peak.Cadder
             finally { ExportCommand.CloseBar(bar); }
         }
 
+        /// <summary>The folder this export writes into: a folder of its
+        /// own, named after the document, inside the root the user chose.
+        /// The rule itself is in Core/ExportPaths, which no SolidWorks type
+        /// reaches, so the tests can run it.</summary>
         internal static string ExportDir(
             AppSettings settings, IModelDoc2 model, string baseName)
         {
-            if (settings.ExportFolderMode == "beside")
-                return Path.GetDirectoryName(model.GetPathName());
-            // System.Environment spelled out: the sldworks interop also
-            // declares an Environment type.
-            return Path.Combine(
-                System.Environment.GetFolderPath(
-                    System.Environment.SpecialFolder.LocalApplicationData),
-                "PeakDesign", "CADder", "exports", baseName);
+            string modelPath = null;
+            try { modelPath = model == null ? null : model.GetPathName(); }
+            catch { }
+            return ExportPaths.For(settings, modelPath, baseName);
         }
 
         /// <summary>The quality preset as the 0..1 dial the tessellator

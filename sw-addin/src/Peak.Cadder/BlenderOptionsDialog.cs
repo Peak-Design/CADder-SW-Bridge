@@ -41,6 +41,7 @@ namespace Peak.Cadder
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
         private readonly CheckBox _labOps;
+        private readonly TextBox _exportPath;
         private readonly CheckBox _advanced;
         private readonly ComboBox _relationStep;
         private readonly ComboBox _exe;
@@ -251,14 +252,57 @@ namespace Peak.Cadder
                 new Item { Label = "App-data exports folder (keeps projects clean)",
                            Value = "temp" },
                 new Item { Label = "Next to the assembly", Value = "beside" },
+                new Item { Label = "A folder of your own", Value = "custom" },
             }, settings.ExportFolderMode);
+
+            _exportPath = new TextBox
+            {
+                Text = settings.ExportFolder ?? "",
+                Width = 260,
+                ReadOnly = true,
+            };
+            var pickFolder = new Button
+            {
+                Text = "Browse…",
+                AutoSize = true,
+                UseCompatibleTextRendering = false,
+            };
+            pickFolder.Click += (s, e) => PickExportFolder();
+            _tips.SetToolTip(_exportPath,
+                "Show the folder an export writes into. Each export makes a "
+                + "folder of its own in it, named after the document");
+            _tips.SetToolTip(pickFolder, "Pick the folder to export into");
+            var folderRow = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0),
+            };
+            var folderLabel = Prose("Folder:");
+            folderLabel.Margin = new Padding(0, 6, 6, 0);
+            folderRow.Controls.Add(folderLabel);
+            folderRow.Controls.Add(_exportPath);
+            folderRow.Controls.Add(pickFolder);
+            // The row stays in place and greys out, rather than appearing
+            // and disappearing under the controls below it.
+            _exportFolder.SelectedIndexChanged += (s, e) =>
+            {
+                folderRow.Enabled = Selected(_exportFolder, "temp") == "custom";
+                if (folderRow.Enabled && _exportPath.Text.Length == 0)
+                    PickExportFolder();
+            };
+            folderRow.Enabled = settings.ExportFolderMode == "custom";
 
             appGroup.Controls.Add(_autoLaunch);
             appGroup.Controls.Add(_focus);
             appGroup.Controls.Add(exeRow);
             appGroup.Controls.Add(Row("Export files to:", _exportFolder,
-                "Choose where the STEP file and the manifest are written. A "
-                + "direct send writes neither and this has no effect on it"));
+                "Choose where the STEP file and the manifest are written. "
+                + "Each export makes a folder of its own, named after the "
+                + "document. A direct send writes neither file and this has "
+                + "no effect on it"));
+            appGroup.Controls.Add(folderRow);
 
             // ── Lab ─────────────────────────────────────────────────────────
             var ribbonGroup = Group("Ribbon");
@@ -342,6 +386,11 @@ namespace Peak.Cadder
             settings.AdvancedCommands = _advanced.Checked;
             settings.BlenderExe = Selected(_exe, settings.BlenderExe ?? "");
             settings.ExportFolderMode = Selected(_exportFolder, settings.ExportFolderMode);
+            settings.ExportFolder = _exportPath.Text.Trim();
+            // A folder of your own with no folder behind it writes where the
+            // app-data mode writes, so the setting says what happens.
+            if (settings.ExportFolderMode == "custom" && settings.ExportFolder.Length == 0)
+                settings.ExportFolderMode = "temp";
         }
 
         private static string Selected(ComboBox combo, string fallback)
@@ -380,6 +429,21 @@ namespace Peak.Cadder
                 }
             };
             return box;
+        }
+
+        private void PickExportFolder()
+        {
+            using (var dlg = new FolderBrowserDialog
+            {
+                Description = "Where an export writes its files",
+                ShowNewFolderButton = true,
+            })
+            {
+                if (_exportPath.Text.Length > 0)
+                    dlg.SelectedPath = _exportPath.Text;
+                if (dlg.ShowDialog(this) == DialogResult.OK)
+                    _exportPath.Text = dlg.SelectedPath;
+            }
         }
 
         private Control Row(string label, ComboBox combo, string tip)
