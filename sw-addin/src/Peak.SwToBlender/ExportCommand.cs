@@ -84,6 +84,7 @@ namespace Peak.SwToBlender
             }
             string manifestPath = Path.ChangeExtension(stepPath, ".rig.json");
 
+            var bar = Sw.SwProgressBar.Open(app, "Exporting to Blender", AddIn.Log);
             try
             {
                 // Every stage that mutates model state restores it in its own
@@ -93,7 +94,9 @@ namespace Peak.SwToBlender
                 // line of defence, not the restore path.
                 var outcome = ExportBundle(
                     app, model, assembly, stepPath, manifestPath, settings,
-                    mateErrorPrompt: message => AskWithoutRig(app, message));
+                    mateErrorPrompt: message => AskWithoutRig(app, message),
+                    progress: bar);
+                CloseBar(bar);
                 app.SendMsgToUser2(outcome.Report,
                     (int)swMessageBoxIcon_e.swMbInformation,
                     (int)swMessageBoxBtn_e.swMbOk);
@@ -108,6 +111,13 @@ namespace Peak.SwToBlender
                     catch (Exception ex) { AddIn.Log("open folder: " + ex.Message); }
                 }
             }
+            catch (ExportCancelled)
+            {
+                AddIn.Log("export stopped by the user");
+                app.SendMsgToUser2("The export was stopped. No files were written.",
+                    (int)swMessageBoxIcon_e.swMbInformation,
+                    (int)swMessageBoxBtn_e.swMbOk);
+            }
             catch (Exception ex)
             {
                 AddIn.Log("export failed: " + ex);
@@ -115,6 +125,16 @@ namespace Peak.SwToBlender
                     (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
+            finally { CloseBar(bar); }
+        }
+
+        /// <summary>Closes the progress bar, if it is one. A message box
+        /// under a live bar is drawn behind it, so the bar goes first.
+        /// </summary>
+        internal static void CloseBar(ExportProgress progress)
+        {
+            var bar = progress as IDisposable;
+            if (bar != null) bar.Dispose();
         }
 
         /// <summary>
@@ -161,12 +181,21 @@ namespace Peak.SwToBlender
                 manifestPath = dlg.FileName;
             }
 
+            var bar = Sw.SwProgressBar.Open(app, "Exporting the rig", AddIn.Log);
             try
             {
                 var outcome = ExportBundle(app, model, assembly,
                     ManifestStepPath(manifestPath), manifestPath, settings,
-                    manifestOnly: true);
+                    manifestOnly: true, progress: bar);
+                CloseBar(bar);
                 app.SendMsgToUser2(outcome.Report,
+                    (int)swMessageBoxIcon_e.swMbInformation,
+                    (int)swMessageBoxBtn_e.swMbOk);
+            }
+            catch (ExportCancelled)
+            {
+                AddIn.Log("manifest-only export stopped by the user");
+                app.SendMsgToUser2("The export was stopped. No files were written.",
                     (int)swMessageBoxIcon_e.swMbInformation,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
@@ -177,6 +206,7 @@ namespace Peak.SwToBlender
                     (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
+            finally { CloseBar(bar); }
         }
 
         /// <summary>The STEP file a manifest describes: the same base name
@@ -234,8 +264,14 @@ namespace Peak.SwToBlender
         public static RigExportOutcome ExportBundle(
             ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
             string stepPath, string manifestPath, AppSettings settings,
-            bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null)
+            bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null,
+            ExportProgress progress = null)
         {
+            // The numbers beside each stage are its share of the whole
+            // export, 0 to 100. They come from timing the samples here: the
+            // two probes are most of a long export, because each of their
+            // readings drags a component in the model.
+            progress = progress ?? ExportProgress.None;
             // Read the selection before anything else touches the
             // document. The DOF probe clears the selection while it drags
             // components, so a keep set read later in the export is always
@@ -250,9 +286,11 @@ namespace Peak.SwToBlender
             // appearances to repair.
             bool repairAppearances = settings.RepairAppearances && ap == 214;
             // ── 1. The WYSIWYG walk and the mate graph ──────────────────────
+            progress.Stage("Reading the assembly", 0, 8);
             var walked = AssemblyWalker.Walk(assembly, AddIn.Log);
             if (walked.Count == 0)
                 throw new InvalidOperationException("The assembly has no components to export.");
+            progress.Stage("Reading the mates", 8, 20);
             var graph = MateReader.Read(walked, AddIn.Log);
             // Mirror features carry no mate, so they are read straight off the
             // feature tree and paired by geometry.
@@ -301,14 +339,17 @@ namespace Peak.SwToBlender
             // ground and never relative to a parent you have yet to choose.
             // The solver supplies the KINEMATICS of each connection, which it
             // has already worked out for the whole assembly at once.
+            progress.StopIfCancelled();
+            progress.Stage("Grouping the bodies", 20, 24);
             var grouping = RigidGrouper.Group(graph);
             // The probe mutates model state (fix flags, limit-mate
             // suppression) and restores it per batch, so it runs BEFORE the
             // STEP export: whatever a restore missed would at least be visible
             // in the exported geometry rather than baked into an earlier file.
             var verdicts = runDofProbe
-                ? ProbePairs(model, walked, grouping)
+                ? ProbePairs(model, walked, grouping, progress)
                 : new List<PairVerdict>();
+            progress.StopIfCancelled();
             // The verdicts are read as a SET: a pair whose child is mated to a
             // third body is a weld when the probe called that third body rigid
             // too (the bolted-on buoyancy module) and a follower when it did
@@ -386,6 +427,7 @@ namespace Peak.SwToBlender
             // corpus 01, 2026-08-23: the hinge at its horizontal limit rigged
             // mirrored). It nudges one component and restores, so like the
             // DOF probe it runs BEFORE the STEP export.
+            progress.Stage("Classifying the joints", 58, 64);
             var signOracle = new LimitSignProbe(app, model, walked, grouping, AddIn.Log);
             var classification = JointClassifier.Classify(graph, grouping, signOracle);
             ApplySolverVerdicts(grouping, classification, verdicts, groundGroup);
@@ -408,6 +450,7 @@ namespace Peak.SwToBlender
             // rules as the DOF probe, so it runs only when that does, and
             // it restores every transform it touched.
             {
+                progress.Stage("Reading the cams and the couplings", 64, 78);
                 var unread = new Dictionary<string, string>();
                 var modelled = runDofProbe
                     ? RelationProbe.Resolve(
@@ -490,6 +533,8 @@ namespace Peak.SwToBlender
             }
             else
             {
+                progress.StopIfCancelled();
+                progress.Stage("Writing the STEP file", 78, 95);
                 var step = StepExporter.Export(app, model, workingStep, ap, AddIn.Log,
                     exportAppearances: repairAppearances,
                     includeHidden: settings.IncludeHidden,
@@ -557,6 +602,7 @@ namespace Peak.SwToBlender
                 Path.GetFileName(stepPath), ap, sha1, post.FlexFix);
             manifest.Warnings.AddRange(symWarnings);
 
+            progress.Stage("Writing the manifest", 95, 100);
             ManifestWriter.WriteFile(manifest, manifestPath);
             AddIn.Log("wrote " + manifestPath);
 
@@ -662,8 +708,9 @@ namespace Peak.SwToBlender
         /// </summary>
         private static List<PairVerdict> ProbePairs(
             IModelDoc2 model, List<WalkedComponent> walked,
-            RigidGroupingResult grouping)
+            RigidGroupingResult grouping, ExportProgress progress = null)
         {
+            progress = progress ?? ExportProgress.None;
             var results = new List<PairVerdict>();
             if (grouping.Edges.Count == 0) return results;
 
@@ -733,6 +780,9 @@ namespace Peak.SwToBlender
             var probe = new DofProbe(model, AddIn.Log);
             var started = DateTime.UtcNow;
             int probed = 0;
+            int pairs = 0;
+            foreach (var kv in batches) pairs += kv.Value.Count;
+            progress.Stage("Measuring the freedom of " + pairs + " pair(s)", 24, 58, pairs);
             // Every limit mate in the assembly goes for the whole session,
             // not just the probed pair's own: the solver counts a limit as a
             // fixed dimension wherever it sits, and one in a closed loop
@@ -773,6 +823,7 @@ namespace Peak.SwToBlender
                                 : ""));
                     }
                     probed += batch.Count;
+                    progress.Step(probed);
                 }
             }
             finally

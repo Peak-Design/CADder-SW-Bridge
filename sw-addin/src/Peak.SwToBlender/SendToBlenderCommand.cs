@@ -54,6 +54,11 @@ namespace Peak.SwToBlender
 
             var settings = AppSettings.Load(AddIn.Log);
             var owner = ExportOptionsDialog.ActiveOwner();
+            // The export stages run on this thread and can take minutes on a
+            // large assembly. The bar says which stage is running, and it
+            // closes before the first dialog: SolidWorks draws a message box
+            // behind a live progress bar.
+            var bar = Sw.SwProgressBar.Open(app, "Sending to Blender", AddIn.Log);
 
             try
             {
@@ -77,12 +82,16 @@ namespace Peak.SwToBlender
                     // geometry of either route. The manifest still describes
                     // the whole assembly, as it does for a STEP export.
                     HashSet<string> keep = null;
+                    // The rig export takes about three quarters of a direct
+                    // send, the tessellation the rest.
+                    bar.Window(0, 78);
                     if (assembly != null)
                     {
                         var outcome = ExportCommand.ExportBundle(
                             app, model, assembly, stepPath, manifestPath, settings,
                             manifestOnly: true,
-                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message));
+                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message),
+                            progress: bar);
                         // No rig: the geometry still goes, and the payload
                         // leaves out every rig stage (BuildPayload).
                         if (outcome.GeometryOnly) manifestPath = null;
@@ -94,9 +103,10 @@ namespace Peak.SwToBlender
                     {
                         keep = Sw.Selection.KeepSet(model, AddIn.Log);
                     }
+                    bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath,
                         QualityDial(settings.QualityPreset), AddIn.Log,
-                        settings.SeparateSolids, keep);
+                        settings.SeparateSolids, keep, bar);
                 }
                 else
                 {
@@ -105,7 +115,8 @@ namespace Peak.SwToBlender
                     {
                         var outcome = ExportCommand.ExportBundle(
                             app, model, assembly, stepPath, manifestPath, settings,
-                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message));
+                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message),
+                            progress: bar);
                         if (outcome.GeometryOnly) manifestPath = null;
                     }
                     else
@@ -113,6 +124,8 @@ namespace Peak.SwToBlender
                         StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
                     }
                 }
+
+                ExportCommand.CloseBar(bar);
 
                 // ── 2. Choose the Blender (needs UI, still this thread) ─────
                 var instances = BlenderBridge.Discover(AddIn.Log);
@@ -170,13 +183,23 @@ namespace Peak.SwToBlender
                        : (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
+            catch (Core.ExportCancelled)
+            {
+                ExportCommand.CloseBar(bar);
+                AddIn.Log("send to blender stopped by the user");
+                app.SendMsgToUser2("The send was stopped. Nothing went to Blender.",
+                    (int)swMessageBoxIcon_e.swMbInformation,
+                    (int)swMessageBoxBtn_e.swMbOk);
+            }
             catch (Exception ex)
             {
+                ExportCommand.CloseBar(bar);
                 AddIn.Log("send to blender failed: " + ex);
                 app.SendMsgToUser2("Send to Blender failed: " + ex.Message,
                     (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
+            finally { ExportCommand.CloseBar(bar); }
         }
 
         internal static string ExportDir(

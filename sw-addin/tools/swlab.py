@@ -180,6 +180,11 @@ def main(argv):
             req["out"] = os.path.abspath(a.out)
     elif a.op == "log":
         req["lines"] = a.lines
+    elif a.op == "progress_demo":
+        if a.args:
+            req["steps"] = float(a.args[0])
+        if len(a.args) > 1:
+            req["hold_ms"] = float(a.args[1])
     elif a.op == "select":
         if a.args:
             req["components"] = list(a.args)

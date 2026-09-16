@@ -45,6 +45,7 @@ namespace Peak.SwToBlender.Bridge
                 case "screenshot": return Screenshot(app, request);
                 case "apply_appearance": return Lab(request, () => ApplyAppearance(app, request));
                 case "select": return Lab(request, () => Select(app, request));
+                case "progress_demo": return Lab(request, () => ProgressDemo(app, request));
                 case "appearances":
                     return AppearanceProbe.Run(ModelFor(app, request),
                         (int)MiniJson.Num(request, "max_faces", 60),
@@ -578,34 +579,45 @@ namespace Peak.SwToBlender.Bridge
                 : settings.OnlySelected;
             settings.OnlySelected = onlySelected;
             HashSet<string> keep = null;
-
-            if (assembly != null)
+            // An update from Blender runs the same stages as the ribbon's
+            // export, so SolidWorks shows the same bar. A user watching
+            // SolidWorks then sees what Blender asked it to do.
+            var bar = Sw.SwProgressBar.Open(app, "Exporting for Blender", AddIn.Log);
+            try
             {
-                var outcome = ExportCommand.ExportBundle(
-                    app, model, assembly, stepPath, manifestPath, settings,
-                    manifestOnly: !withStep);
-                keep = outcome.KeepPaths;
-                result["manifest"] = outcome.ManifestPath;
-                result["warnings"] = outcome.Warnings;
-                result["joints"] = JointShape(outcome.ManifestPath);
-                if (withStep) result["step"] = outcome.StepPath ?? stepPath;
+                // The rig export and the tessellation each number their own
+                // stages, so each gets its share of the bar.
+                if (withMesh) bar.Window(0, 78);
+                if (assembly != null)
+                {
+                    var outcome = ExportCommand.ExportBundle(
+                        app, model, assembly, stepPath, manifestPath, settings,
+                        manifestOnly: !withStep, progress: bar);
+                    keep = outcome.KeepPaths;
+                    result["manifest"] = outcome.ManifestPath;
+                    result["warnings"] = outcome.Warnings;
+                    result["joints"] = JointShape(outcome.ManifestPath);
+                    if (withStep) result["step"] = outcome.StepPath ?? stepPath;
+                }
+                else if (withStep)
+                {
+                    StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
+                    result["step"] = stepPath;
+                }
+                if (withMesh)
+                {
+                    double quality = request.ContainsKey("quality")
+                        ? MiniJson.Num(request, "quality", 0.45)
+                        : SendToBlenderCommand.QualityDial(settings.QualityPreset);
+                    if (keep == null && onlySelected)
+                        keep = Sw.Selection.KeepSet(model, AddIn.Log);
+                    bar.Window(78, 100);
+                    NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
+                        settings.SeparateSolids, keep, bar);
+                    result["mesh"] = meshPath;
+                }
             }
-            else if (withStep)
-            {
-                StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
-                result["step"] = stepPath;
-            }
-            if (withMesh)
-            {
-                double quality = request.ContainsKey("quality")
-                    ? MiniJson.Num(request, "quality", 0.45)
-                    : SendToBlenderCommand.QualityDial(settings.QualityPreset);
-                if (keep == null && onlySelected)
-                    keep = Sw.Selection.KeepSet(model, AddIn.Log);
-                NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
-                    settings.SeparateSolids, keep);
-                result["mesh"] = meshPath;
-            }
+            finally { ExportCommand.CloseBar(bar); }
             return result;
         }
 
@@ -781,6 +793,41 @@ namespace Peak.SwToBlender.Bridge
                 { "document", SafeTitle(model) },
                 { "components", poses },
                 { "missing", selection.Missing },
+            };
+        }
+
+        /// <summary>Runs the export's progress bar through its stages,
+        /// without an export, and says what SolidWorks answered. The bar
+        /// draws in the status bar, which the graphics-view screenshot
+        /// cannot show, so this is how the bar is checked live.</summary>
+        private static Dictionary<string, object> ProgressDemo(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            int steps = (int)MiniJson.Num(request, "steps", 20);
+            if (steps < 1) steps = 1;
+            int hold = (int)MiniJson.Num(request, "hold_ms", 40);
+            var bar = Sw.SwProgressBar.Open(app, "Progress bar check", AddIn.Log);
+            var real = bar as Sw.SwProgressBar;
+            if (real == null) return Fail("SolidWorks gave no progress bar");
+            try
+            {
+                real.Stage("Reading the assembly", 0, 8);
+                real.Stage("Measuring the freedom of " + steps + " pair(s)", 24, 58, steps);
+                for (int i = 1; i <= steps; i++)
+                {
+                    real.Step(i);
+                    if (hold > 0) System.Threading.Thread.Sleep(hold);
+                }
+                real.Stage("Writing the manifest", 95, 100);
+                real.Step(1);
+            }
+            finally { real.Dispose(); }
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "updates", real.Updates },
+                { "last_answer", real.LastAnswer },
+                { "cancelled", real.Cancelled },
             };
         }
 

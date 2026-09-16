@@ -39,8 +39,9 @@ namespace Peak.SwToBlender.Sw
         public static MeshScene Build(
             List<WalkedComponent> walked, double quality, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
-            HashSet<string> keepPaths = null)
+            HashSet<string> keepPaths = null, ExportProgress progress = null)
         {
+            progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
             var definitions = new Dictionary<string, List<MeshDefinition>>(StringComparer.OrdinalIgnoreCase);
             var materials = new AppearanceTable(scene, log);
@@ -49,8 +50,10 @@ namespace Peak.SwToBlender.Sw
             double totalSeconds = 0.0, slowest = 0.0;
             int totalTriangles = 0;
 
+            int placed = 0;
             foreach (var w in walked)
             {
+                progress.Step(placed++);
                 if (w == null || w.Comp == null) continue;
                 if (only != null && !only.Contains(w.Id)) continue;
                 if (keepPaths != null && (w.Graph == null || !keepPaths.Contains(w.Graph.Path)))
