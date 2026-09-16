@@ -96,16 +96,35 @@ namespace Peak.Cadder
                 new Item { Label = "Z (no rotation)", Value = "ZPOS" },
                 new Item { Label = "X", Value = "XPOS" },
             }, settings.UpAxis);
+            // The group says "Send to Blender", so no label below it has
+            // to say "send" again. A heading takes the repeated word out
+            // of the labels under it.
             _separateSolids = Check(
-                "One object per body of a multibody part", settings.SeparateSolids);
-            _onlySelected = Check("Send only the selected components",
-                settings.OnlySelected);
-            _appearances = Check("Send the SolidWorks appearances",
-                settings.ExportAppearances);
-            _decals = Check("Send the decals", settings.ExportDecals);
-            _textureMapping = Check("Send the texture mapping",
-                settings.ExportTextureMapping);
-            _buildRig = Check("Build the rig (assemblies)", settings.BuildRig);
+                "One object per solid body", settings.SeparateSolids,
+                "Split a multibody part into one Blender object per body. "
+                + "Off, the part arrives as one object");
+            _onlySelected = Check(
+                "Only the selected components", settings.OnlySelected,
+                "Send the components that are selected in the assembly, and "
+                + "leave the rest behind. The rig still describes the whole "
+                + "assembly");
+            _appearances = Check(
+                "Appearances", settings.ExportAppearances,
+                "Send the SolidWorks appearances: colors, finish, textures "
+                + "and decals. Off, each face carries its plain color");
+            _decals = Check(
+                "Decals", settings.ExportDecals,
+                "Send the decals laid over an appearance");
+            _textureMapping = Check(
+                "Texture mapping", settings.ExportTextureMapping,
+                "Send how a texture is projected onto the part. Off, the "
+                + "image still travels at its own tile size, boxed in the "
+                + "axes of the part");
+            _buildRig = Check(
+                "Build the rig", settings.BuildRig,
+                "Read the mates of an assembly and build an armature in "
+                + "Blender that moves the way the mates allow. Parts arrive "
+                + "parented to it");
             // A decal and a mapping are parts of an appearance, so they
             // mean nothing on their own.
             EventHandler follow = (s, e) =>
@@ -118,9 +137,14 @@ namespace Peak.Cadder
             _decals.Margin = new Padding(16, 0, 0, 0);
             _textureMapping.Margin = new Padding(16, 0, 0, 0);
 
-            import.Controls.Add(Row("Hierarchy:", _hierarchy));
-            import.Controls.Add(Row("Mesh quality:", _quality));
-            import.Controls.Add(Row("SolidWorks up axis (becomes Blender Z):", _upAxis));
+            import.Controls.Add(Row("Hierarchy:", _hierarchy,
+                "Choose how the parts are arranged in the Blender outliner"));
+            import.Controls.Add(Row("Mesh quality:", _quality,
+                "Set how finely the parts are cut into triangles. The same "
+                + "name means the same result as Update from CAD in Blender"));
+            import.Controls.Add(Row("Up axis:", _upAxis,
+                "Name the SolidWorks axis that points up. It becomes the Z "
+                + "axis of Blender"));
             import.Controls.Add(_separateSolids);
             import.Controls.Add(_onlySelected);
             import.Controls.Add(_appearances);
@@ -133,19 +157,30 @@ namespace Peak.Cadder
                 new Item { Label = "10 degrees (coarse, faster export)", Value = "10" },
             }, settings.RelationStepDeg.ToString(CultureInfo.InvariantCulture));
             import.Controls.Add(_buildRig);
-            import.Controls.Add(Row("Cam and universal joint sampling:", _relationStep));
+            import.Controls.Add(Row("Cam and universal joint sampling:", _relationStep,
+                "Set the step the exporter drags a cam or a universal joint "
+                + "through while it measures the relation. A finer step "
+                + "measures better and exports slower"));
 
             // ── 2. STEP+, behind the advanced commands ──────────────────────
             // Everything here belongs to the STEP file: a direct send has
             // no STEP, no occurrences to de-instance and no free edges.
             var step = Group("Export STEP+ (advanced)");
-            _deInstance = Check("De-instance components that carry an override",
-                settings.DeInstance);
-            _material = Check("Include engineering material", settings.EngineeringMaterial);
-            _hidden = Check("Include hidden components", settings.IncludeHidden);
+            _deInstance = Check(
+                "De-instance overridden components", settings.DeInstance,
+                "Give a component its own STEP geometry when its appearance "
+                + "differs from the other instances of the same part");
+            _material = Check(
+                "Engineering material", settings.EngineeringMaterial,
+                "Write the material of each part into the STEP file, where "
+                + "Blender reads it as a custom property");
+            _hidden = Check(
+                "Hidden components", settings.IncludeHidden,
+                "Export the components that are hidden in the assembly");
             _importCurves = Check(
-                "Import curves (free edges, into a \"Cad Curves\" collection)",
-                settings.ImportCurves);
+                "Import curves", settings.ImportCurves,
+                "Bring the free edges of the STEP file into Blender as "
+                + "curve objects, in a collection named Cad Curves");
             step.Controls.Add(_deInstance);
             step.Controls.Add(_material);
             step.Controls.Add(_hidden);
@@ -154,9 +189,13 @@ namespace Peak.Cadder
 
             // ── Application ─────────────────────────────────────────────────
             var appGroup = Group("Blender application");
-            _autoLaunch = Check("Launch Blender when none is running",
-                settings.AutoLaunchBlender);
-            _focus = Check("Bring Blender to the front when done", settings.FocusBlender);
+            _autoLaunch = Check(
+                "Launch Blender if needed", settings.AutoLaunchBlender,
+                "Start Blender and wait for it when no Blender with the "
+                + "CADder bridge is already listening");
+            _focus = Check(
+                "Bring Blender to the front", settings.FocusBlender,
+                "Raise the Blender window once the send has finished");
 
             var exeItems = new List<Item>
             {
@@ -197,6 +236,10 @@ namespace Peak.Cadder
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 Margin = new Padding(0),
             };
+            _tips.SetToolTip(_exe,
+                "Choose which Blender a send starts and talks to. The "
+                + "newest installed one is picked when nothing is chosen");
+            _tips.SetToolTip(browse, "Pick a blender.exe that is not listed");
             var exeLabel = Prose("Blender:");
             exeLabel.Margin = new Padding(0, 6, 6, 0);
             exeRow.Controls.Add(exeLabel);
@@ -213,22 +256,26 @@ namespace Peak.Cadder
             appGroup.Controls.Add(_autoLaunch);
             appGroup.Controls.Add(_focus);
             appGroup.Controls.Add(exeRow);
-            appGroup.Controls.Add(Row("Export files to:", _exportFolder));
+            appGroup.Controls.Add(Row("Export files to:", _exportFolder,
+                "Choose where the STEP file and the manifest are written. A "
+                + "direct send writes neither and this has no effect on it"));
 
             // ── Lab ─────────────────────────────────────────────────────────
             var ribbonGroup = Group("Ribbon");
             _advanced = Check(
-                "Show the advanced commands (Export STEP+, Export Rig). "
-                + "Takes effect when SolidWorks starts again",
-                settings.AdvancedCommands);
+                "Advanced commands", settings.AdvancedCommands,
+                "Put Export STEP+ and Export Rig on the ribbon, and show "
+                + "the STEP+ options above. Takes effect when SolidWorks "
+                + "starts again");
             ribbonGroup.Controls.Add(_advanced);
             _advanced.CheckedChanged += (s, e) => step.Visible = _advanced.Checked;
 
             var labGroup = Group("Test harness");
             _labOps = Check(
-                "Let a local test harness open, close and change documents "
-                + "(the add-in never saves)",
-                settings.LabOps);
+                "Local test harness", settings.LabOps,
+                "Let a test harness on this machine open, close and change "
+                + "documents over the link. The add-in never saves a "
+                + "document, whatever the harness asks for");
             labGroup.Controls.Add(_labOps);
 
             // ── Status + buttons ────────────────────────────────────────────
@@ -335,6 +382,17 @@ namespace Peak.Cadder
             return box;
         }
 
+        private Control Row(string label, ComboBox combo, string tip)
+        {
+            var row = Row(label, combo);
+            if (!string.IsNullOrEmpty(tip))
+            {
+                _tips.SetToolTip(combo, tip);
+                foreach (Control child in row.Controls) _tips.SetToolTip(child, tip);
+            }
+            return row;
+        }
+
         private static Control Row(string label, ComboBox combo)
         {
             var row = new FlowLayoutPanel
@@ -378,8 +436,22 @@ namespace Peak.Cadder
                 UseCompatibleTextRendering = false,
             };
 
-        private static CheckBox Check(string text, bool chequed)
-            => new CheckBox
+        /// <summary>
+        /// Every control in this dialog carries one. A label says what a
+        /// setting is, and the tooltip says what it does, which keeps the
+        /// sentences out of the labels. The text starts with a verb and
+        /// ends without a period, the way Blender writes them.
+        /// </summary>
+        private readonly ToolTip _tips = new ToolTip
+        {
+            AutoPopDelay = 20000,
+            InitialDelay = 400,
+            ReshowDelay = 100,
+        };
+
+        private CheckBox Check(string text, bool chequed, string tip = null)
+        {
+            var box = new CheckBox
             {
                 Text = text,
                 Checked = chequed,
@@ -387,6 +459,9 @@ namespace Peak.Cadder
                 Margin = new Padding(0, 0, 0, 2),
                 UseCompatibleTextRendering = false,
             };
+            if (!string.IsNullOrEmpty(tip)) _tips.SetToolTip(box, tip);
+            return box;
+        }
 
         private static Button Push(string text, DialogResult result)
             => new Button
