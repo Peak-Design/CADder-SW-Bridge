@@ -55,6 +55,7 @@ namespace Peak.Cadder.Bridge
                         (int)MiniJson.Num(request, "max_faces", 60),
                         (int)MiniJson.Num(request, "face", -1));
                 case "mates": return Mates(app, request);
+                case "small_features": return SmallFeatures(app, request);
                 case "export": return Export(app, request);
                 case "send": return Send(app, request);
                 case "open": return Lab(request, () => Open(app, request));
@@ -270,6 +271,167 @@ namespace Peak.Cadder.Bridge
         /// model unless "dir" says otherwise. The reply carries the paths, the
         /// manifest's joint shape and every log line the export wrote.
         /// </summary>
+        /// <summary>
+        /// Counts the small features every part of the open document could
+        /// be sent without, and the triangles that would save. Reads only:
+        /// it opens nothing, changes nothing and writes nothing. The first
+        /// step of the simplify work is this measurement, so the feature can
+        /// be judged before any of it reaches the ribbon.
+        /// </summary>
+        private static Dictionary<string, object> SmallFeatures(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            if (model == null) return Fail("no document is open in SolidWorks");
+            double maxExtent = MiniJson.Num(request, "max_extent_m", 0.012);
+            var settings = AppSettings.Load(AddIn.Log);
+            double quality = MiniJson.Num(
+                request, "quality",
+                SendToBlenderCommand.QualityDial(settings.QualityPreset));
+
+            var parts = new List<object>();
+            foreach (var kv in PartsOf(model))
+            {
+                var rows = new List<object>();
+                int bodyIndex = 0;
+                foreach (var body in SolidBodiesOf(kv.Value))
+                {
+                    bodyIndex++;
+                    double diagonal = BodyDiagonal(body);
+                    double tolerance = BodyTessellator.ToleranceFor(quality, diagonal);
+                    var tess = TessellationOf(body, tolerance);
+                    var survey = SmallFeatureSurvey.Survey(
+                        body, maxExtent, tess, AddIn.Log, tolerance);
+                    var declined = new Dictionary<string, object>();
+                    var sizes = new List<object>();
+                    foreach (var f in survey.Features)
+                    {
+                        if (f.Declined == null) { sizes.Add(f.Extent); continue; }
+                        object had;
+                        declined[f.Declined] =
+                            (declined.TryGetValue(f.Declined, out had) ? (int)had : 0) + 1;
+                    }
+                    rows.Add(new Dictionary<string, object>
+                    {
+                        { "body", bodyIndex },
+                        { "faces", survey.Faces },
+                        { "planar_faces", survey.PlanarFaces },
+                        { "facets", survey.Facets },
+                        { "facets_after", survey.FacetsAfter },
+                        { "removed", survey.Removed },
+                        { "declined", survey.Declined },
+                        { "declined_why", declined },
+                        { "filled_faces", survey.FilledFaces },
+                        { "fill_measured", survey.FilledFacetsBefore },
+                        { "fill_modelled", survey.FilledFacetsModelled },
+                        { "removed_sizes_m", sizes },
+                    });
+                }
+                if (rows.Count == 0) continue;
+                parts.Add(new Dictionary<string, object>
+                {
+                    { "part", kv.Key },
+                    { "bodies", rows },
+                });
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "max_extent_m", maxExtent },
+                { "parts", parts },
+            };
+        }
+
+        /// <summary>Every distinct PART document the model reaches, by
+        /// file name: one reading per part, however many times it is
+        /// placed.</summary>
+        private static List<KeyValuePair<string, IModelDoc2>> PartsOf(IModelDoc2 model)
+        {
+            var found = new List<KeyValuePair<string, IModelDoc2>>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var assembly = model as IAssemblyDoc;
+            if (assembly == null)
+            {
+                if (model is IPartDoc)
+                    found.Add(new KeyValuePair<string, IModelDoc2>(SafeTitle(model), model));
+                return found;
+            }
+            object[] components = null;
+            try
+            {
+                components = assembly.GetComponents(false) as object[];
+            }
+            catch { }
+            foreach (var o in components ?? new object[0])
+            {
+                var component = o as IComponent2;
+                if (component == null) continue;
+                bool suppressed = false;
+                try { suppressed = component.IsSuppressed(); }
+                catch { }
+                if (suppressed) continue;
+                IModelDoc2 doc = null;
+                try { doc = component.GetModelDoc2() as IModelDoc2; }
+                catch { }
+                if (!(doc is IPartDoc)) continue;
+                string path = SafePath(doc) ?? SafeTitle(doc);
+                if (path == null || !seen.Add(path)) continue;
+                found.Add(new KeyValuePair<string, IModelDoc2>(
+                    Path.GetFileNameWithoutExtension(path), doc));
+            }
+            return found;
+        }
+
+        private static IEnumerable<IBody2> SolidBodiesOf(IModelDoc2 doc)
+        {
+            var part = doc as IPartDoc;
+            object[] bodies = null;
+            if (part != null)
+            {
+                try
+                {
+                    bodies = part.GetBodies2(
+                        (int)swBodyType_e.swSolidBody, false) as object[];
+                }
+                catch { }
+            }
+            foreach (var o in bodies ?? new object[0])
+            {
+                var body = o as IBody2;
+                if (body != null) yield return body;
+            }
+        }
+
+        private static double BodyDiagonal(IBody2 body)
+        {
+            double[] box = null;
+            try { box = body.GetBodyBox() as double[]; }
+            catch { }
+            if (box == null || box.Length < 6) return 0.1;
+            double dx = box[3] - box[0], dy = box[4] - box[1], dz = box[5] - box[2];
+            double d = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            return d > 0 ? d : 0.1;
+        }
+
+        private static ITessellation TessellationOf(IBody2 body, double tolerance)
+        {
+            try
+            {
+                var tess = body.GetTessellation(null) as ITessellation;
+                if (tess == null) return null;
+                tess.NeedFaceFacetMap = true;
+                tess.NeedVertexNormal = false;
+                tess.NeedVertexParams = false;
+                tess.ImprovedQuality = true;
+                tess.SurfacePlaneTolerance = tolerance;
+                tess.SurfacePlaneAngleTolerance = 0.35;
+                tess.CurveChordTolerance = tolerance;
+                tess.CurveChordAngleTolerance = 0.35;
+                return tess.Tessellate() ? tess : null;
+            }
+            catch { return null; }
+        }
+
         private static Dictionary<string, object> Export(
             ISldWorks app, Dictionary<string, object> request)
         {
