@@ -11,7 +11,7 @@ contract lives in [../schema](../schema) and outranks both halves.
 You need SolidWorks 2022 or newer and Blender 5.1 with CADder.
 
 1. Run the installer from the
-   [Releases](https://github.com/Peak-Design/CADder-Bridge/releases) page.
+   [Releases](https://github.com/Peak-Design/CADder-SW-Bridge/releases) page.
    It copies the add-in to `Program Files\Peak Design\CADder Bridge` and
    registers it with every SolidWorks year on the machine.
 2. Start SolidWorks. Open **Tools > Add-Ins** and tick **CADder Bridge** in
