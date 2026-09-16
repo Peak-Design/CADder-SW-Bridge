@@ -616,7 +616,8 @@ namespace Peak.SwToBlender.Bridge
                         keep = Sw.Selection.KeepSet(model, AddIn.Log);
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
-                        settings.SeparateSolids, keep, bar);
+                        settings.SeparateSolids, keep, bar,
+                        AppearanceOptions.From(settings));
                     result["mesh"] = meshPath;
                 }
             }
@@ -1149,7 +1150,8 @@ namespace Peak.SwToBlender.Bridge
                         persistent[w.Id] = ComponentIdentity.PersistIdBase64(model, w.Comp);
                 selection = Selection(request, persistent);
                 scene = NativeSceneBuilder.Build(
-                    walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids);
+                    walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
+                    appearance: AppearanceOptions.From(AppSettings.Load(AddIn.Log)));
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }

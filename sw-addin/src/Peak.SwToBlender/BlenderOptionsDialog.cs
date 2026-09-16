@@ -29,15 +29,14 @@ namespace Peak.SwToBlender
         private readonly ComboBox _quality;
         private readonly ComboBox _upAxis;
         private readonly CheckBox _buildRig;
-        private readonly CheckBox _syncPoses;
-        private readonly CheckBox _parent;
-        private readonly CheckBox _cleanup;
+        private readonly CheckBox _appearances;
+        private readonly CheckBox _decals;
+        private readonly CheckBox _textureMapping;
         private readonly CheckBox _deInstance;
         private readonly CheckBox _material;
         private readonly CheckBox _hidden;
         private readonly CheckBox _onlySelected;
         private readonly CheckBox _importCurves;
-        private readonly CheckBox _groupInCollection;
         private readonly CheckBox _separateSolids;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
@@ -71,8 +70,11 @@ namespace Peak.SwToBlender
                 Padding = new Padding(12),
             };
 
-            // ── Import ──────────────────────────────────────────────────────
-            var import = Group("Blender import (STEPper NEXT)");
+            // ── 1. The send itself ──────────────────────────────────────────
+            // The direct send is the main route, so its options come
+            // first. The STEP group below only appears with the advanced
+            // commands, which is where the STEP commands live too.
+            var import = Group("Send to Blender");
             _hierarchy = Combo(new[]
             {
                 new Item { Label = "Parented empties (default)", Value = "EMPTIES" },
@@ -94,58 +96,64 @@ namespace Peak.SwToBlender
                 new Item { Label = "Z (no rotation)", Value = "ZPOS" },
                 new Item { Label = "X", Value = "XPOS" },
             }, settings.UpAxis);
+            _separateSolids = Check(
+                "One object per body of a multibody part", settings.SeparateSolids);
+            _onlySelected = Check("Send only the selected components",
+                settings.OnlySelected);
+            _appearances = Check("Send the SolidWorks appearances",
+                settings.ExportAppearances);
+            _decals = Check("Send the decals", settings.ExportDecals);
+            _textureMapping = Check("Send the texture mapping",
+                settings.ExportTextureMapping);
+            // A decal and a mapping are parts of an appearance, so they
+            // mean nothing on their own.
+            EventHandler follow = (s, e) =>
+            {
+                _decals.Enabled = _appearances.Checked;
+                _textureMapping.Enabled = _appearances.Checked;
+            };
+            _appearances.CheckedChanged += follow;
+            follow(null, EventArgs.Empty);
+            _decals.Margin = new Padding(16, 0, 0, 0);
+            _textureMapping.Margin = new Padding(16, 0, 0, 0);
+
             import.Controls.Add(Row("Hierarchy:", _hierarchy));
             import.Controls.Add(Row("Mesh quality:", _quality));
             import.Controls.Add(Row("SolidWorks up axis (becomes Blender Z):", _upAxis));
-
-            // ── Pipeline ────────────────────────────────────────────────────
-            var pipeline = Group("After import (assemblies)");
-            _buildRig = Check("Build the rig", settings.BuildRig);
-            _syncPoses = Check("Snap geometry to SolidWorks poses", settings.SyncPoses);
-            _parent = Check("Parent geometry to the rig", settings.ParentGeometry);
-            _cleanup = Check("Remove leftover import empties", settings.CleanupEmpties);
-            pipeline.Controls.Add(_buildRig);
-            pipeline.Controls.Add(_syncPoses);
-            pipeline.Controls.Add(_parent);
-            pipeline.Controls.Add(_cleanup);
+            import.Controls.Add(_separateSolids);
+            import.Controls.Add(_onlySelected);
+            import.Controls.Add(_appearances);
+            import.Controls.Add(_decals);
+            import.Controls.Add(_textureMapping);
             _relationStep = Combo(new[]
             {
                 new Item { Label = "2 degrees (fine, slower export)", Value = "2" },
                 new Item { Label = "5 degrees", Value = "5" },
                 new Item { Label = "10 degrees (coarse, faster export)", Value = "10" },
             }, settings.RelationStepDeg.ToString(CultureInfo.InvariantCulture));
-            pipeline.Controls.Add(Row("Cam and universal joint sampling:", _relationStep));
+            import.Controls.Add(Row("Cam and universal joint sampling:", _relationStep));
 
-            // ── Appearance ──────────────────────────────────────────────────
-            var appearance = Group("STEP appearance (STEP+)");
+            // ── 2. STEP+, behind the advanced commands ──────────────────────
+            // Everything here belongs to the STEP file: a direct send has
+            // no STEP, no occurrences to de-instance and no free edges.
+            var step = Group("Export STEP+ (advanced)");
             _deInstance = Check("De-instance components that carry an override",
                 settings.DeInstance);
             _material = Check("Include engineering material", settings.EngineeringMaterial);
             _hidden = Check("Include hidden components", settings.IncludeHidden);
-            // Hidden components are left out by SolidWorks itself, so
-            // "only visible" is what an export already is; these two say
-            // what ELSE to leave out or put back.
-            _onlySelected = Check("Export only the selected components",
-                settings.OnlySelected);
-            appearance.Controls.Add(_deInstance);
-            appearance.Controls.Add(_material);
-            appearance.Controls.Add(_hidden);
-            appearance.Controls.Add(_onlySelected);
-
-            // ── What Blender does with the file ─────────────────────────────
-            var importing = Group("Blender import");
             _importCurves = Check(
                 "Import curves (free edges, into a \"Cad Curves\" collection)",
                 settings.ImportCurves);
-            _groupInCollection = Check(
-                "Group each file in a collection of its own",
-                settings.GroupInCollection);
-            _separateSolids = Check(
-                "Separate solids (one object per body of a multibody part)",
-                settings.SeparateSolids);
-            importing.Controls.Add(_importCurves);
-            importing.Controls.Add(_groupInCollection);
-            importing.Controls.Add(_separateSolids);
+            step.Controls.Add(_deInstance);
+            step.Controls.Add(_material);
+            step.Controls.Add(_hidden);
+            step.Controls.Add(_importCurves);
+            step.Visible = settings.AdvancedCommands;
+
+            // ── 3. What Blender does once the parts are in ──────────────────
+            var pipeline = Group("After import (assemblies)");
+            _buildRig = Check("Build the rig", settings.BuildRig);
+            pipeline.Controls.Add(_buildRig);
 
             // ── Application ─────────────────────────────────────────────────
             var appGroup = Group("Blender application");
@@ -217,6 +225,7 @@ namespace Peak.SwToBlender
                 + "Takes effect when SolidWorks starts again",
                 settings.AdvancedCommands);
             ribbonGroup.Controls.Add(_advanced);
+            _advanced.CheckedChanged += (s, e) => step.Visible = _advanced.Checked;
 
             var labGroup = Group("Test harness");
             _labOps = Check(
@@ -252,9 +261,8 @@ namespace Peak.SwToBlender
             buttons.Controls.Add(ok);
 
             root.Controls.Add(import);
+            root.Controls.Add(step);
             root.Controls.Add(pipeline);
-            root.Controls.Add(appearance);
-            root.Controls.Add(importing);
             root.Controls.Add(appGroup);
             root.Controls.Add(ribbonGroup);
             root.Controls.Add(labGroup);
@@ -272,9 +280,9 @@ namespace Peak.SwToBlender
             settings.QualityPreset = Selected(_quality, settings.QualityPreset);
             settings.UpAxis = Selected(_upAxis, settings.UpAxis);
             settings.BuildRig = _buildRig.Checked;
-            settings.SyncPoses = _syncPoses.Checked;
-            settings.ParentGeometry = _parent.Checked;
-            settings.CleanupEmpties = _cleanup.Checked;
+            settings.ExportAppearances = _appearances.Checked;
+            settings.ExportDecals = _decals.Checked;
+            settings.ExportTextureMapping = _textureMapping.Checked;
             int stepDeg;
             if (int.TryParse(Selected(_relationStep, "5"), NumberStyles.Integer,
                              CultureInfo.InvariantCulture, out stepDeg))
@@ -284,7 +292,6 @@ namespace Peak.SwToBlender
             settings.IncludeHidden = _hidden.Checked;
             settings.OnlySelected = _onlySelected.Checked;
             settings.ImportCurves = _importCurves.Checked;
-            settings.GroupInCollection = _groupInCollection.Checked;
             settings.SeparateSolids = _separateSolids.Checked;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;

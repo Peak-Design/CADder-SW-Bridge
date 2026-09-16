@@ -48,6 +48,29 @@ namespace Peak.SwToBlender.Core
 
         public TextureMapping Mapping = new TextureMapping();
 
+        /// <summary>Forgets WHERE the texture is projected while keeping
+        /// how big it is: the frame (the axes, the centre, the rotation
+        /// and the offsets) goes, the tile size stays, and the type
+        /// becomes a box. A user turns the mapping off because the
+        /// projection is in the way, not because the texture should tile
+        /// at one metre.
+        ///
+        /// Decals keep their own frame. A decal's placement IS its
+        /// mapping, and whether decals travel at all is its own
+        /// switch.</summary>
+        public void DropMapping()
+        {
+            if (Mapping == null) return;
+            Mapping = new TextureMapping
+            {
+                Type = 4,                       // a box, in the part's axes
+                Width = Mapping.Width,
+                Height = Mapping.Height,
+                WidthMirror = Mapping.WidthMirror,
+                HeightMirror = Mapping.HeightMirror,
+            };
+        }
+
         /// <summary>The library file's own lines, key to value as written
         /// ("sw_shader" -> "polishedgold"). The values SolidWorks' renderer
         /// used, which the API does not expose (blurry reflections, the
@@ -181,7 +204,7 @@ namespace Peak.SwToBlender.Core
                 { "bump_texture", BumpTexture },
                 { "bump_map", BumpMap },
                 { "bump_amplitude", BumpAmplitude },
-                { "mapping", Mapping.ToJson() },
+                { "mapping", Mapping == null ? null : Mapping.ToJson() },
                 { "library", LibraryJson() },
                 { "blender", new Dictionary<string, object>
                     {
@@ -345,7 +368,7 @@ namespace Peak.SwToBlender.Core
                 { "mask_type", MaskType },
                 { "mask_image", MaskImage },
                 { "mask_invert", MaskInvert },
-                { "mapping", Mapping.ToJson() },
+                { "mapping", Mapping == null ? null : Mapping.ToJson() },
                 { "face", Face },
             };
         }

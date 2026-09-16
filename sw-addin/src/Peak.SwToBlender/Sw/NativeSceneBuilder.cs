@@ -39,12 +39,13 @@ namespace Peak.SwToBlender.Sw
         public static MeshScene Build(
             List<WalkedComponent> walked, double quality, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
-            HashSet<string> keepPaths = null, ExportProgress progress = null)
+            HashSet<string> keepPaths = null, ExportProgress progress = null,
+            AppearanceOptions appearance = null)
         {
             progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
             var definitions = new Dictionary<string, List<MeshDefinition>>(StringComparer.OrdinalIgnoreCase);
-            var materials = new AppearanceTable(scene, log);
+            var materials = new AppearanceTable(scene, log, appearance);
             int nextId = 0;
             double coarsest = 0.0;
             double totalSeconds = 0.0, slowest = 0.0;

@@ -106,7 +106,8 @@ namespace Peak.SwToBlender
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath,
                         QualityDial(settings.QualityPreset), AddIn.Log,
-                        settings.SeparateSolids, keep, bar);
+                        settings.SeparateSolids, keep, bar,
+                        AppearanceOptions.From(settings));
                 }
                 else
                 {
@@ -248,10 +249,14 @@ namespace Peak.SwToBlender
                         // TongRig, 2026-09-14). With no import in the
                         // scene the match simply finds nothing, and says so.
                         { "match", rig },
-                        { "sync_poses", rig && settings.SyncPoses },
+                        // Syncing the poses, parenting the geometry and
+                        // clearing the leftover empties always run: a rig
+                        // that does not hold its geometry, or does not sit
+                        // on it, is not a result anybody wants.
+                        { "sync_poses", rig },
                         { "build_rig", rig && settings.BuildRig },
-                        { "relink", rig && settings.ParentGeometry },
-                        { "cleanup", settings.CleanupEmpties },
+                        { "relink", rig && settings.BuildRig },
+                        { "cleanup", true },
                     }
                 },
                 { "import_options", new Dictionary<string, object>
@@ -261,7 +266,6 @@ namespace Peak.SwToBlender
                         { "up_as", settings.UpAxis },
                         { "fw_as", "YPOS" },
                         { "import_curves", settings.ImportCurves },
-                        { "group_in_collection", settings.GroupInCollection },
                         { "separate_solids", settings.SeparateSolids },
                     }
                 },

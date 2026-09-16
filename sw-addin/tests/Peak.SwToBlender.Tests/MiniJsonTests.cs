@@ -114,7 +114,7 @@ namespace Peak.SwToBlender.Tests
                     QualityPreset = "FINE",
                     BlenderExe = "C:\\Program Files\\Blender Foundation\\Blender 5.1\\blender.exe",
                     ExportFolderMode = "beside",
-                    SyncPoses = false,
+                    ExportDecals = false,
                 };
                 settings.Save(null, path);
 
@@ -125,9 +125,10 @@ namespace Peak.SwToBlender.Tests
                 Assert.Equal("FINE", loaded.QualityPreset);
                 Assert.Equal(settings.BlenderExe, loaded.BlenderExe);
                 Assert.Equal("beside", loaded.ExportFolderMode);
-                Assert.False(loaded.SyncPoses);
+                Assert.False(loaded.ExportDecals);
                 // Untouched fields keep their defaults.
                 Assert.True(loaded.BuildRig);
+                Assert.True(loaded.ExportAppearances);
                 Assert.True(loaded.RepairAppearances);
             }
             finally
@@ -153,6 +154,7 @@ namespace Peak.SwToBlender.Tests
                 var loaded = AppSettings.Load(null, broken);
                 Assert.Equal(214, loaded.Ap);
                 Assert.True(loaded.BuildRig);
+                Assert.True(loaded.ExportAppearances);
             }
             finally
             {

@@ -29,6 +29,7 @@ namespace Peak.SwToBlender.Sw
     {
         private readonly MeshScene _scene;
         private readonly Action<string> _log;
+        private readonly AppearanceOptions _options;
         private readonly Dictionary<string, int> _byKey = new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly Dictionary<IComponent2, Context> _contexts = new Dictionary<IComponent2, Context>();
         private readonly Dictionary<string, Dictionary<string, string>> _libraries =
@@ -58,10 +59,12 @@ namespace Peak.SwToBlender.Sw
             public int LegacyMaterial = -1;
         }
 
-        public AppearanceTable(MeshScene scene, Action<string> log)
+        public AppearanceTable(MeshScene scene, Action<string> log,
+                              AppearanceOptions options = null)
         {
             _scene = scene;
             _log = log;
+            _options = options ?? AppearanceOptions.Full;
             // Index 0 is always a plain grey, so a triangle whose appearance
             // could not be read still has somewhere to point.
             Add(new AppearanceSpec());
@@ -121,7 +124,8 @@ namespace Peak.SwToBlender.Sw
             try { ctx.DocDir = Path.GetDirectoryName(ctx.Doc.GetPathName()); } catch { }
             try
             {
-                var decals = ctx.Doc == null ? null : ctx.Doc.Extension.GetDecals() as object[];
+                var decals = _options.Decals && ctx.Doc != null
+                    ? ctx.Doc.Extension.GetDecals() as object[] : null;
                 if (decals != null && decals.Length > 0) ctx.Decals = decals;
             }
             catch { }
@@ -174,6 +178,19 @@ namespace Peak.SwToBlender.Sw
         /// subassembly's child), or is null.</summary>
         public int Resolve(IFace2 face, IBody2 body, Context ctx, double[,] relative)
         {
+            // "Do not send the appearances": every face keeps its plain
+            // colour, read from the same values the older exports used,
+            // and nothing else travels.
+            if (!_options.Appearances)
+            {
+                var plain = FromValues(SafeValues(face), "face")
+                    ?? FromValues(SafeValues(body), "body")
+                    ?? (ctx.Comp != null ? FromValues(SafeValues(ctx.Comp), "component") : null)
+                    ?? FromValues(PartValues(ctx.Doc), "part")
+                    ?? new AppearanceSpec();
+                plain.DropMapping();
+                return Add(plain);
+            }
             string source;
             var rm = Winner(face, body, ctx, out source);
             AppearanceSpec spec;
@@ -193,6 +210,7 @@ namespace Peak.SwToBlender.Sw
                     ?? new AppearanceSpec();
             }
             if (ctx.Decals != null) AddDecals(face, ctx, spec, relative);
+            if (!_options.TextureMapping) spec.DropMapping();
             int id = Add(spec);
             if (rm != null && ctx.Decals == null) _indexOf[spec] = id;
             return id;

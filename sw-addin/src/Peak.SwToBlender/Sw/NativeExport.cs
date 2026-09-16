@@ -22,10 +22,11 @@ namespace Peak.SwToBlender.Sw
         public static MeshScene Write(
             ISldWorks app, IModelDoc2 model, string path, double quality,
             Action<string> log, bool separateSolids = false,
-            HashSet<string> keepPaths = null, ExportProgress progress = null)
+            HashSet<string> keepPaths = null, ExportProgress progress = null,
+            AppearanceOptions appearance = null)
         {
             var scene = Build(app, model, quality, log, separateSolids, keepPaths,
-                progress);
+                progress, appearance);
             MeshWriter.Write(path, scene);
             return scene;
         }
@@ -33,7 +34,7 @@ namespace Peak.SwToBlender.Sw
         public static MeshScene Build(
             ISldWorks app, IModelDoc2 model, double quality, Action<string> log,
             bool separateSolids = false, HashSet<string> keepPaths = null,
-            ExportProgress progress = null)
+            ExportProgress progress = null, AppearanceOptions appearance = null)
         {
             var assembly = model as IAssemblyDoc;
             if (assembly != null)
@@ -43,24 +44,26 @@ namespace Peak.SwToBlender.Sw
                     progress.Stage("Building the geometry of " + walked.Count
                         + " component(s)", 0, 100, walked.Count);
                 return NativeSceneBuilder.Build(
-                    walked, quality, log, null, separateSolids, keepPaths, progress);
+                    walked, quality, log, null, separateSolids, keepPaths, progress,
+                    appearance);
             }
 
             // A PART has no components to walk, so it is its own single
             // instance at the origin: the same shape of scene, one entry
             // long, which keeps the consumer from needing a second case.
-            return BuildSinglePart(model, quality, log);
+            return BuildSinglePart(model, quality, log, appearance);
         }
 
         private static MeshScene BuildSinglePart(
-            IModelDoc2 model, double quality, Action<string> log)
+            IModelDoc2 model, double quality, Action<string> log,
+            AppearanceOptions options = null)
         {
             var scene = new MeshScene();
             var part = model as IPartDoc;
             if (part == null) return scene;
 
             var def = new MeshDefinition { Id = 0, Name = SafeTitle(model) };
-            var materials = new AppearanceTable(scene, log);
+            var materials = new AppearanceTable(scene, log, options);
             var appearance = materials.ForPart(model);
             object[] bodies = null;
             try { bodies = part.GetBodies2((int)swBodyType_e.swSolidBody, false) as object[]; }

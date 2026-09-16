@@ -36,15 +36,25 @@ namespace Peak.SwToBlender.Core
         /// by convention, so YPOS turns them upright in Blender; ZPOS
         /// applies no rotation and keeps the manifest frame.</summary>
         public string UpAxis = "YPOS";
-        public bool ImportCurves = false;          // free edges as POLY curves
-        public bool GroupInCollection = false;     // one collection per file
         public bool SeparateSolids = false;        // a multibody part per body
+        /// <summary>Free edges as POLY curves. The STEP route only: a
+        /// direct send carries triangles, which have no free edges.
+        /// </summary>
+        public bool ImportCurves = false;
+
+        // ── What a send carries of the SolidWorks appearances ───────────────
+        public bool ExportAppearances = true;
+        public bool ExportDecals = true;
+        public bool ExportTextureMapping = true;
 
         // ── Bridge pipeline stages ──────────────────────────────────────────
+        /// <summary>The rig is the point of the add-in, so this is the one
+        /// stage worth turning off: geometry only, for a user who wants
+        /// the parts and no bones. Syncing the poses, parenting the
+        /// geometry and clearing the leftover empties are not options any
+        /// more (Oscar, 2026-09-16): a rig that does not hold its geometry
+        /// or does not sit on it is not a result anybody wants.</summary>
         public bool BuildRig = true;
-        public bool SyncPoses = true;
-        public bool ParentGeometry = true;
-        public bool CleanupEmpties = true;
 
         // ── Blender instance handling ───────────────────────────────────────
         public bool AutoLaunchBlender = true;
@@ -90,7 +100,12 @@ namespace Peak.SwToBlender.Core
                 settings.IncludeHidden = MiniJson.Flag(obj, "include_hidden", settings.IncludeHidden);
                 settings.OnlySelected = MiniJson.Flag(obj, "only_selected", settings.OnlySelected);
                 settings.ImportCurves = MiniJson.Flag(obj, "import_curves", settings.ImportCurves);
-                settings.GroupInCollection = MiniJson.Flag(obj, "group_in_collection", settings.GroupInCollection);
+                settings.ExportAppearances = MiniJson.Flag(
+                    obj, "export_appearances", settings.ExportAppearances);
+                settings.ExportDecals = MiniJson.Flag(
+                    obj, "export_decals", settings.ExportDecals);
+                settings.ExportTextureMapping = MiniJson.Flag(
+                    obj, "export_texture_mapping", settings.ExportTextureMapping);
                 settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
@@ -100,9 +115,6 @@ namespace Peak.SwToBlender.Core
                 settings.QualityPreset = MiniJson.Str(obj, "quality_preset", settings.QualityPreset);
                 settings.UpAxis = MiniJson.Str(obj, "up_axis", settings.UpAxis);
                 settings.BuildRig = MiniJson.Flag(obj, "build_rig", settings.BuildRig);
-                settings.SyncPoses = MiniJson.Flag(obj, "sync_poses", settings.SyncPoses);
-                settings.ParentGeometry = MiniJson.Flag(obj, "parent_geometry", settings.ParentGeometry);
-                settings.CleanupEmpties = MiniJson.Flag(obj, "cleanup_empties", settings.CleanupEmpties);
                 settings.AutoLaunchBlender = MiniJson.Flag(obj, "auto_launch_blender", settings.AutoLaunchBlender);
                 settings.FocusBlender = MiniJson.Flag(obj, "focus_blender", settings.FocusBlender);
                 settings.BlenderExe = MiniJson.Str(obj, "blender_exe", settings.BlenderExe);
@@ -130,8 +142,10 @@ namespace Peak.SwToBlender.Core
                     { "include_hidden", IncludeHidden },
                     { "only_selected", OnlySelected },
                     { "import_curves", ImportCurves },
-                    { "group_in_collection", GroupInCollection },
                     { "separate_solids", SeparateSolids },
+                    { "export_appearances", ExportAppearances },
+                    { "export_decals", ExportDecals },
+                    { "export_texture_mapping", ExportTextureMapping },
                     { "ap", Ap },
                     { "run_dof_probe", RunDofProbe },
                     { "relation_step_deg", RelationStepDeg },
@@ -140,9 +154,6 @@ namespace Peak.SwToBlender.Core
                     { "quality_preset", QualityPreset },
                     { "up_axis", UpAxis },
                     { "build_rig", BuildRig },
-                    { "sync_poses", SyncPoses },
-                    { "parent_geometry", ParentGeometry },
-                    { "cleanup_empties", CleanupEmpties },
                     { "auto_launch_blender", AutoLaunchBlender },
                     { "focus_blender", FocusBlender },
                     { "blender_exe", BlenderExe ?? "" },
