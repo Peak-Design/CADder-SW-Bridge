@@ -21,21 +21,23 @@ namespace Peak.SwToBlender.Sw
         /// </summary>
         public static MeshScene Write(
             ISldWorks app, IModelDoc2 model, string path, double quality,
-            Action<string> log, bool separateSolids = false)
+            Action<string> log, bool separateSolids = false,
+            HashSet<string> keepPaths = null)
         {
-            var scene = Build(app, model, quality, log, separateSolids);
+            var scene = Build(app, model, quality, log, separateSolids, keepPaths);
             MeshWriter.Write(path, scene);
             return scene;
         }
 
         public static MeshScene Build(
             ISldWorks app, IModelDoc2 model, double quality, Action<string> log,
-            bool separateSolids = false)
+            bool separateSolids = false, HashSet<string> keepPaths = null)
         {
             var assembly = model as IAssemblyDoc;
             if (assembly != null)
                 return NativeSceneBuilder.Build(
-                    AssemblyWalker.Walk(assembly, log), quality, log, null, separateSolids);
+                    AssemblyWalker.Walk(assembly, log), quality, log, null, separateSolids,
+                    keepPaths);
 
             // A PART has no components to walk, so it is its own single
             // instance at the origin: the same shape of scene, one entry

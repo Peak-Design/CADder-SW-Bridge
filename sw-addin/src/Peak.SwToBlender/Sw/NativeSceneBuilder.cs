@@ -31,10 +31,15 @@ namespace Peak.SwToBlender.Sw
         /// <paramref name="only"/> restricts the scene to those component
         /// ids: how Blender asks for one part again at a finer tolerance
         /// without paying for the whole assembly.
+        /// <paramref name="keepPaths"/> restricts it to those instance paths,
+        /// which is what "only the selected components" means: the STEP route
+        /// has honoured that option since the beginning, and the direct send
+        /// tessellated the whole assembly whatever it said (2026-09-16).
         /// </summary>
         public static MeshScene Build(
             List<WalkedComponent> walked, double quality, Action<string> log,
-            HashSet<string> only = null, bool separateSolids = false)
+            HashSet<string> only = null, bool separateSolids = false,
+            HashSet<string> keepPaths = null)
         {
             var scene = new MeshScene();
             var definitions = new Dictionary<string, List<MeshDefinition>>(StringComparer.OrdinalIgnoreCase);
@@ -48,6 +53,8 @@ namespace Peak.SwToBlender.Sw
             {
                 if (w == null || w.Comp == null) continue;
                 if (only != null && !only.Contains(w.Id)) continue;
+                if (keepPaths != null && (w.Graph == null || !keepPaths.Contains(w.Graph.Path)))
+                    continue;
                 // A FLEXIBLE subassembly's children are walked in their own
                 // right and become their own instances; the node itself is
                 // just their parent and owns nothing. A RIGID one's children

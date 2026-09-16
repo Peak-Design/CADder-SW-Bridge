@@ -32,6 +32,12 @@ namespace Peak.SwToBlender
         /// <summary>The assembly had mate errors and the user chose to
         /// export the geometry without a rig. There is no manifest.</summary>
         public bool GeometryOnly;
+
+        /// <summary>The instance paths the export kept, or null when it kept
+        /// everything. The caller reuses it for the mesh, because the
+        /// selection itself is gone by the time the export returns: the DOF
+        /// probe clears it while it drags components.</summary>
+        public System.Collections.Generic.HashSet<string> KeepPaths;
     }
 
     public static class ExportCommand
@@ -230,6 +236,14 @@ namespace Peak.SwToBlender
             string stepPath, string manifestPath, AppSettings settings,
             bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null)
         {
+            // Read the selection before anything else touches the
+            // document. The DOF probe clears the selection while it drags
+            // components, so a keep set read later in the export is always
+            // empty, and "only the selected components" quietly exported
+            // everything (found 2026-09-16). Null means no restriction,
+            // which is also what an empty selection gives.
+            var keep = settings.OnlySelected
+                ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
             int ap = settings.Ap == 203 ? 203 : 214;
             bool runDofProbe = settings.RunDofProbe;
             // The appearance entity forms are AP214's; AP203 carries no
@@ -270,6 +284,7 @@ namespace Peak.SwToBlender
                 var geometry = new RigExportOutcome
                 {
                     GeometryOnly = true,
+                    KeepPaths = keep,
                     Report = "Exported the geometry without a rig: the assembly has "
                         + mateErrors.Count + " mate error(s).",
                 };
@@ -475,12 +490,6 @@ namespace Peak.SwToBlender
             }
             else
             {
-                // Null means no restriction. Sw.Selection.KeepSet returns
-                // null when nothing is selected, so an empty selection
-                // exports everything rather than nothing.
-                var keep = settings.OnlySelected
-                    ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
-
                 var step = StepExporter.Export(app, model, workingStep, ap, AddIn.Log,
                     exportAppearances: repairAppearances,
                     includeHidden: settings.IncludeHidden,
@@ -570,6 +579,7 @@ namespace Peak.SwToBlender
             outcome.StepPath = stepPath;
             outcome.ManifestPath = manifestPath;
             outcome.Warnings = manifest.Warnings.Count;
+            outcome.KeepPaths = keep;
             return outcome;
         }
 

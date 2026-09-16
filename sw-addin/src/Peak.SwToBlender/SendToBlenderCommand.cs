@@ -73,6 +73,10 @@ namespace Peak.SwToBlender
                     // The manifest still describes the kinematics; only the
                     // geometry's route changes, so the STEP stages are the
                     // only thing skipped.
+                    // "Only the selected components" applies to the
+                    // geometry of either route. The manifest still describes
+                    // the whole assembly, as it does for a STEP export.
+                    HashSet<string> keep = null;
                     if (assembly != null)
                     {
                         var outcome = ExportCommand.ExportBundle(
@@ -82,10 +86,17 @@ namespace Peak.SwToBlender
                         // No rig: the geometry still goes, and the payload
                         // leaves out every rig stage (BuildPayload).
                         if (outcome.GeometryOnly) manifestPath = null;
+                        // The export read the selection before its probes
+                        // cleared it.
+                        keep = outcome.KeepPaths;
+                    }
+                    else if (settings.OnlySelected)
+                    {
+                        keep = Sw.Selection.KeepSet(model, AddIn.Log);
                     }
                     NativeExport.Write(app, model, meshPath,
                         QualityDial(settings.QualityPreset), AddIn.Log,
-                        settings.SeparateSolids);
+                        settings.SeparateSolids, keep);
                 }
                 else
                 {

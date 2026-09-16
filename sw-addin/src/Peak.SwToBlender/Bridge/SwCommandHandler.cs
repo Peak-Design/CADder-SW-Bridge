@@ -44,6 +44,7 @@ namespace Peak.SwToBlender.Bridge
                 case "log": return LogTail(request);
                 case "screenshot": return Screenshot(app, request);
                 case "apply_appearance": return Lab(request, () => ApplyAppearance(app, request));
+                case "select": return Lab(request, () => Select(app, request));
                 case "appearances":
                     return AppearanceProbe.Run(ModelFor(app, request),
                         (int)MiniJson.Num(request, "max_faces", 60),
@@ -570,11 +571,20 @@ namespace Peak.SwToBlender.Bridge
             string manifestPath = Path.Combine(dir, baseName + ".rig.json");
             var result = new Dictionary<string, object>();
 
+            // A lab request can ask for the option without the settings, and
+            // the settings answer when it does not.
+            bool onlySelected = request.ContainsKey("only_selected")
+                ? MiniJson.Flag(request, "only_selected", false)
+                : settings.OnlySelected;
+            settings.OnlySelected = onlySelected;
+            HashSet<string> keep = null;
+
             if (assembly != null)
             {
                 var outcome = ExportCommand.ExportBundle(
                     app, model, assembly, stepPath, manifestPath, settings,
                     manifestOnly: !withStep);
+                keep = outcome.KeepPaths;
                 result["manifest"] = outcome.ManifestPath;
                 result["warnings"] = outcome.Warnings;
                 result["joints"] = JointShape(outcome.ManifestPath);
@@ -590,7 +600,10 @@ namespace Peak.SwToBlender.Bridge
                 double quality = request.ContainsKey("quality")
                     ? MiniJson.Num(request, "quality", 0.45)
                     : SendToBlenderCommand.QualityDial(settings.QualityPreset);
-                NativeExport.Write(app, model, meshPath, quality, AddIn.Log);
+                if (keep == null && onlySelected)
+                    keep = Sw.Selection.KeepSet(model, AddIn.Log);
+                NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
+                    settings.SeparateSolids, keep);
                 result["mesh"] = meshPath;
             }
             return result;
@@ -769,6 +782,84 @@ namespace Peak.SwToBlender.Bridge
                 { "components", poses },
                 { "missing", selection.Missing },
             };
+        }
+
+        /// <summary>Selects components by their instance paths ("rod-1",
+        /// "lifterassy-1/rod-1"), or clears the selection when no name is
+        /// given, so a lab session can drive the "only the selected
+        /// components" option. SelectByID2 wants the tree syntax
+        /// ("rod-1@lifterassy-1@cam-follower"), so the component itself is
+        /// found in the walk and selected through Select4. Selection changes
+        /// nothing in the document.</summary>
+        private static Dictionary<string, object> Select(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            if (model == null) return Fail("no document is open in SolidWorks");
+            var assembly = model as IAssemblyDoc;
+            if (assembly == null) return Fail("the document is not an assembly");
+
+            var wanted = new List<string>();
+            string one = MiniJson.Str(request, "component", null);
+            if (!string.IsNullOrEmpty(one)) wanted.Add(one);
+            var many = MiniJson.Arr(request, "components");
+            if (many != null)
+                foreach (var item in many)
+                    if (item is string && ((string)item).Length > 0) wanted.Add((string)item);
+
+            if (wanted.Count == 0)
+            {
+                try { model.ClearSelection2(true); } catch { }
+                return new Dictionary<string, object> { { "ok", true }, { "selected", 0 } };
+            }
+
+            bool append = MiniJson.Flag(request, "append", false);
+            if (!append) { try { model.ClearSelection2(true); } catch { } }
+
+            var found = new List<string>();
+            var missing = new List<object>();
+            foreach (string name in wanted)
+            {
+                var comp = FindComponent(assembly, name);
+                if (comp == null) { missing.Add(name); continue; }
+                bool ok = false;
+                try { ok = comp.Select4(true, null, false); } catch { }
+                if (ok) found.Add(name); else missing.Add(name);
+            }
+            int count = 0;
+            try { count = model.SelectionManager.GetSelectedObjectCount2(-1); } catch { }
+            var reply = new Dictionary<string, object>
+            {
+                { "ok", missing.Count == 0 },
+                { "components", found.ToArray() },
+                { "selected", count },
+            };
+            if (missing.Count > 0)
+            {
+                reply["missing"] = missing.ToArray();
+                reply["error"] = "no component named " + missing[0];
+            }
+            return reply;
+        }
+
+        /// <summary>The component whose Name2 is that instance path, at any
+        /// depth. Name2 is the full path with instance numbers, so it names
+        /// one occurrence.</summary>
+        private static Component2 FindComponent(IAssemblyDoc assembly, string path)
+        {
+            object[] comps = null;
+            try { comps = assembly.GetComponents(false) as object[]; } catch { }
+            if (comps == null) return null;
+            foreach (var o in comps)
+            {
+                var comp = o as Component2;
+                if (comp == null) continue;
+                string name = null;
+                try { name = comp.Name2; } catch { }
+                if (string.Equals(name, path, StringComparison.OrdinalIgnoreCase))
+                    return comp;
+            }
+            return null;
         }
 
         /// <summary>The components a request is about: "components" names

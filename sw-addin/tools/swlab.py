@@ -130,6 +130,8 @@ def main(argv):
     p.add_argument("--step", action="store_true")
     p.add_argument("--mesh", action="store_true")
     p.add_argument("--all", action="store_true")
+    p.add_argument("--selected", action="store_true",
+                   help="export only the selected components")
     p.add_argument("--json", action="store_true", help="print the whole reply as JSON")
     p.add_argument("--dir")
     p.add_argument("--out")
@@ -154,6 +156,8 @@ def main(argv):
         req["title"] = a.args[0]
     elif a.op == "export":
         req.update(step=a.step, mesh=a.mesh)
+        if a.selected:
+            req["only_selected"] = True
         if a.dir:
             req["dir"] = os.path.abspath(a.dir)
         if a.quality is not None:
@@ -176,6 +180,10 @@ def main(argv):
             req["out"] = os.path.abspath(a.out)
     elif a.op == "log":
         req["lines"] = a.lines
+    elif a.op == "select":
+        if a.args:
+            req["components"] = list(a.args)
+        req["append"] = a.all
     elif a.op == "appearances":
         req["max_faces"] = a.lines
         if a.args:
