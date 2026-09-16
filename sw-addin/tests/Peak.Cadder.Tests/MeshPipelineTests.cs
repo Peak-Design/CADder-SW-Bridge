@@ -116,12 +116,37 @@ namespace Peak.Cadder.Tests
             {
                 DefinitionId = 3,
                 ComponentId = "c007",
-                Name = "bracket-1",
+                Name = "bracket",
+                Path = "lifter-2/bracket-1",
                 Transform = new double[]
                 {
                     1, 0, 0, 0.5,
                     0, 1, 0, 1.5,
                     0, 0, 1, 2.5,
+                    0, 0, 0, 1,
+                },
+                // A part of a rigid subassembly: it carries the
+                // subassembly's component id and its own place inside it.
+                Local = new double[]
+                {
+                    1, 0, 0, 0.25,
+                    0, 1, 0, 1.0,
+                    0, 0, 1, 1.75,
+                    0, 0, 0, 1,
+                },
+            });
+            // The branch the instance hangs under: a rigid subassembly,
+            // which is one component and holds parts of its own.
+            scene.Nodes.Add(new MeshNode
+            {
+                Path = "lifter-2",
+                Name = "lifter",
+                ComponentId = "c007",
+                Transform = new double[]
+                {
+                    1, 0, 0, 0.25,
+                    0, 1, 0, 0.5,
+                    0, 0, 1, 0.75,
                     0, 0, 0, 1,
                 },
             });
@@ -141,6 +166,24 @@ namespace Peak.Cadder.Tests
                 Assert.True(flags.HasFlag(MeshWriter.SceneFlags.Normals));
                 Assert.True(flags.HasFlag(MeshWriter.SceneFlags.Uvs));
                 Assert.Equal(0.000125, BitConverter.ToDouble(bytes, 12), 12);
+            }
+        }
+
+        [Fact]
+        public void CountsTheNodeTableInTheHeader()
+        {
+            // The node count is the last field of the header, after the
+            // instance count: a consumer that reads it from the wrong
+            // offset gets a plausible number and a scene full of branches
+            // that are not there.
+            using (var ms = new MemoryStream())
+            {
+                MeshWriter.Write(ms, Sample());
+                var bytes = ms.ToArray();
+                Assert.Equal(2u, BitConverter.ToUInt32(bytes, 20));   // materials
+                Assert.Equal(1u, BitConverter.ToUInt32(bytes, 24));   // definitions
+                Assert.Equal(1u, BitConverter.ToUInt32(bytes, 28));   // instances
+                Assert.Equal(1u, BitConverter.ToUInt32(bytes, 32));   // nodes
             }
         }
 

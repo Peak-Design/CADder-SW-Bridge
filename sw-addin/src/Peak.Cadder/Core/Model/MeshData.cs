@@ -45,8 +45,54 @@ namespace Peak.Cadder.Core.Model
     public sealed class MeshInstance
     {
         public int DefinitionId;
-        public string ComponentId;      // the manifest's c001, c002, ...
+
+        /// <summary>The manifest's c001, c002, ... A rigid subassembly is ONE
+        /// component and many instances: every part inside it carries the
+        /// subassembly's id, because that is the body the rig moves.</summary>
+        public string ComponentId;
+
+        /// <summary>The referenced document's name, which is also the name
+        /// SolidWorks gives the STEP product. The two routes then name a part
+        /// the same thing in Blender.</summary>
         public string Name;
+
+        /// <summary>The occurrence path from the root, as SolidWorks spells
+        /// it ("lifter-1/rod-2"). It is unique, so it survives a re-export as
+        /// the key of one placement, and it carries the assembly tree that
+        /// the consumer builds its collections from.</summary>
+        public string Path;
+
+        public double[] Transform;      // row-major 4x4, metres, global
+
+        /// <summary>Where this placement sits inside its COMPONENT, row-major
+        /// 4x4 in metres. Null when the placement is the component's own,
+        /// which is every part outside a rigid subassembly. A consumer that
+        /// moves a component to a new pose needs it: the parts of a rigid
+        /// subassembly all carry the subassembly's id, and without their
+        /// places inside it they would all land on its origin.
+        ///
+        /// It is written rather than worked out from the two transforms
+        /// because those two are allowed to disagree: an update of the poses
+        /// alone sends new component transforms and no geometry, and the
+        /// difference then means something else entirely.</summary>
+        public double[] Local;
+    }
+
+    /// <summary>One subassembly occurrence: a branch of the assembly tree
+    /// that holds instances rather than geometry of its own. The consumer
+    /// needs the branches to name and place its collections and empties, and
+    /// cannot derive the name from a path because a path segment carries the
+    /// instance number and the document name does not.</summary>
+    public sealed class MeshNode
+    {
+        public string Path;
+        public string Name;
+
+        /// <summary>The manifest component, where this occurrence is one: a
+        /// subassembly INSIDE a rigid subassembly is not walked and has no
+        /// component of its own, and this is empty.</summary>
+        public string ComponentId;
+
         public double[] Transform;      // row-major 4x4, metres, global
     }
 
@@ -75,6 +121,10 @@ namespace Peak.Cadder.Core.Model
         public List<MeshDefinition> Definitions = new List<MeshDefinition>();
         public List<MeshInstance> Instances = new List<MeshInstance>();
         public List<MeshMaterial> Materials = new List<MeshMaterial>();
+
+        /// <summary>The subassembly occurrences the instances hang under,
+        /// parents before children.</summary>
+        public List<MeshNode> Nodes = new List<MeshNode>();
 
         /// <summary>The chord tolerance the definitions were built at, metres.
         /// The consumer shows it and asks for a tighter one per part.</summary>

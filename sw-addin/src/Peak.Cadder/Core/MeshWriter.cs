@@ -26,10 +26,20 @@ namespace Peak.Cadder.Core
     public static class MeshWriter
     {
         public const uint Magic = 0x484D5753;      // "SWMH"
-        /// <summary>2 (2026-09-15): every material record ends with the
-        /// appearance JSON, length-prefixed with a uint32 (it outgrows a
-        /// uint16 once a decal and a library file are in it).</summary>
-        public const uint Version = 2;
+        /// <summary>
+        /// 2 (2026-09-15): every material record ends with the appearance
+        /// JSON, length-prefixed with a uint32 (it outgrows a uint16 once a
+        /// decal and a library file are in it).
+        ///
+        /// 3 (2026-09-16): the assembly tree travels with the geometry. The
+        /// header carries a node count, every instance carries its occurrence
+        /// path and its place inside its component, and a node table follows
+        /// the instances. Before this the
+        /// consumer could only read the tree out of the rig manifest, so a
+        /// send with no rig arrived flat, and a part inside a rigid
+        /// subassembly had no place in the tree at all.
+        /// </summary>
+        public const uint Version = 3;
 
         [Flags]
         public enum SceneFlags : uint
@@ -68,6 +78,7 @@ namespace Peak.Cadder.Core
             w.Write((uint)scene.Materials.Count);
             w.Write((uint)scene.Definitions.Count);
             w.Write((uint)scene.Instances.Count);
+            w.Write((uint)scene.Nodes.Count);
 
             foreach (var m in scene.Materials)
             {
@@ -106,13 +117,32 @@ namespace Peak.Cadder.Core
                 w.Write(inst.DefinitionId);
                 WriteString(w, inst.ComponentId);
                 WriteString(w, inst.Name);
-                // Transforms stay DOUBLE: a rotation folded into float32 and
-                // then into a bone rest pose is exactly the drift the rig
-                // spent three rounds chasing out.
-                var m = inst.Transform;
-                for (int i = 0; i < 16; i++) w.Write(m != null && i < m.Length ? m[i] : (i % 5 == 0 ? 1.0 : 0.0));
+                WriteString(w, inst.Path);
+                WriteTransform(w, inst.Transform);
+                // One byte rather than another sixteen doubles on every
+                // record: a part that is its own component, which is nearly
+                // all of them, carries no place inside anything.
+                w.Write((byte)(inst.Local == null ? 0 : 1));
+                if (inst.Local != null) WriteTransform(w, inst.Local);
+            }
+
+            foreach (var node in scene.Nodes)
+            {
+                WriteString(w, node.Path);
+                WriteString(w, node.Name);
+                WriteString(w, node.ComponentId);
+                WriteTransform(w, node.Transform);
             }
             w.Flush();
+        }
+
+        /// <summary>Transforms stay DOUBLE: a rotation folded into float32
+        /// and then into a bone rest pose is exactly the drift the rig spent
+        /// three rounds chasing out. A missing one writes as identity.</summary>
+        private static void WriteTransform(BinaryWriter w, double[] m)
+        {
+            for (int i = 0; i < 16; i++)
+                w.Write(m != null && i < m.Length ? m[i] : (i % 5 == 0 ? 1.0 : 0.0));
         }
 
         private static void WriteString(BinaryWriter w, string s)

@@ -46,18 +46,21 @@ on an assembly of any size the difference is not subtle.
 ```
 header
   uint32   magic          'SWMH' (0x484D5753)
-  uint32   version        1
+  uint32   version        3
   uint32   flags          1 = normals present, 2 = UVs present
   float64  tolerance      chord tolerance the scene was built at, metres
   uint32   material_count
   uint32   definition_count
   uint32   instance_count
+  uint32   node_count     version 3
 
 material × material_count
   string   name
   float32  r, g, b, a
   float32  roughness, metallic
   string   texture        absolute path, or empty
+  uint32   appearance_len version 2
+  bytes    appearance     the SolidWorks appearance as JSON
 
 definition × definition_count
   int32    id
@@ -73,11 +76,20 @@ definition × definition_count
 instance × instance_count
   int32    definition_id
   string   component_id   the rig manifest's c001, c002, ...
-  string   name
+  string   name           the referenced document, as STEP names its product
+  string   path           version 3: the occurrence path from the root
+  float64  transform[16]  row-major 4×4, metres, global
+  uint8    has_local      version 3
+  float64  local[16]      if has_local: the place inside the component
+
+node × node_count          version 3
+  string   path           the occurrence path from the root
+  string   name           the referenced document
+  string   component_id   empty inside a rigid subassembly
   float64  transform[16]  row-major 4×4, metres, global
 ```
 
-Three choices worth the words:
+Four choices worth the words:
 
 **Definitions and instances are separate.** A part used two hundred times
 is tessellated once and placed two hundred times, and becomes one Blender
@@ -94,6 +106,17 @@ chasing out.
 **Materials are per triangle.** SolidWorks resolves appearance per face,
 per body, per feature and per component; the triangle is the only place
 all four collapse to a single answer.
+
+**The tree travels with the geometry.** An instance is one PART occurrence,
+whatever it sits inside, and the nodes are the branches above them. A rigid
+subassembly is one component to the rig and one bone, and every part of it
+carries that component id, with `local` saying where the part sits inside
+it. The two routes then agree: SolidWorks writes a rigid subassembly's parts
+as their own STEP products under the subassembly's product, and this writes
+them as their own instances under the subassembly's node. Before version 3
+the tree could only be read from the rig manifest, so a send with no rig
+arrived flat, and everything under a rigid subassembly was welded into one
+mesh named after the subassembly.
 
 ## Where the time goes
 
