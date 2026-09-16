@@ -171,6 +171,16 @@ namespace Peak.Cadder.Tests
             foreach (var j in loops.Joints)
                 _out.WriteLine(j.Id + " " + j.Type + " " + j.ParentGroup + " -> " + j.ChildGroup);
 
+            try
+            {
+                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                if (!string.IsNullOrEmpty(dir))
+                    ManifestWriter.WriteFile(
+                        ManifestReplay.ToManifest(inputs, loops, "wrench.step"),
+                        Path.Combine(dir, "wrench.rig.json"));
+            }
+            catch (Exception) { }
+
             var loop = Assert.Single(loops.Loops);
             _out.WriteLine(loop.Id + " members " + string.Join(",", loop.MemberJoints.ToArray())
                            + " cut " + loop.ClosureJoint + " driver " + loop.SuggestedDriverJoint

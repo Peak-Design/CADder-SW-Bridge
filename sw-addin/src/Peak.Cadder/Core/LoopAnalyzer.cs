@@ -79,6 +79,7 @@ namespace Peak.Cadder.Core
             DeriveSliderDriverLimits(result);
             result.Mechanisms = ComputeMechanisms(groups, joints, result);
             MoveCutsOffWelds(result);
+            AddCouplingMechanisms(result);
             return result;
         }
 
@@ -448,6 +449,67 @@ namespace Peak.Cadder.Core
             if (tree.SetEquals(startTree)) break;
             }
             return loops;
+        }
+
+        /// <summary>
+        /// A coupled pair is a mechanism too, and it takes either half as
+        /// its input.
+        ///
+        /// A rack and pinion is one degree of freedom with two ways to hold
+        /// it: turn the pinion and the rack runs, or push the rack and the
+        /// pinion turns. The exporter names one of them the driver, and
+        /// that used to be the end of it: the other half's channel is
+        /// written by a driver expression and cannot be posed. Oscar,
+        /// 2026-09-16: "can we ensure that the rack and pinion example
+        /// gives us an option of either driver? Slider on the rack OR
+        /// revolute on the pinion?"
+        ///
+        /// So the pair is offered like any other mechanism, and taking the
+        /// other input turns the coupling round. Only the couplings that
+        /// invert: a ratio of turns, of travel, or of travel per turn. A
+        /// cam, a table and a mirror are shapes, not ratios, and a cam's
+        /// follower never turns its cam.
+        ///
+        /// A joint that sits in a loop is left alone. Its input is the
+        /// loop's business, and the two rules would fight over it.
+        /// </summary>
+        private static void AddCouplingMechanisms(LoopAnalysisResult result)
+        {
+            if (result == null) return;
+            var inLoop = new HashSet<string>();
+            foreach (var lp in result.Loops)
+                foreach (string id in lp.MemberJoints) inLoop.Add(id);
+
+            var byId = new Dictionary<string, RigJoint>();
+            foreach (var j in result.Joints) byId[j.Id] = j;
+
+            int number = result.Mechanisms.Count + 1;
+            foreach (var driven in result.Joints)
+            {
+                var c = driven.Coupling;
+                if (c == null || string.IsNullOrEmpty(c.DriverJoint)) continue;
+                if (c.Kind != "gear" && c.Kind != "rack_pinion"
+                    && c.Kind != "linear_coupler") continue;
+                RigJoint driver;
+                if (!byId.TryGetValue(c.DriverJoint, out driver)) continue;
+                if (inLoop.Contains(driven.Id) || inLoop.Contains(driver.Id)) continue;
+                if (driven.Type == JointType.Fixed || driver.Type == JointType.Fixed) continue;
+                if (driven.Type == JointType.Free || driver.Type == JointType.Free) continue;
+
+                var mech = new RigMechanism();
+                mech.Id = "mech" + number.ToString(
+                    "000", System.Globalization.CultureInfo.InvariantCulture);
+                number++;
+                mech.CouplingPair = true;
+                // The exporter's own choice first, as everywhere else.
+                foreach (var jid in new[] { driver.Id, driven.Id })
+                {
+                    var option = new RigInputOption();
+                    option.Joint = jid;
+                    mech.Inputs.Add(option);
+                }
+                result.Mechanisms.Add(mech);
+            }
         }
 
         /// <summary>
@@ -1009,6 +1071,10 @@ namespace Peak.Cadder.Core
         {
             foreach (var mech in loops.Mechanisms)
             {
+                // A coupled pair offers its DRIVEN half on purpose: taking
+                // it turns the coupling round rather than posing a channel
+                // something else writes (AddCouplingMechanisms).
+                if (mech.CouplingPair) continue;
                 for (int k = mech.Inputs.Count - 1; k >= 0; k--)
                 {
                     var joint = loops.Joints.Find(j => j.Id == mech.Inputs[k].Joint);

@@ -222,7 +222,7 @@
     },
     "mechanisms": {
       "type": "array",
-      "description": "Loops that share joints, each with every input the mechanism can take as a COMPLETE alternative. A consumer that lets the user pick the input applies an option whole: it replaces the mechanism's loops with the option's and swaps parent and child on the option's flipped joints. The exporter's own choice is inputs[0], whose loops equal the top-level loops and whose flipped list is empty.",
+      "description": "Loops that share joints, each with every input the mechanism can take as a COMPLETE alternative. A consumer that lets the user pick the input applies an option whole: it replaces the mechanism's loops with the option's and swaps parent and child on the option's flipped joints. The exporter's own choice is inputs[0], whose loops equal the top-level loops and whose flipped list is empty. A mechanism with NO loops is a COUPLED PAIR: its two inputs are a coupling's driven joint and that coupling's driver, and taking the other input turns the coupling round (the driven joint keeps the ratio and the roles swap). A rack and pinion is then posable from the pinion or from the rack.",
       "items": {
         "type": "object",
         "required": ["id", "loops", "inputs"],

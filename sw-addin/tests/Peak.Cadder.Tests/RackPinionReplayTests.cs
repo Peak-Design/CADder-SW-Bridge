@@ -91,6 +91,42 @@ namespace Peak.Cadder.Tests
             Assert.Equal(-1.0, driven.Axis[1], 6);     // rack bone, -Y
         }
 
+        /// <summary>
+        /// Oscar, 2026-09-16: "can we ensure that the rack and pinion
+        /// example gives us an option of either driver? Slider on the rack
+        /// OR revolute on the pinion? It is picking only the pinion now
+        /// without an option of the rack."
+        ///
+        /// A coupled pair is one degree of freedom with two ways to hold
+        /// it, so it is offered like any other mechanism. The exporter's
+        /// own choice stays first.
+        /// </summary>
+        [Fact]
+        public void EitherHalfOfTheRackPinionPairCanDriveIt()
+        {
+            MateGraph graph;
+            var result = Classify(out graph);
+            var groups = RigidGrouper.Group(graph, null);
+            var all = new System.Collections.Generic.List<RigidGroup>(groups.Groups);
+            all.AddRange(result.VirtualGroups);
+            var loops = LoopAnalyzer.Analyze(all, result.Joints);
+            LoopAnalyzer.PruneDrivenInputs(loops);
+            foreach (var note in loops.Notes) _out.WriteLine("NOTE " + note);
+
+            var driven = result.Joints.First(
+                j => j.Coupling != null && j.Coupling.Kind == "rack_pinion");
+            var pair = loops.Mechanisms.FirstOrDefault(m => m.CouplingPair);
+            Assert.NotNull(pair);
+            _out.WriteLine(pair.Id + " inputs "
+                           + string.Join(",", pair.Inputs.ConvertAll(i => i.Joint).ToArray()));
+
+            Assert.Empty(pair.LoopIds);
+            Assert.Equal(2, pair.Inputs.Count);
+            // The pinion first: it is the driver the exporter chose.
+            Assert.Equal(driven.Coupling.DriverJoint, pair.Inputs[0].Joint);
+            Assert.Equal(driven.Id, pair.Inputs[1].Joint);
+        }
+
         [Fact]
         public void TheJointIsNoLongerReportedAsUnderDefined()
         {

@@ -278,6 +278,13 @@ namespace Peak.Cadder.Core.Model
         public List<string> LoopIds = new List<string>();
         /// <summary>The exporter's own choice first.</summary>
         public List<RigInputOption> Inputs = new List<RigInputOption>();
+
+        /// <summary>Analysis-only, never serialised: this mechanism is a
+        /// COUPLED PAIR, not a ring, and its second input is the coupling's
+        /// driven half on purpose. A consumer reads the same fact off the
+        /// manifest: no loops, and the two inputs are a coupling and its
+        /// driver.</summary>
+        public bool CouplingPair;
     }
 
     public sealed class RigInputOption
