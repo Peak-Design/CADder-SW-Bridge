@@ -1139,6 +1139,17 @@ namespace Peak.Cadder.Bridge
             if (model == null) return Fail("no document is open in SolidWorks");
 
             double quality = MiniJson.Num(request, "quality", 0.75);
+            var settings = AppSettings.Load(AddIn.Log);
+            // The geometry has to come back in the SAME pieces it went out
+            // in. Asking for a body-split part again without this returned
+            // the whole part as one definition, and the consumer then put
+            // that whole part on every one of its body objects: the part
+            // drawn over itself once per body (Oscar, 2026-09-16). The
+            // request may say, because the consumer knows what it holds;
+            // the export setting answers when it does not.
+            bool separateSolids = MiniJson.Flag(
+                request, "separate_solids", settings.SeparateSolids);
+            var appearance = AppearanceOptions.From(settings);
             var assembly = model as IAssemblyDoc;
             MeshScene scene;
             ComponentSelection selection = null;
@@ -1152,7 +1163,7 @@ namespace Peak.Cadder.Bridge
                 selection = Selection(request, persistent);
                 scene = NativeSceneBuilder.Build(
                     walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
-                    appearance: AppearanceOptions.From(AppSettings.Load(AddIn.Log)));
+                    separateSolids, appearance: appearance);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }
@@ -1160,7 +1171,8 @@ namespace Peak.Cadder.Bridge
             {
                 // A part document is one component; a filter naming anything
                 // else simply does not apply to it.
-                scene = NativeExport.Build(app, model, quality, AddIn.Log);
+                scene = NativeExport.Build(app, model, quality, AddIn.Log,
+                                           separateSolids, appearance: appearance);
             }
             if (scene.Definitions.Count == 0) return Fail("nothing to tessellate");
 

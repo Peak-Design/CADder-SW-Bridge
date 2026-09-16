@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
 using SolidWorks.Interop.sldworks;
@@ -51,18 +52,18 @@ namespace Peak.Cadder.Sw
             // A PART has no components to walk, so it is its own single
             // instance at the origin: the same shape of scene, one entry
             // long, which keeps the consumer from needing a second case.
-            return BuildSinglePart(model, quality, log, appearance);
+            return BuildSinglePart(model, quality, log, separateSolids, appearance);
         }
 
         private static MeshScene BuildSinglePart(
             IModelDoc2 model, double quality, Action<string> log,
-            AppearanceOptions options = null)
+            bool separateSolids = false, AppearanceOptions options = null)
         {
             var scene = new MeshScene();
             var part = model as IPartDoc;
             if (part == null) return scene;
 
-            var def = new MeshDefinition { Id = 0, Name = SafeTitle(model) };
+            string title = SafeTitle(model);
             var materials = new AppearanceTable(scene, log, options);
             var appearance = materials.ForPart(model);
             object[] bodies = null;
@@ -74,29 +75,63 @@ namespace Peak.Cadder.Sw
             if (bodies == null) return scene;
 
             double tolerance = 0.0;
+            int count = 0;
+            MeshDefinition shared = null;
+            var defs = new List<MeshDefinition>();
             foreach (var o in bodies)
             {
                 var body = o as IBody2;
                 if (body == null) continue;
+                count++;
+                MeshDefinition def;
+                if (separateSolids)
+                {
+                    // The STEP importer's spelling for a body of a multibody
+                    // part, which is what the assembly route writes too.
+                    def = new MeshDefinition
+                    {
+                        Id = defs.Count,
+                        Name = title + ".body" + count.ToString(
+                            "000", CultureInfo.InvariantCulture),
+                    };
+                    defs.Add(def);
+                }
+                else
+                {
+                    if (shared == null)
+                    {
+                        shared = new MeshDefinition { Id = 0, Name = title };
+                        defs.Add(shared);
+                    }
+                    def = shared;
+                }
                 double tol = BodyTessellator.ToleranceFor(quality, 0.1);
                 tolerance = Math.Max(tolerance, tol);
                 BodyTessellator.Append(body, def, tol,
                     (face, b) => materials.Resolve(face, b, appearance, null), log);
             }
-            if (def.TriangleCount == 0) return scene;
+            // A part with one body keeps the plain name whichever way.
+            if (separateSolids && defs.Count == 1) defs[0].Name = title;
+            defs.RemoveAll(d => d.TriangleCount == 0);
+            if (defs.Count == 0) return scene;
 
             scene.Tolerance = tolerance;
-            scene.Definitions.Add(def);
-            scene.Instances.Add(new MeshInstance
+            foreach (var def in defs)
             {
-                DefinitionId = 0,
-                ComponentId = "c001",
-                Name = def.Name,
-                // A part on its own is the whole tree: one occurrence, at
-                // the root, under its own name.
-                Path = def.Name,
-                Transform = Identity(),
-            });
+                scene.Definitions.Add(def);
+                scene.Instances.Add(new MeshInstance
+                {
+                    DefinitionId = def.Id,
+                    ComponentId = "c001",
+                    Name = def.Name,
+                    // A part on its own is the whole tree: one occurrence, at
+                    // the root, under its own name. A body of it carries the
+                    // same name with its body suffix, so the pieces stay
+                    // apart without making a branch of their own.
+                    Path = def.Name,
+                    Transform = Identity(),
+                });
+            }
             return scene;
         }
 
