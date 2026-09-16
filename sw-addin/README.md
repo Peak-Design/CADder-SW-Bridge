@@ -33,7 +33,7 @@ Export Options:
 |---|---|
 | Send to Blender | Tessellates the parts in SolidWorks and sends them with the rig manifest to the running Blender: geometry, appearances, rig, parenting. Starts Blender when none is running. Blender can ask for a finer mesh later. |
 | Export Options | What a send carries and how Blender receives it. The first group is the send itself: hierarchy, mesh quality, up axis, one object per solid body, only the selected components, and how much of the SolidWorks appearances travels (the appearances, the decals, the texture mapping). The STEP+ group appears with the advanced commands. The last groups say what Blender does after the import and which Blender to start. |
-| Refresh Poses | Moves the parts in Blender to where they are now in SolidWorks. It reads no mates and writes no files, so it answers in about a second on an assembly a send takes minutes over. Send the assembly first, and send it again when parts are added or removed. |
+| Refresh Model | Brings the Blender scene up to date with this assembly: parts that are new arrive, parts that have gone are removed, the tree follows, and everything moves to where SolidWorks has it. Parts that did not change keep their objects and everything done to them in Blender. What happens to the rig is asked each time: add and remove bones, keep it as it is, or build a new one. Grey until this SolidWorks session has sent the document to a Blender that is up. |
 | Export STEP+ (advanced) | Writes a STEP file with the appearance and engineering-material repairs, no rig. |
 | Export Rig (advanced) | Writes only the rig manifest to disk. |
 

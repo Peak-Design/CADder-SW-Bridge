@@ -33,7 +33,8 @@ namespace Peak.Cadder
         /// identity straight through, and gives up the solid model: the
         /// trade the two commands exist to offer.
         /// </summary>
-        public static void Run(ISldWorks app, bool native = false)
+        public static void Run(ISldWorks app, bool native = false,
+                               bool update = false, string rigMode = null)
         {
             if (app == null) return;
             var model = app.ActiveDoc as IModelDoc2;
@@ -58,7 +59,9 @@ namespace Peak.Cadder
             // large assembly. The bar says which stage is running, and it
             // closes before the first dialog: SolidWorks draws a message box
             // behind a live progress bar.
-            var bar = Sw.SwProgressBar.Open(app, "Sending to Blender", AddIn.Log);
+            string title = update ? "Refresh Model" : "Send to Blender";
+            var bar = Sw.SwProgressBar.Open(app, update
+                ? "Refreshing the model in Blender" : "Sending to Blender", AddIn.Log);
 
             try
             {
@@ -161,11 +164,13 @@ namespace Peak.Cadder
                 // ── 3. Launch + send, on a worker under the progress bar ────
                 var payload = BuildPayload(
                     settings, native ? null : stepPath, native ? meshPath : null,
-                    manifestPath);
-                string doing = target == null
-                    ? "Launching Blender and importing " + baseName + "…"
-                    : "Importing " + baseName + " in Blender…";
-                var sent = ProgressDialog.Run(owner, "Send to Blender", doing, () =>
+                    manifestPath, update, rigMode);
+                string doing = update
+                    ? "Bringing " + baseName + " up to date in Blender…"
+                    : target == null
+                        ? "Launching Blender and importing " + baseName + "…"
+                        : "Importing " + baseName + " in Blender…";
+                var sent = ProgressDialog.Run(owner, title, doing, () =>
                 {
                     var t = target ?? BlenderBridge.Launch(exe, AddIn.Log);
                     var resp = BlenderBridge.PostImport(
@@ -175,8 +180,13 @@ namespace Peak.Cadder
                 });
 
                 // ── 4. Report ───────────────────────────────────────────────
-                string summary = Summarize(sent.Value, baseName, sent.Key);
+                string summary = update
+                    ? RefreshModelCommand.Summary(sent.Value)
+                    : Summarize(sent.Value, baseName, sent.Key);
                 bool ok = MiniJson.Flag(sent.Value, "ok");
+                // What the ribbon's Refresh Model gate reads: this session
+                // has put this document into a Blender that is up.
+                if (ok) AddIn.RememberSent(model.GetPathName());
                 if (ok && settings.FocusBlender)
                     BlenderBridge.Focus(sent.Key, AddIn.Log);
                 app.SendMsgToUser2(summary,
@@ -232,10 +242,10 @@ namespace Peak.Cadder
 
         internal static Dictionary<string, object> BuildPayload(
             AppSettings settings, string stepPath, string meshPath,
-            string manifestPath)
+            string manifestPath, bool update = false, string rigMode = null)
         {
             bool rig = manifestPath != null;
-            return new Dictionary<string, object>
+            var payload = new Dictionary<string, object>
             {
                 { "step", stepPath },
                 { "mesh", meshPath },
@@ -243,6 +253,11 @@ namespace Peak.Cadder
                 { "steps", new Dictionary<string, object>
                     {
                         { "import", stepPath != null },
+                        // An UPDATE keeps the scene and changes what
+                        // changed. Without it the import is replaced, which
+                        // is right for a first send and wrong for a
+                        // refresh.
+                        { "update", update },
                         // A manifest sent on its own is matched against
                         // the import already standing in the scene: the
                         // STEP has not changed, only the rig has (live
@@ -270,6 +285,8 @@ namespace Peak.Cadder
                     }
                 },
             };
+            if (!string.IsNullOrEmpty(rigMode)) payload["rig_mode"] = rigMode;
+            return payload;
         }
 
         private static string Summarize(

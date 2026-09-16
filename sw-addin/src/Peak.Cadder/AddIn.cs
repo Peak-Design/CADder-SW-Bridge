@@ -46,6 +46,30 @@ namespace Peak.Cadder
 
         public static ISldWorks SwApp { get; private set; }
 
+        /// <summary>
+        /// The documents this session has put into a Blender. Refresh Model
+        /// is only offered for one of them: a refresh brings a scene up to
+        /// date, and there is nothing to bring up to date until the
+        /// assembly has been sent once.
+        ///
+        /// Per session on purpose. A send in a session that has ended may
+        /// well still be standing in a Blender, but nothing here can know
+        /// that without asking Blender, and the ribbon asks this question
+        /// on every idle.
+        /// </summary>
+        private static readonly HashSet<string> Sent =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public static void RememberSent(string documentPath)
+        {
+            if (!string.IsNullOrEmpty(documentPath)) Sent.Add(documentPath);
+        }
+
+        public static bool WasSent(string documentPath)
+        {
+            return !string.IsNullOrEmpty(documentPath) && Sent.Contains(documentPath);
+        }
+
         private int _cookie;
         private ICommandManager _cmdMgr;
         private CommandCallbacks _callbacks;
@@ -74,7 +98,7 @@ namespace Peak.Cadder
         private const int CmdOptionsUserId = 3;
         private const int CmdExportJsonUserId = 4;
         private const int CmdSendNativeUserId = 5;
-        private const int CmdRefreshPosesUserId = 6;
+        private const int CmdRefreshModelUserId = 6;
 
         // The interop types are EMBEDDED (see SolidWorksApi.props), so this
         // add-in has no SolidWorks assembly reference to satisfy: it loads on
@@ -220,7 +244,7 @@ namespace Peak.Cadder
             // menu items under Tools.
             bool advanced = AppSettings.Load(Log).AdvancedCommands;
             var knownIds = new[] { CmdSendNativeUserId, CmdOptionsUserId,
-                                   CmdRefreshPosesUserId, CmdStepPlusUserId,
+                                   CmdRefreshModelUserId, CmdStepPlusUserId,
                                    CmdExportJsonUserId };
             bool ignorePrevious = hadPrevious && !SameIds(registryIds as int[], knownIds);
 
@@ -255,14 +279,14 @@ namespace Peak.Cadder
                 CmdOptionsUserId, both);
 
             group.AddCommandItem2(
-                "Refresh Poses", -1,
-                "Move the parts in Blender to where they are now in SolidWorks. "
-                + "No re-export: send the assembly again if parts were added "
-                + "or removed",
-                "Refresh Poses", 2,
-                nameof(CommandCallbacks.RefreshPoses),
-                nameof(CommandCallbacks.EnableExportRig),
-                CmdRefreshPosesUserId, both);
+                "Refresh Model", -1,
+                "Bring the Blender scene up to date with this assembly: new "
+                + "parts, deleted parts, the tree and the poses. What happens "
+                + "to the rig is asked each time",
+                "Refresh Model", 2,
+                nameof(CommandCallbacks.RefreshModel),
+                nameof(CommandCallbacks.EnableRefreshModel),
+                CmdRefreshModelUserId, both);
 
             group.AddCommandItem2(
                 "Export STEP+", -1,
@@ -293,11 +317,12 @@ namespace Peak.Cadder
             for (int i = 0; i < CommandOrder.Length; i++)
                 CommandTitles[group.get_CommandID(i)] = CommandOrder[i];
 
-            // Both document types get the same buttons. Refresh Poses and
-            // Export Rig need mates, so EnableExportRig greys them on a
-            // part. A grey button is what SolidWorks does elsewhere, and a
-            // button that disappears reads as a broken add-in (Oscar,
-            // 2026-09-16: "the buttons are now missing", on a part).
+            // Both document types get the same buttons. Export Rig needs
+            // mates, so EnableExportRig greys it on a part, and Refresh
+            // Model greys until there is something to refresh. A grey
+            // button is what SolidWorks does elsewhere, and a button that
+            // disappears reads as a broken add-in (Oscar, 2026-09-16: "the
+            // buttons are now missing", on a part).
             //
             // SolidWorks keeps the tab between sessions. A call to
             // AddCommandTabBox() and AddCommands() on every launch therefore
@@ -341,7 +366,7 @@ namespace Peak.Cadder
         /// </summary>
         internal static readonly string[] CommandOrder =
         {
-            "Send to Blender", "Export Options", "Refresh Poses",
+            "Send to Blender", "Export Options", "Refresh Model",
             "Export STEP+", "Export Rig",
         };
 
@@ -452,7 +477,7 @@ namespace Peak.Cadder
         public void SendToBlender() => SendToBlenderCommand.Run(AddIn.SwApp);
         public void SendToBlenderNative() => SendToBlenderCommand.Run(AddIn.SwApp, native: true);
         public void BlenderOptions() => BlenderOptionsDialog.Run(AddIn.SwApp);
-        public void RefreshPoses() => RefreshPosesCommand.Run(AddIn.SwApp);
+        public void RefreshModel() => RefreshModelCommand.Run(AddIn.SwApp);
 
         /// <summary>1 enables the button. 0 makes it grey.</summary>
         public int EnableExportRig()
@@ -469,6 +494,24 @@ namespace Peak.Cadder
             int type = doc.GetType();
             return type == (int)swDocumentTypes_e.swDocASSEMBLY
                 || type == (int)swDocumentTypes_e.swDocPART ? 1 : 0;
+        }
+
+        /// <summary>
+        /// Refresh Model is offered once there is something to refresh: this
+        /// SolidWorks session has sent this document, and a Blender with the
+        /// bridge is up. Before that the button would only ever answer
+        /// "send it first", and a button that cannot work should say so by
+        /// being grey (Oscar, 2026-09-16).
+        /// </summary>
+        public int EnableRefreshModel()
+        {
+            var doc = AddIn.SwApp?.ActiveDoc as IModelDoc2;
+            if (doc == null) return 0;
+            int type = doc.GetType();
+            if (type != (int)swDocumentTypes_e.swDocASSEMBLY
+                && type != (int)swDocumentTypes_e.swDocPART) return 0;
+            return AddIn.WasSent(doc.GetPathName())
+                && Bridge.BlenderBridge.AnyListening() ? 1 : 0;
         }
 
         public int EnableAlways() => 1;

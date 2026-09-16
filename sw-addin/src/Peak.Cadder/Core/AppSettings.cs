@@ -73,6 +73,12 @@ namespace Peak.Cadder.Core
         /// and cancels the browser gets.</summary>
         public string ExportFolder = "";
 
+        /// <summary>What Refresh Model does with the rig: "APPEND" (add and
+        /// remove bones, keeping the rest), "KEEP" or "REGENERATE". Asked
+        /// each time and remembered, so a user who refreshes all day
+        /// answers once.</summary>
+        public string RigUpdateMode = "APPEND";
+
         // The lab: the add-in's localhost listener also accepts operations
         // that CHANGE the open model (open and close documents, suppress a
         // mate, set a dimension, rebuild, quit), so a test harness can drive
@@ -145,6 +151,7 @@ namespace Peak.Cadder.Core
                 settings.BlenderExe = MiniJson.Str(obj, "blender_exe", settings.BlenderExe);
                 settings.ExportFolderMode = MiniJson.Str(obj, "export_folder_mode", settings.ExportFolderMode);
                 settings.ExportFolder = MiniJson.Str(obj, "export_folder", settings.ExportFolder);
+                settings.RigUpdateMode = MiniJson.Str(obj, "rig_update_mode", settings.RigUpdateMode);
                 settings.LabOps = MiniJson.Flag(obj, "lab_ops", settings.LabOps);
                 settings.AdvancedCommands = MiniJson.Flag(obj, "advanced_commands", settings.AdvancedCommands);
             }
@@ -185,6 +192,7 @@ namespace Peak.Cadder.Core
                     { "blender_exe", BlenderExe ?? "" },
                     { "export_folder_mode", ExportFolderMode },
                     { "export_folder", ExportFolder ?? "" },
+                    { "rig_update_mode", RigUpdateMode ?? "APPEND" },
                     { "lab_ops", LabOps },
                     { "advanced_commands", AdvancedCommands },
                 };

@@ -47,6 +47,35 @@ namespace Peak.Cadder.Bridge
 
         // ── Discovery ───────────────────────────────────────────────────────
 
+        private static DateTime _lookedAt;
+        private static bool _sawOne;
+
+        /// <summary>
+        /// Whether a Blender with the bridge looks like it is running.
+        ///
+        /// For the RIBBON, which asks on every idle: a directory listing,
+        /// cached for a few seconds, and no ping. Discover is the honest
+        /// answer and costs an HTTP round trip per instance, which is far
+        /// too much to pay for greying a button. A stale registry file
+        /// therefore makes this say yes when the answer is no, and the
+        /// command then reports that nothing is listening, which is the
+        /// harmless way round.
+        /// </summary>
+        public static bool AnyListening()
+        {
+            if ((DateTime.UtcNow - _lookedAt) < TimeSpan.FromSeconds(3))
+                return _sawOne;
+            _lookedAt = DateTime.UtcNow;
+            try
+            {
+                _sawOne = Directory.Exists(RegistryDir)
+                    && Directory.GetFiles(RegistryDir, "*.json").Length > 0;
+            }
+            catch (IOException) { _sawOne = false; }
+            catch (UnauthorizedAccessException) { _sawOne = false; }
+            return _sawOne;
+        }
+
         public static List<BlenderInstance> Discover(Action<string> log)
         {
             var result = new List<BlenderInstance>();

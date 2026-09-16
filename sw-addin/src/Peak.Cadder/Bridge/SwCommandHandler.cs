@@ -955,8 +955,9 @@ namespace Peak.Cadder.Bridge
         }
 
         /// <summary>Pushes the poses of the open assembly to a running
-        /// Blender, as the ribbon's Refresh Poses does. The harness has no
-        /// one to ask, so it takes the only Blender it finds.</summary>
+        /// Blender: the cheap half of an export, for dragging a mechanism
+        /// and seeing the result. The harness has no one to ask, so it
+        /// takes the only Blender it finds.</summary>
         private static Dictionary<string, object> RefreshPoses(
             ISldWorks app, Dictionary<string, object> request)
         {
@@ -969,14 +970,14 @@ namespace Peak.Cadder.Bridge
                 return Fail(instances.Count + " Blender instances are running: "
                             + "the harness cannot choose");
             long mark = LogMark();
-            var payload = RefreshPosesCommand.Payload(model, assembly);
+            var payload = PosePush.Payload(model, assembly);
             var reply = BlenderBridge.PostImport(
                 instances[0], payload, 5 * 60 * 1000, AddIn.Log);
             return new Dictionary<string, object>
             {
                 { "ok", MiniJson.Flag(reply, "ok") },
                 { "blender", reply },
-                { "summary", RefreshPosesCommand.Summary(reply, Sent(payload)) },
+                { "summary", PosePush.Summary(reply, Sent(payload)) },
                 { "log", LogSince(mark) },
             };
         }
