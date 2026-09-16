@@ -56,6 +56,7 @@ namespace Peak.Cadder.Bridge
                         (int)MiniJson.Num(request, "face", -1));
                 case "mates": return Mates(app, request);
                 case "small_features": return SmallFeatures(app, request);
+                case "plane_uv": return PlaneUv(app, request);
                 case "export": return Export(app, request);
                 case "send": return Send(app, request);
                 case "open": return Lab(request, () => Open(app, request));
@@ -342,6 +343,65 @@ namespace Peak.Cadder.Bridge
             };
         }
 
+        /// <summary>
+        /// Asks whether a planar face's texture coordinates can be rebuilt
+        /// from its surface. Reads only. A fill of our own has to give its
+        /// new points coordinates SolidWorks would agree with, or a textured
+        /// part shifts where it was simplified.
+        /// </summary>
+        private static Dictionary<string, object> PlaneUv(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            if (model == null) return Fail("no document is open in SolidWorks");
+            var settings = AppSettings.Load(AddIn.Log);
+            double quality = MiniJson.Num(
+                request, "quality",
+                SendToBlenderCommand.QualityDial(settings.QualityPreset));
+
+            var parts = new List<object>();
+            foreach (var kv in PartsOf(model))
+            {
+                var rows = new List<object>();
+                int bodyIndex = 0;
+                foreach (var body in SolidBodiesOf(kv.Value))
+                {
+                    bodyIndex++;
+                    var tess = TessellationOf(
+                        body, BodyTessellator.ToleranceFor(quality, BodyDiagonal(body)),
+                        needParams: true);
+                    var check = PlaneUvCheck.Check(body, tess, AddIn.Log);
+                    if (check.Vertices == 0) continue;
+                    rows.Add(new Dictionary<string, object>
+                    {
+                        { "body", bodyIndex },
+                        { "planar_faces", check.PlanarFaces },
+                        { "vertices", check.Vertices },
+                        { "agree", check.Agree },
+                        { "sole", check.Sole },
+                        { "sole_agree", check.SoleAgree },
+                        { "worst_sole_m", check.Worst },
+                        { "worst_any_m", check.WorstAny },
+                        { "no_frame", check.NoFrame },
+                        { "body_vertices", check.BodyVertices },
+                        { "body_shared", check.BodyShared },
+                    });
+                }
+                if (rows.Count == 0) continue;
+                parts.Add(new Dictionary<string, object>
+                {
+                    { "part", kv.Key },
+                    { "bodies", rows },
+                });
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "tolerance_m", PlaneUvCheck.Tolerance },
+                { "parts", parts },
+            };
+        }
+
         /// <summary>Every distinct PART document the model reaches, by
         /// file name: one reading per part, however many times it is
         /// placed.</summary>
@@ -413,7 +473,8 @@ namespace Peak.Cadder.Bridge
             return d > 0 ? d : 0.1;
         }
 
-        private static ITessellation TessellationOf(IBody2 body, double tolerance)
+        private static ITessellation TessellationOf(
+            IBody2 body, double tolerance, bool needParams = false)
         {
             try
             {
@@ -421,8 +482,14 @@ namespace Peak.Cadder.Bridge
                 if (tess == null) return null;
                 tess.NeedFaceFacetMap = true;
                 tess.NeedVertexNormal = false;
-                tess.NeedVertexParams = false;
+                tess.NeedVertexParams = needParams;
                 tess.ImprovedQuality = true;
+                // The export's own setting: facets either side of an edge
+                // share vertices, which is what makes the result a mesh.
+                // Anything measured here has to be measured on the mesh the
+                // user actually gets.
+                tess.MatchType =
+                    (int)swTesselationMatchType_e.swTesselationMatchFacetTopology;
                 tess.SurfacePlaneTolerance = tolerance;
                 tess.SurfacePlaneAngleTolerance = 0.35;
                 tess.CurveChordTolerance = tolerance;

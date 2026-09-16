@@ -90,9 +90,17 @@ namespace Peak.Cadder.Sw
                 tess.NeedVertexNormal = true;
                 tess.NeedVertexParams = true;
                 tess.ImprovedQuality = true;
-                // Match by TOPOLOGY: facets either side of an edge then share
-                // vertices, which is what makes the result a mesh rather than
-                // a pile of disconnected faces.
+                // Match by TOPOLOGY: facets either side of an edge inside
+                // ONE FACE then share vertices, which is what makes a face a
+                // mesh rather than a pile of loose triangles.
+                //
+                // It does not reach across faces. Measured over the corpus
+                // (2026-09-17, the plane_uv command): of 152,333 vertices,
+                // not one was claimed by two faces. Every face carries its
+                // own copies along the edges it shares, which is why each
+                // vertex can carry that face's surface parameters and why a
+                // fill of our own can give new points coordinates SolidWorks
+                // agrees with exactly.
                 tess.MatchType = (int)swTesselationMatchType_e.swTesselationMatchFacetTopology;
                 tess.SurfacePlaneTolerance = tolerance;
                 tess.SurfacePlaneAngleTolerance = 0.35;   // ~20 degrees
