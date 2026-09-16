@@ -14,10 +14,10 @@ those files against the same paths at a newer upstream commit.
 
 | Upstream file | Used as | In this tree |
 |---|---|---|
-| `SW2URDF/Utilities/MathOPS.cs` | Adapted (MathNet removed, MathTransform overloads split off) | `src/Peak.SwToBlender/Core/MathOps.cs`, `src/Peak.SwToBlender/Sw/SwFrames.cs` |
-| `SW2URDF/Test/TestMathOps.cs` | Ported MSTest → xUnit | `tests/Peak.SwToBlender.Tests/MathOpsTests.cs` |
-| `SW2URDF/URDFExport/ExportHelperExtension.cs` ("Joint methods" region) | Transcribed: the GetRemainingDOFs fix/suppress/query/restore sequence and the bounding-box origin heuristic | `src/Peak.SwToBlender/Sw/DofProbe.cs`, `src/Peak.SwToBlender/Sw/LimitExtractor.cs` |
-| `SW2URDF/URDFExport/CommonSwOperations.cs` (PID save/load) | Transcribed | `src/Peak.SwToBlender/Sw/ComponentIdentity.cs` |
+| `SW2URDF/Utilities/MathOPS.cs` | Adapted (MathNet removed, MathTransform overloads split off) | `src/Peak.Cadder/Core/MathOps.cs`, `src/Peak.Cadder/Sw/SwFrames.cs` |
+| `SW2URDF/Test/TestMathOps.cs` | Ported MSTest → xUnit | `tests/Peak.Cadder.Tests/MathOpsTests.cs` |
+| `SW2URDF/URDFExport/ExportHelperExtension.cs` ("Joint methods" region) | Transcribed: the GetRemainingDOFs fix/suppress/query/restore sequence and the bounding-box origin heuristic | `src/Peak.Cadder/Sw/DofProbe.cs`, `src/Peak.Cadder/Sw/LimitExtractor.cs` |
+| `SW2URDF/URDFExport/CommonSwOperations.cs` (PID save/load) | Transcribed | `src/Peak.Cadder/Sw/ComponentIdentity.cs` |
 
 The mate-classification algorithm in `Core/JointClassifier.cs` is an original
 implementation. Its design was informed by reading

@@ -18,7 +18,7 @@ ADDONS = os.path.join(os.environ.get("APPDATA", ""), "Blender Foundation", "Blen
                       "%d.%d" % tuple(__import__("bpy").app.version[:2]), "scripts", "addons")
 sys.path.insert(0, ADDONS)
 import bpy  # noqa: E402
-from STEPper_NEXT.rig import graph, inputs, manifest as man_mod, rig_build  # noqa: E402
+from CADder.rig import graph, inputs, manifest as man_mod, rig_build  # noqa: E402
 
 
 def rig_one(path):

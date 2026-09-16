@@ -1,9 +1,9 @@
 """Builds the ribbon icon strips from the 128 px masters.
 
 Masters: icons/*.png at the repository root, one per command plus logo.png
-for the command group, 128 x 128 each. Output: src/Peak.SwToBlender/icons/
-SwToBlender_<size>.png, one strip per size with the command icons side by
-side in the order AddIn.cs registers them, and SwToBlenderMain_<size>.png
+for the command group, 128 x 128 each. Output: src/Peak.Cadder/icons/
+Cadder_<size>.png, one strip per size with the command icons side by
+side in the order AddIn.cs registers them, and CadderMain_<size>.png
 for the group. SolidWorks asks for 20, 32, 40, 64, 96 and 128 px.
 
 Needs Pillow.
@@ -18,7 +18,7 @@ from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 MASTERS = os.path.join(REPO, "icons")
-ICONS = os.path.normpath(os.path.join(HERE, "..", "src", "Peak.SwToBlender", "icons"))
+ICONS = os.path.normpath(os.path.join(HERE, "..", "src", "Peak.Cadder", "icons"))
 SIZES = (20, 32, 40, 64, 96, 128)
 MASTER_PX = 128
 
@@ -52,8 +52,8 @@ def main():
         strip = Image.new("RGBA", (size * len(COMMANDS), size), (0, 0, 0, 0))
         for i, name in enumerate(COMMANDS):
             strip.paste(scaled(masters[name], size), (i * size, 0))
-        strip.save(os.path.join(ICONS, "SwToBlender_%d.png" % size))
-        scaled(masters[GROUP], size).save(os.path.join(ICONS, "SwToBlenderMain_%d.png" % size))
+        strip.save(os.path.join(ICONS, "Cadder_%d.png" % size))
+        scaled(masters[GROUP], size).save(os.path.join(ICONS, "CadderMain_%d.png" % size))
         print("%3d px: strip %dx%d, group %dx%d" % (size, strip.width, strip.height, size, size))
 
 

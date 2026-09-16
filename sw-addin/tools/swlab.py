@@ -20,7 +20,7 @@
     python swlab.py raw '{"op": "...", ...}'
 
 The listener is found through the registry files the add-in writes under
-%LOCALAPPDATA%\\PeakDesign\\SwToBlender\\solidworks (one per live instance,
+%LOCALAPPDATA%\\PeakDesign\\CADder\\solidworks (one per live instance,
 with the port and the shared token). Every reply is JSON; the "log" list
 in export, send, mates and open replies is what the add-in logged while
 the operation ran.
@@ -39,7 +39,7 @@ import urllib.error
 import urllib.request
 
 REGISTRY = os.path.join(os.environ.get("LOCALAPPDATA", ""), "PeakDesign",
-                        "SwToBlender", "solidworks")
+                        "CADder", "solidworks")
 SLDWORKS = r"C:\Program Files\SOLIDWORKS 2022\SOLIDWORKS\SLDWORKS.exe"
 
 

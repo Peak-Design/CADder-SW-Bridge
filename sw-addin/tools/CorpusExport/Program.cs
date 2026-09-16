@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
-using Peak.SwToBlender;
-using Peak.SwToBlender.Core;
+using Peak.Cadder;
+using Peak.Cadder.Core;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 
-namespace Peak.SwToBlender.Tools
+namespace Peak.Cadder.Tools
 {
     /// <summary>
     /// Re-exports a folder of assemblies through the real export pipeline,

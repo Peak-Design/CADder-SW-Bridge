@@ -1,31 +1,31 @@
-# SW To Blender: the SolidWorks add-in
+# CADder Bridge: the SolidWorks add-in
 
 The add-in reads the mates of the open assembly, works out the joints they
 leave free, and sends the geometry and a rig manifest to Blender. Blender
 builds an armature from the manifest through the CAD Link tab of
-[STEPper NEXT](https://github.com/Peak-Design/STEPper_NEXT). The manifest
+[CADder](https://github.com/Peak-Design/CADder). The manifest
 contract lives in [../schema](../schema) and outranks both halves.
 
 ## Install
 
-You need SolidWorks 2022 or newer and Blender 5.1 with STEPper NEXT.
+You need SolidWorks 2022 or newer and Blender 5.1 with CADder.
 
 1. Run the installer from the
-   [Releases](https://github.com/Peak-Design/SW-To-Blender/releases) page.
-   It copies the add-in to `Program Files\Peak Design\SW To Blender` and
+   [Releases](https://github.com/Peak-Design/CADder-Bridge/releases) page.
+   It copies the add-in to `Program Files\Peak Design\CADder Bridge` and
    registers it with every SolidWorks year on the machine.
-2. Start SolidWorks. Open **Tools > Add-Ins** and tick **SW To Blender** in
+2. Start SolidWorks. Open **Tools > Add-Ins** and tick **CADder Bridge** in
    both columns if it is not ticked already.
-3. In Blender, open **Edit > Preferences > Add-ons > STEPper NEXT** and tick
+3. In Blender, open **Edit > Preferences > Add-ons > CADder** and tick
    **CAD Link (experimental)**.
 
 Without the installer: build the Release DLL and run
-`src\Peak.SwToBlender\Register-Addin.bat`. The script asks for
+`src\Peak.Cadder\Register-Addin.bat`. The script asks for
 administrator rights, because the add-in keys live under HKLM.
 
 ## Use
 
-Open an assembly. The **SW To Blender** tab on the ribbon has three
+Open an assembly. The **CADder Bridge** tab on the ribbon has three
 buttons, and two more when "Show the advanced commands" is ticked in
 Export Options:
 
@@ -49,17 +49,17 @@ on purpose: the rig moves what you can drag in SolidWorks, and nothing else.
 ## Files the add-in writes
 
 - Exports go into a per-assembly folder under
-  `%LOCALAPPDATA%\Peak\SwToBlender\exports`, or next to the assembly
+  `%LOCALAPPDATA%\PeakDesign\CADder\exports`, or next to the assembly
   when Export Options says so.
-- Settings: `%APPDATA%\Peak\SwToBlender\settings.json`.
-- Log: `%LOCALAPPDATA%\PeakDesign\SwToBlender\swtoblender-debug.log`. The
+- Settings: `%APPDATA%\PeakDesign\CADder\settings.json`.
+- Log: `%LOCALAPPDATA%\PeakDesign\CADder\cadder-debug.log`. The
   log rotates at 8 MB. Attach it to a bug report.
 
 ## Build
 
 ```
-dotnet build src\Peak.SwToBlender -c Release
-dotnet test tests\Peak.SwToBlender.Tests
+dotnet build src\Peak.Cadder -c Release
+dotnet test tests\Peak.Cadder.Tests
 ```
 
 The build needs the SolidWorks interop assemblies and looks for them in
@@ -74,7 +74,7 @@ The ribbon icons are 128 px PNG masters in `icons\` at the repository
 root (`send_direct`, `options`, `step+`, `export_rig`, `logo`, and
 `refresh` for a later button). `tools\Make-Icons.py` (Pillow) scales them
 to the six sizes SolidWorks asks for and stitches the command strips into
-`src\Peak.SwToBlender\icons\`. Edit a master, run the script, and the
+`src\Peak.Cadder\icons\`. Edit a master, run the script, and the
 build copies the strips next to the DLL.
 
 ## Test harness

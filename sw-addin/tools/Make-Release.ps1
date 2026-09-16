@@ -34,8 +34,8 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $repo = Resolve-Path (Join-Path $root "..")
-$csproj = Join-Path $root "src\Peak.SwToBlender\Peak.SwToBlender.csproj"
-$tests = Join-Path $root "tests\Peak.SwToBlender.Tests"
+$csproj = Join-Path $root "src\Peak.Cadder\Peak.Cadder.csproj"
+$tests = Join-Path $root "tests\Peak.Cadder.Tests"
 $dist = Join-Path $root "dist"
 
 function Fail($message) {
@@ -57,7 +57,7 @@ if ($dirty -and -not $AllowDirty) {
 [xml]$project = Get-Content $csproj
 $version = $project.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if (-not $version) { Fail "no <Version> in $csproj" }
-Write-Host "SW To Blender $version"
+Write-Host "CADder Bridge $version"
 
 if ($Tag -and (git -C $repo tag --list "sw-v$version")) {
     Fail "tag sw-v$version exists. Bump <Version> in the csproj first."
@@ -81,8 +81,8 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) { Fail "tests failed" }
 }
 
-$bin = Join-Path $root "src\Peak.SwToBlender\bin\Release"
-$dll = Join-Path $bin "Peak.SwToBlender.dll"
+$bin = Join-Path $root "src\Peak.Cadder\bin\Release"
+$dll = Join-Path $bin "Peak.Cadder.dll"
 if (-not (Test-Path $dll)) { Fail "$dll was not built" }
 
 $built = (Get-Item $dll).VersionInfo.ProductVersion -replace "\+.*$", ""
@@ -92,7 +92,7 @@ if ($built -ne $version) {
 
 # ── Package ────────────────────────────────────────────────────────────
 New-Item -ItemType Directory -Force $dist | Out-Null
-$stage = Join-Path $dist "SwToBlender-$version"
+$stage = Join-Path $dist "CADder-Bridge-$version"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage | Out-Null
 
@@ -102,7 +102,7 @@ if (Test-Path $icons) { Copy-Item $icons (Join-Path $stage "icons") -Recurse }
 Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $root "THIRD-PARTY-NOTICES.md") $stage
 Copy-Item (Join-Path $root "README.md") $stage
-Copy-Item (Join-Path $root "src\Peak.SwToBlender\Register-Addin.bat") $stage
+Copy-Item (Join-Path $root "src\Peak.Cadder\Register-Addin.bat") $stage
 
 $zip = "$stage.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
@@ -116,9 +116,9 @@ $iscc = @(
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if ($iscc) {
-    & $iscc "/DVersion=$version" (Join-Path $root "installer\SwToBlender.iss")
+    & $iscc "/DVersion=$version" (Join-Path $root "installer\CADder-Bridge.iss")
     if ($LASTEXITCODE -ne 0) { Fail "the installer did not compile" }
-    Write-Host "installer: $(Join-Path $dist "SwToBlender-$version-setup.exe")"
+    Write-Host "installer: $(Join-Path $dist "CADder-Bridge-$version-setup.exe")"
 } else {
     Write-Host "Inno Setup is not installed. No installer built (the zip plus Register-Addin.bat still works)." -ForegroundColor Yellow
 }

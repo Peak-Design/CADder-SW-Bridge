@@ -1,7 +1,7 @@
 # Rig manifest: semantics
 
 The manifest (`<name>.rig.json`) is the contract between the SolidWorks add-in
-(`Peak.SwToBlender`, MIT) and the Blender add-on (`sw_to_blender`, GPL-3.0-or-later).
+(`Peak.Cadder`, MIT) and the Blender add-on (`CADder`, GPL-3.0-or-later).
 It is written in the same pass as the STEP file so that every name in it matches
 the exported file exactly. The JSON Schema in `rig-manifest.schema.json` is
 normative for shape; this file is normative for meaning.

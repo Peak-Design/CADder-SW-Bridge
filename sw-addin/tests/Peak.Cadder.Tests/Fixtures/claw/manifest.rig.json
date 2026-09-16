@@ -1,0 +1,340 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.Cadder",
+    "version": "v0.1.0",
+    "solidworks_version": "30.5.0",
+    "exported_utc": "2026-09-15T07:23:05Z"
+  },
+  "units": {
+    "length": "meter",
+    "angle": "radian"
+  },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "claw-mechanism.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": "peak-nauo-tree/1"
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "pin-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8UcABpAG4ALQAxAEAAYwBsAGEAdwAtAG0AZQBjAGgAYQBuAGkAcwBtAAQAAAAQAAAAAQAAAAEAAAAPAAAA",
+      "step_name": "pin",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.86381964498748631, -0.50000000000000389, -0.061770712588487035, -0.061710993797327626],
+        [-0.071326675081996069, -8.3266726846886741E-17, -0.99745300912962676, 0.05542790304455518],
+        [0.49872650456481737, 0.86602540378443649, -0.035663337540998478, -0.026463423357460755],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": null,
+      "suppressed": true,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "collar-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8XYwBvAGwAbABhAHIALQAxAEAAYwBsAGEAdwAtAG0AZQBjAGgAYQBuAGkAcwBtAAQAAAAQAAAAAQAAAAEAAAAMAAAA",
+      "step_name": "collar",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0.039552903044555193],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.0683723857683741, 0.039552903044555193, -0.042224445985523704],
+        "max": [0.068372385768374538, 0.17925290304455518, 0.0762]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c003",
+      "sw_path": "center-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8XYwBlAG4AdABlAHIALQAxAEAAYwBsAGEAdwAtAG0AZQBjAGgAYQBuAGkAcwBtAAQAAAAQAAAAAQAAAAEAAAALAAAA",
+      "step_name": "center",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.23060059453229359, 0, -0.13588694598552442],
+        "max": [0.23060059453229537, 0.254, 0.263525]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c004",
+      "sw_path": "pin-3",
+      "sw_persistent_id": "mDoAAAUAAAD//v8UcABpAG4ALQAzAEAAYwBsAGEAdwAtAG0AZQBjAGgAYQBuAGkAcwBtAAQAAAAQAAAAAQAAAAEAAAARAAAA",
+      "step_name": "pin",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.53078474005608245, -0.50000000000000444, -0.684300781618429, -0.17468835683114114],
+        [-0.790162480948145, 9.9920072216264069E-16, 0.61289742510625056, -0.052479779218710984],
+        [-0.30644871255312756, 0.866025403784436, -0.39508124047407656, -0.080692411689306021],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": null,
+      "suppressed": true,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c005",
+      "sw_path": "claw-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8VYwBsAGEAdwAtADEAQABjAGwAYQB3AC0AbQBlAGMAaABhAG4AaQBzAG0ABAAAABAAAAABAAAAAQAAAA4AAAA=",
+      "step_name": "claw",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.51128306347927188, 0.69899186618961928, 0.50000000000000455, -0.23145133321826183],
+        [0.80712628421187294, 0.59037882866371028, -1.1050188541972261E-15, 0.031750000000005045],
+        [-0.29518941433185863, 0.40356314210593947, -0.86602540378443615, -0.11346453138641509],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.28676920997779348, -0.10174249546757221, -0.15640084505259191],
+        "max": [-0.15778448236197284, 0.049498314933524953, -0.074599129423538219]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c006",
+      "sw_path": "con-rod-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8YYwBvAG4ALQByAG8AZAAtADEAQABjAGwAYQB3AC0AbQBlAGMAaABhAG4AaQBzAG0ABAAAABAAAAABAAAAAQAAAA0AAAA=",
+      "step_name": "con-rod",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.65545041207639532, 0.56602540341302721, -0.50000000000000355, -0.059555644992315214],
+        [-0.65358983805735782, -0.75684894370551681, 1.7585759237714882E-15, 0.064384189308749368],
+        [-0.37842447185275996, 0.3267949190286823, 0.86602540378443671, -0.028885206354043517],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.17768222825949831, -0.061436065482908919, -0.096169077449464235],
+        "max": [-0.05236712236896976, 0.064384189308749368, -0.021985280225363668]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c007",
+      "sw_path": "pin-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8UcABpAG4ALQAyAEAAYwBsAGEAdwAtAG0AZQBjAGgAYQBuAGkAcwBtAAQAAAAQAAAAAQAAAAEAAAAQAAAA",
+      "step_name": "pin",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.28759895612541492, -0.500000000000003, -0.81687626996722629, -0.22922883321826223],
+        [-0.94324746872039289, 2.5413698923060224E-16, 0.33209066947532789, 0.0317500000000006],
+        [-0.16604533473766478, 0.866025403784437, -0.47162373436019911, -0.11731401430623736],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": null,
+      "suppressed": true,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "center",
+      "components": [
+        "c003"
+      ],
+      "grounded": true,
+      "frame": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.66087248345693306
+    },
+    {
+      "id": "g001",
+      "name": "collar",
+      "components": [
+        "c002"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0.039552903044555193],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.22855977762855781
+    },
+    {
+      "id": "g002",
+      "name": "claw",
+      "components": [
+        "c005"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.51128306347927188, 0.69899186618961928, 0.50000000000000455, -0.23145133321826183],
+        [0.80712628421187294, 0.59037882866371028, -1.1050188541972261E-15, 0.031750000000005045],
+        [-0.29518941433185863, 0.40356314210593947, -0.86602540378443615, -0.11346453138641509],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.2149473502250368
+    },
+    {
+      "id": "g003",
+      "name": "con_rod",
+      "components": [
+        "c006"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.65545041207639532, 0.56602540341302721, -0.50000000000000355, -0.059555644992315214],
+        [-0.65358983805735782, -0.75684894370551681, 1.7585759237714882E-15, 0.064384189308749368],
+        [-0.37842447185275996, 0.3267949190286823, 0.86602540378443671, -0.028885206354043517],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.19245219679384973
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "fixed",
+      "parent_group": "g000",
+      "child_group": "g001",
+      "origin": [0, 0.11238552238805968, 0],
+      "axis": [0, 1, 0],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric1",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "The SolidWorks solver reads this pair as prismatic; the mate analysis said cylindrical, and the solver is authoritative. Read pairwise this is a prismatic, but the loop cut at this ring removes the slide: no combination of the ring's other joints can reproduce it, so SolidWorks does not permit it either."
+    },
+    {
+      "id": "j002",
+      "type": "fixed",
+      "parent_group": "g000",
+      "child_group": "g002",
+      "origin": [-0.22510133321826248, 0.03175, -0.12446305401447769],
+      "axis": [0.50000000000000411, 0, -0.86602540378443638],
+      "secondary_axis": [0, 1, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric5",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident2",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Read pairwise this is a revolute, but the loop cut at this ring removes the rotation: no combination of the ring's other joints can reproduce it, so SolidWorks does not permit it either."
+    },
+    {
+      "id": "j003",
+      "type": "prismatic",
+      "parent_group": "g001",
+      "child_group": "g003",
+      "origin": [-0.060520368797327757, 0.0554279030445552, -0.028525646350222242],
+      "axis": [0.500000000000004, 0, -0.86602540378443649],
+      "secondary_axis": [0, 1, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric2",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as prismatic; the mate analysis said cylindrical, and the solver is authoritative."
+    },
+    {
+      "id": "j004",
+      "type": "prismatic",
+      "parent_group": "g002",
+      "child_group": "g003",
+      "origin": [-0.16992585683114045, -0.052479779218714662, -0.0889413036603515],
+      "axis": [0.50000000000000455, 0, -0.86602540378443615],
+      "secondary_axis": [0, 1, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric4",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as prismatic; the mate analysis said cylindrical, and the solver is authoritative."
+    }
+  ],
+  "loops": [
+    {
+      "id": "loop001",
+      "member_joints": [
+        "j001",
+        "j002",
+        "j003",
+        "j004"
+      ],
+      "closure_joint": "j003",
+      "closure_kind": "none",
+      "suggested_driver_joint": "j001",
+      "planar": false,
+      "plane_normal": null,
+      "driver_candidates": [
+        {
+          "joint": "j001",
+          "closure_joint": "j003",
+          "closure_kind": "none"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "code": "SUPPRESSED_SKIPPED",
+      "components": [
+        "c001",
+        "c004",
+        "c007"
+      ],
+      "joints": [],
+      "message": "3 suppressed component(s) are listed but belong to no rigid group and are absent from the STEP file."
+    },
+    {
+      "code": "OCCURRENCE_UNMATCHED",
+      "components": [
+        "c002",
+        "c003",
+        "c005",
+        "c006"
+      ],
+      "joints": [],
+      "message": "4 component(s) could not be matched to a STEP occurrence; their step_occurrence_path is null and the Blender side falls back to transform matching."
+    }
+  ]
+}

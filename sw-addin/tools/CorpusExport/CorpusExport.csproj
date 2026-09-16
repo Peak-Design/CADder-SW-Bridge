@@ -6,7 +6,7 @@
     <LangVersion>8.0</LangVersion>
     <PlatformTarget>x64</PlatformTarget>
     <AssemblyName>CorpusExport</AssemblyName>
-    <RootNamespace>Peak.SwToBlender.Tools</RootNamespace>
+    <RootNamespace>Peak.Cadder.Tools</RootNamespace>
     <IsPackable>false</IsPackable>
     <!-- The add-in project is a WinForms library; the harness inherits the
          reference and needs the same switch to compile against it. -->
@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Peak.SwToBlender\Peak.SwToBlender.csproj" />
+    <ProjectReference Include="..\..\src\Peak.Cadder\Peak.Cadder.csproj" />
   </ItemGroup>
 
   <Import Project="..\..\SolidWorksApi.props" />

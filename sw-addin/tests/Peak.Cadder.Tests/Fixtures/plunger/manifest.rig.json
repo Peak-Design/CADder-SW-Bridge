@@ -1,0 +1,897 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.Cadder",
+    "version": "v0.1.0",
+    "solidworks_version": "30.5.0",
+    "exported_utc": "2026-09-15T07:04:35Z"
+  },
+  "units": {
+    "length": "meter",
+    "angle": "radian"
+  },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "plunger.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": "peak-nauo-tree/1"
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "short bolt_plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8ccwBoAG8AcgB0ACAAYgBvAGwAdABfAHAAbAB1AG4AZwBlAHIALQAxAEAAcABsAHUAbgBnAGUAcgAEAAAAEAAAAAEAAAABAAAAPwAAAA==",
+      "step_name": "short bolt_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.9922101806939283, 0.12457510717363332, 0, 0.10922000000000001],
+        [-0.12457510717363332, -0.9922101806939283, 0, 0.015239999999999997],
+        [0, 0, 1, 0.0063500000000000032],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.10307768091672842, 0.0090976809167284053, -0.013649999999999997],
+        "max": [0.1153623190832716, 0.021382319083271588, 0.010350000000000003]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "base_plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WYgBhAHMAZQBfAHAAbAB1AG4AZwBlAHIALQAxAEAAcABsAHUAbgBnAGUAcgAEAAAAEAAAAAEAAAABAAAADQAAAA==",
+      "step_name": "base_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0, -2.0816681711721685E-17, -0.03175],
+        "max": [0.11430000000000001, 0.027696514216093766, 0.03175]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c003",
+      "sw_path": "plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8RcABsAHUAbgBnAGUAcgAtADEAQABwAGwAdQBuAGcAZQByAAQAAAAQAAAAAQAAAAEAAAAOAAAA",
+      "step_name": "plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 2.2204460492503126E-16, 2.4651903288156616E-32, -0.051107691952610078],
+        [2.2204460492503126E-16, -1, -3.6977854932234928E-32, 0.015874999999999986],
+        [2.4651903288156611E-32, 3.6977854932234928E-32, -1, -2.3484368269385034E-33],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.051107691952610078, 0.0095249999999999866, -0.00635],
+        "max": [0.044142308047389923, 0.022225000000000009, 0.00635]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c004",
+      "sw_path": "nut_plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8VbgB1AHQAXwBwAGwAdQBuAGcAZQByAC0AMQBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAEoAAAA=",
+      "step_name": "nut_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.10922000000000151],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.015240000000000274],
+        [0, 0, -1, -0.0063499999999999963],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.10203272633824483, 0.0080527263382435925, -0.010349999999999996],
+        "max": [0.1164072736617582, 0.022427273661756956, -0.0063499999999999963]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c005",
+      "sw_path": "long bolt_plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8bbABvAG4AZwAgAGIAbwBsAHQAXwBwAGwAdQBuAGcAZQByAC0AMQBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAEUAAAA=",
+      "step_name": "long bolt_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.08334687839212053, 0.99652059580436647, 0, 0.084930370641223815],
+        [-0.99652059580436647, -0.08334687839212053, 0, 0.022667913947622038],
+        [0, 0, 1, 0.0095249999999999953],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.078991099533143136, 0.016728642839541358, -0.015475000000000006],
+        "max": [0.0908696417493045, 0.028607185055702717, 0.013524999999999995]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c006",
+      "sw_path": "nut_plunger-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8VbgB1AHQAXwBwAGwAdQBuAGcAZQByAC0AMgBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAEwAAAA=",
+      "step_name": "nut_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.084930370641223815],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.022667913947622038],
+        [0, 0, -1, -0.0095250000000000074],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.07774309697946713, 0.015480640285865356, -0.013525000000000008],
+        "max": [0.0921176443029805, 0.029855187609378719, -0.0095250000000000074]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c007",
+      "sw_path": "long bolt_plunger-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8bbABvAG4AZwAgAGIAbwBsAHQAXwBwAGwAdQBuAGcAZQByAC0AMgBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAE4AAAA=",
+      "step_name": "long bolt_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.13910129583328434, -0.99027815763930749, 0, 0.037792308047389929],
+        [0.99027815763930749, 0.13910129583328434, 0, 0.015875000000000007],
+        [0, 0, 1, 0.0095250000000000022],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.03158072105329067, 0.0096634130059007513, -0.015475],
+        "max": [0.044003895041489188, 0.022086586994099263, 0.013525000000000002]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c008",
+      "sw_path": "nut_plunger-3",
+      "sw_persistent_id": "mDoAAAUAAAD//v8VbgB1AHQAXwBwAGwAdQBuAGcAZQByAC0AMwBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAEsAAAA=",
+      "step_name": "nut_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.037792308047389929],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.015875000000000007],
+        [0, 0, -1, -0.00952500000000001],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.030605034385633247, 0.0086877263382433255, -0.013525000000000009],
+        "max": [0.044979581709146607, 0.023062273661756689, -0.00952500000000001]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c009",
+      "sw_path": "link_plunger-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WbABpAG4AawBfAHAAbAB1AG4AZwBlAHIALQAxAEAAcABsAHUAbgBnAGUAcgAEAAAAEAAAAAEAAAABAAAAGgAAAA==",
+      "step_name": "link_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.98977559252144653, -0.1426333637295964, 1.1915951278065552E-16, 0.061361339344306876],
+        [0.1426333637295964, 0.98977559252144653, -1.5674021933685619E-17, 0.019271456973811021],
+        [-1.1570553889546716E-16, 3.2509886474892571E-17, 1, 0.0063499999999999989],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.030601511175195804, 0.0086842031278058854, 0.0063499999999999963],
+        "max": [0.092121167513417951, 0.029858710819816156, 0.012700000000000008]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c010",
+      "sw_path": "link_plunger-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WbABpAG4AawBfAHAAbAB1AG4AZwBlAHIALQAyAEAAcABsAHUAbgBnAGUAcgAEAAAAEAAAAAEAAAABAAAAHAAAAA==",
+      "step_name": "link_plunger",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.98977559252144653, 0.14263336372959654, 5.3681849313646988E-17, 0.061361339344306876],
+        [0.14263336372959654, -0.98977559252144653, 1.0876116692137484E-16, 0.019271456973811021],
+        [6.8645955293213773E-17, -9.9992325694096954E-17, -0.99999999999999989, -0.0063500000000000067],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.030601511175195804, 0.00868420312780588, -0.012700000000000013],
+        "max": [0.092121167513417951, 0.029858710819816163, -0.0063500000000000049]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c011",
+      "sw_path": "arm right-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8TYQByAG0AIAByAGkAZwBoAHQALQAxAEAAcABsAHUAbgBnAGUAcgAEAAAAEAAAAAEAAAABAAAAKAAAAA==",
+      "step_name": "arm right",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.95628462042425944, 0.29243755699299373, 9.0915808014024992E-17, 0.10922000000000003],
+        [-0.29243755699299373, 0.95628462042425944, 9.44438420267008E-18, 0.015239999999999993],
+        [-8.4179496313724663E-17, -3.5618716150056725E-17, 1, -0.0031750000000000072],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.0075843314345420271, 0.0077476669354964861, -0.016746805744566766],
+        "max": [0.12778972194725918, 0.0877455129108705, 1.7347234759768071E-18]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c012",
+      "sw_path": "arm left-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8SYQByAG0AIABsAGUAZgB0AC0AMQBAAHAAbAB1AG4AZwBlAHIABAAAABAAAAABAAAAAQAAAB8AAAA=",
+      "step_name": "arm left",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.95628462042425944, 0.29243755699299379, -4.6306614833776313E-19, 0.10922000000000001],
+        [-0.29243755699299379, 0.95628462042425944, 1.0438979919451117E-17, 0.015239999999999993],
+        [3.4955728210376871E-18, -9.8472180167427268E-18, 1, 0.0031749999999999947],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.0075843314345420271, 0.0077476669354964792, -6.9388939039072284E-18],
+        "max": [0.12778972194725918, 0.087745512910870516, 0.016746805744566752]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "base_plunger",
+      "components": [
+        "c002"
+      ],
+      "grounded": true,
+      "frame": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.13365566542321461
+    },
+    {
+      "id": "g001",
+      "name": "short_bolt_plunger",
+      "components": [
+        "c001"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.9922101806939283, 0.12457510717363332, 0, 0.10922000000000001],
+        [-0.12457510717363332, -0.9922101806939283, 0, 0.015239999999999997],
+        [0, 0, 1, 0.0063500000000000032],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.029628106077941918
+    },
+    {
+      "id": "g002",
+      "name": "plunger",
+      "components": [
+        "c003"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 2.2204460492503126E-16, 2.4651903288156616E-32, -0.051107691952610078],
+        [2.2204460492503126E-16, -1, -3.6977854932234928E-32, 0.015874999999999986],
+        [2.4651903288156611E-32, 3.6977854932234928E-32, -1, -2.3484368269385034E-33],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.0969285432677083
+    },
+    {
+      "id": "g003",
+      "name": "nut_plunger",
+      "components": [
+        "c004"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.10922000000000151],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.015240000000000274],
+        [0, 0, -1, -0.0063499999999999963],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.020718475366489943
+    },
+    {
+      "id": "g004",
+      "name": "long_bolt_plunger",
+      "components": [
+        "c005"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.08334687839212053, 0.99652059580436647, 0, 0.084930370641223815],
+        [-0.99652059580436647, -0.08334687839212053, 0, 0.022667913947622038],
+        [0, 0, 1, 0.0095249999999999953],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.033514169098491094
+    },
+    {
+      "id": "g005",
+      "name": "nut_plunger",
+      "components": [
+        "c006"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.084930370641223815],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.022667913947622038],
+        [0, 0, -1, -0.0095250000000000074],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.020718475366489943
+    },
+    {
+      "id": "g006",
+      "name": "long_bolt_plunger",
+      "components": [
+        "c007"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.13910129583328434, -0.99027815763930749, 0, 0.037792308047389929],
+        [0.99027815763930749, 0.13910129583328434, 0, 0.015875000000000007],
+        [0, 0, 1, 0.0095250000000000022],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.03390679141237201
+    },
+    {
+      "id": "g007",
+      "name": "nut_plunger",
+      "components": [
+        "c008"
+      ],
+      "grounded": false,
+      "frame": [
+        [-0.92372802134706822, -0.38304900806323794, 0, 0.037792308047389929],
+        [-0.38304900806323783, 0.92372802134706822, 0, 0.015875000000000007],
+        [0, 0, -1, -0.00952500000000001],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.020718475366489936
+    },
+    {
+      "id": "g008",
+      "name": "link_plunger",
+      "components": [
+        "c009"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.98977559252144653, -0.1426333637295964, 1.1915951278065552E-16, 0.061361339344306876],
+        [0.1426333637295964, 0.98977559252144653, -1.5674021933685619E-17, 0.019271456973811021],
+        [-1.1570553889546716E-16, 3.2509886474892571E-17, 1, 0.0063499999999999989],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.06537086806806193
+    },
+    {
+      "id": "g009",
+      "name": "link_plunger",
+      "components": [
+        "c010"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.98977559252144653, 0.14263336372959654, 5.3681849313646988E-17, 0.061361339344306876],
+        [0.14263336372959654, -0.98977559252144653, 1.0876116692137484E-16, 0.019271456973811021],
+        [6.8645955293213773E-17, -9.9992325694096954E-17, -0.99999999999999989, -0.0063500000000000067],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.06537086806806193
+    },
+    {
+      "id": "g010",
+      "name": "arm_left",
+      "components": [
+        "c011",
+        "c012"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.95628462042425944, 0.29243755699299373, 9.0915808014024992E-17, 0.10922000000000003],
+        [-0.29243755699299373, 0.95628462042425944, 9.44438420267008E-18, 0.015239999999999993],
+        [-8.4179496313724663E-17, -3.5618716150056725E-17, 1, -0.0031750000000000072],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.14822554867363291
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "prismatic",
+      "parent_group": "g000",
+      "child_group": "g002",
+      "origin": [0.025399999999933698, 0.015875000000000007, 0],
+      "axis": [1, 0, 0],
+      "secondary_axis": [0, 1, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric6",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as prismatic; the mate analysis said cylindrical, and the solver is authoritative."
+    },
+    {
+      "id": "j002",
+      "type": "revolute",
+      "parent_group": "g000",
+      "child_group": "g010",
+      "origin": [0.10922, 0.015239999999999998, -0.003175],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric2",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident2",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Concentric1",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident1",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j003",
+      "type": "revolute",
+      "parent_group": "g001",
+      "child_group": "g003",
+      "origin": [0.10922000000000151, 0.015240000000000274, -0.0063499999999999963],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric13",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as revolute; the mate analysis said cylindrical, and the solver is authoritative."
+    },
+    {
+      "id": "j004",
+      "type": "revolute",
+      "parent_group": "g010",
+      "child_group": "g001",
+      "origin": [0.10922000000000001, 0.015239999999999997, 0.0063500000000000032],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric12",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident10",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j005",
+      "type": "cylindrical",
+      "parent_group": "g002",
+      "child_group": "g009",
+      "origin": [0.037792308047389929, 0.015875000000000007, -0.0063500000000000049],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric7",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j006",
+      "type": "revolute",
+      "parent_group": "g010",
+      "child_group": "g003",
+      "origin": [0.10922, 0.015239999999999998, 0],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident11",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as revolute; the mate analysis said planar, and the solver is authoritative."
+    },
+    {
+      "id": "j007",
+      "type": "revolute",
+      "parent_group": "g004",
+      "child_group": "g005",
+      "origin": [0.084930370641223815, 0.022667913947622038, -0.0095250000000000074],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric9",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as revolute; the mate analysis said cylindrical, and the solver is authoritative."
+    },
+    {
+      "id": "j008",
+      "type": "revolute",
+      "parent_group": "g008",
+      "child_group": "g004",
+      "origin": [0.084930370641223815, 0.022667913947622038, 0.0095249999999999953],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric8",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident7",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j009",
+      "type": "planar",
+      "parent_group": "g009",
+      "child_group": "g005",
+      "origin": [0.061361339344306876, 0.019271456973811021, -0.0063500000000000067],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident6",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j010",
+      "type": "revolute",
+      "parent_group": "g006",
+      "child_group": "g007",
+      "origin": [0.037792308047389929, 0.015875000000000007, -0.00952500000000001],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric11",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": "The SolidWorks solver reads this pair as revolute; the mate analysis said cylindrical, and the solver is authoritative."
+    },
+    {
+      "id": "j011",
+      "type": "revolute",
+      "parent_group": "g008",
+      "child_group": "g006",
+      "origin": [0.037792308047389929, 0.015875000000000007, 0.0095250000000000022],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric10",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident9",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j012",
+      "type": "planar",
+      "parent_group": "g009",
+      "child_group": "g007",
+      "origin": [0.061361339344306876, 0.019271456973811021, -0.0063500000000000067],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident8",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "The loop cut at this ring removes freedom from this joint, but what is left is a coupled motion none of its own axes performs alone, which this schema has no way to say. It is exported unchanged and is therefore freer here than in SolidWorks."
+    },
+    {
+      "id": "j013",
+      "type": "revolute",
+      "parent_group": "g008",
+      "child_group": "g009",
+      "origin": [0.037792308047389929, 0.015875000000000007, -0.0063500000000000049],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric5",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Read pairwise this is a cylindrical, but the loop cut at this ring removes the slide: no combination of the ring's other joints can reproduce it, so SolidWorks does not permit it either."
+    },
+    {
+      "id": "j014",
+      "type": "revolute",
+      "parent_group": "g010",
+      "child_group": "g008",
+      "origin": [0.084930370641223829, 0.022667913947622034, 0.0063499999999999963],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric3",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Coincident4",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j015",
+      "type": "revolute",
+      "parent_group": "g010",
+      "child_group": "g009",
+      "origin": [0.084930370641223829, 0.022667913947622038, -0.0063500000000000041],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident5",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Concentric4",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    }
+  ],
+  "loops": [
+    {
+      "id": "loop001",
+      "member_joints": [
+        "j003",
+        "j004",
+        "j006"
+      ],
+      "closure_joint": "j003",
+      "closure_kind": "ik",
+      "suggested_driver_joint": "j004",
+      "planar": true,
+      "plane_normal": [0, 0, 1],
+      "driver_candidates": [
+        {
+          "joint": "j004",
+          "closure_joint": "j003",
+          "closure_kind": "ik"
+        },
+        {
+          "joint": "j006",
+          "closure_joint": "j003",
+          "closure_kind": "ik"
+        }
+      ]
+    },
+    {
+      "id": "loop002",
+      "member_joints": [
+        "j001",
+        "j002",
+        "j005",
+        "j007",
+        "j008",
+        "j009",
+        "j014"
+      ],
+      "closure_joint": "j005",
+      "closure_kind": "ik",
+      "suggested_driver_joint": "j001",
+      "planar": true,
+      "plane_normal": [0, 0, 1],
+      "driver_candidates": [
+        {
+          "joint": "j001",
+          "closure_joint": "j005",
+          "closure_kind": "ik"
+        },
+        {
+          "joint": "j002",
+          "closure_joint": "j014",
+          "closure_kind": "ik"
+        }
+      ]
+    },
+    {
+      "id": "loop003",
+      "member_joints": [
+        "j007",
+        "j008",
+        "j009",
+        "j010",
+        "j011",
+        "j012"
+      ],
+      "closure_joint": "j007",
+      "closure_kind": "ik",
+      "suggested_driver_joint": "j008",
+      "planar": true,
+      "plane_normal": [0, 0, 1],
+      "driver_candidates": [
+        {
+          "joint": "j008",
+          "closure_joint": "j007",
+          "closure_kind": "ik"
+        },
+        {
+          "joint": "j011",
+          "closure_joint": "j010",
+          "closure_kind": "ik"
+        }
+      ]
+    },
+    {
+      "id": "loop004",
+      "member_joints": [
+        "j010",
+        "j011",
+        "j012",
+        "j013"
+      ],
+      "closure_joint": "j010",
+      "closure_kind": "ik",
+      "suggested_driver_joint": "j011",
+      "planar": true,
+      "plane_normal": [0, 0, 1],
+      "driver_candidates": [
+        {
+          "joint": "j011",
+          "closure_joint": "j010",
+          "closure_kind": "ik"
+        },
+        {
+          "joint": "j013",
+          "closure_joint": "j012",
+          "closure_kind": "none"
+        }
+      ]
+    },
+    {
+      "id": "loop005",
+      "member_joints": [
+        "j013",
+        "j014",
+        "j015"
+      ],
+      "closure_joint": "j013",
+      "closure_kind": "ik",
+      "suggested_driver_joint": "j014",
+      "planar": true,
+      "plane_normal": [0, 0, 1],
+      "driver_candidates": [
+        {
+          "joint": "j014",
+          "closure_joint": "j013",
+          "closure_kind": "ik"
+        },
+        {
+          "joint": "j015",
+          "closure_joint": "j013",
+          "closure_kind": "ik"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "code": "OCCURRENCE_UNMATCHED",
+      "components": [
+        "c001",
+        "c002",
+        "c003",
+        "c004",
+        "c005",
+        "c006",
+        "c007",
+        "c008",
+        "c009",
+        "c010",
+        "c011",
+        "c012"
+      ],
+      "joints": [],
+      "message": "12 component(s) could not be matched to a STEP occurrence; their step_occurrence_path is null and the Blender side falls back to transform matching."
+    }
+  ]
+}

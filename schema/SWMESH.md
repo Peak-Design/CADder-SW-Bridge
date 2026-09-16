@@ -139,7 +139,7 @@ be sent to. Discovery mirrors the bridge inside the Blender add-on: each
 process writes a small JSON file naming its port and a per-session token.
 
 ```
-%LOCALAPPDATA%\PeakDesign\SwToBlender\solidworks\<pid>.json
+%LOCALAPPDATA%\PeakDesign\CADder\solidworks\<pid>.json
     {"pid": …, "port": …, "token": …, "addin_version": …}
 ```
 

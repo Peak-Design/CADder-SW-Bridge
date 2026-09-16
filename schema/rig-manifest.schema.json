@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/Peak-Design/SW-To-Blender/schema/rig-manifest.schema.json",
-  "title": "SW To Blender rig manifest",
-  "description": "Kinematic description of a SolidWorks assembly, written by Peak.SwToBlender next to a STEP export. Units are metres and radians. All vectors and transforms are in the assembly's global frame (right-handed, Z-up). See SCHEMA.md for semantics.",
+  "$id": "https://github.com/Peak-Design/CADder-Bridge/schema/rig-manifest.schema.json",
+  "title": "CADder Bridge rig manifest",
+  "description": "Kinematic description of a SolidWorks assembly, written by Peak.Cadder next to a STEP export. Units are metres and radians. All vectors and transforms are in the assembly's global frame (right-handed, Z-up). See SCHEMA.md for semantics.",
   "type": "object",
   "required": ["manifest_version", "generator", "units", "frame", "step_export", "components", "rigid_groups", "joints", "loops", "warnings"],
   "additionalProperties": false,

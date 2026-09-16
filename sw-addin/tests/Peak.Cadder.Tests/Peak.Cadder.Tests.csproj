@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <LangVersion>8.0</LangVersion>
+    <RootNamespace>Peak.Cadder.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Peak.Cadder\Peak.Cadder.csproj" />
+  </ItemGroup>
+
+  <!-- The interop types are EMBEDDED in the add-in, so they are no longer an
+       assembly reference anything can discover at runtime. The lookup-table
+       coverage test still has to ask the SDK which mate types exist, so it
+       gets the probed path (and only the path — references off, or the tests
+       would compile against SolidWorks). -->
+  <PropertyGroup>
+    <SolidWorksApiReferences>false</SolidWorksApiReferences>
+  </PropertyGroup>
+  <Import Project="..\..\SolidWorksApi.props" />
+  <ItemGroup>
+    <AssemblyMetadata Include="SolidWorksApiDir" Value="$(SolidWorksApiDir)" />
+  </ItemGroup>
+
+</Project>

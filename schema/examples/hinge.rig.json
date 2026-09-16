@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0.0",
   "generator": {
-    "name": "Peak.SwToBlender",
+    "name": "Peak.Cadder",
     "version": "0.1.0",
     "solidworks_version": "SOLIDWORKS 2024 SP5.0",
     "exported_utc": "2026-08-21T10:00:00Z",

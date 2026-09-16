@@ -1,0 +1,544 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.Cadder",
+    "version": "v0.1.0",
+    "solidworks_version": "30.5.0",
+    "exported_utc": "2026-09-15T07:07:09Z"
+  },
+  "units": {
+    "length": "meter",
+    "angle": "radian"
+  },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "lens_mount.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": "peak-nauo-tree/1"
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "frontplate-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8XZgByAG8AbgB0AHAAbABhAHQAZQAtADEAQABsAGUAbgBzAF8AbQBvAHUAbgB0AAQAAAAQAAAAAQAAAAEAAAALAAAA",
+      "step_name": "frontplate",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.050799999999999582],
+        [0, 1, 0, 0.11048141557203796],
+        [0, 0, 1, 0.24440254444656526],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.050799999999999595, 0.11048141557203796, 0.24440254444656526],
+        "max": [0.25399999999999956, 0.35178141557203796, 0.27361254444656524]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "filterholder-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8ZZgBpAGwAdABlAHIAaABvAGwAZABlAHIALQAxAEAAbABlAG4AcwBfAG0AbwB1AG4AdAAEAAAAEAAAAAEAAAABAAAACAIAAA==",
+      "step_name": "filterholder",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.15239999999999909],
+        [0, 1, 0, 0.13905641557203791],
+        [0, 0, 1, 0.27361254444656524],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.07619999999999863, 0.12635641557203792, 0.27361254444656524],
+        "max": [0.22859999999999955, 0.32638141557203787, 0.27615254444656523]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c003",
+      "sw_path": "table-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8SdABhAGIAbABlAC0AMQBAAGwAZQBuAHMAXwBtAG8AdQBuAHQABAAAABAAAAABAAAAAQAAADYCAAA=",
+      "step_name": "table",
+      "step_occurrence_path": null,
+      "transform": [
+        [0, -1, 0, 0.0765911704312115],
+        [0, 0, 1, 0],
+        [-1, 0, 0, 0.30599958932238192],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0, 0, 0],
+        "max": [0.3048, 0.01905, 0.4064]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c004",
+      "sw_path": "crossbar-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8VYwByAG8AcwBzAGIAYQByAC0AMQBAAGwAZQBuAHMAXwBtAG8AdQBuAHQABAAAABAAAAABAAAAAQAAAD8AAAA=",
+      "step_name": "crossbar",
+      "step_occurrence_path": null,
+      "transform": [
+        [-1, 0, 0, 0.050799999999999595],
+        [0, 1, 0, 0.13628141557203793],
+        [0, 0, -1, 0.24440254444656526],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.063499999999999585, 0.326781415572038, 0.21940254444656523],
+        "max": [0.2412999999999996, 0.3517814155720379, 0.24440254444656526]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c005",
+      "sw_path": "rail-2",
+      "sw_persistent_id": "mDoAAAUAAAD//v8RcgBhAGkAbAAtADIAQABsAGUAbgBzAF8AbQBvAHUAbgB0AAQAAAAQAAAAAQAAAAEAAABLCQAA",
+      "step_name": "rail",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.263525],
+        [0, 1, 0, 0.019049999999999997],
+        [0, 0, 1, 0.025400000000000061],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.2614295, 0.019049999999999997, 0.025400000000000061],
+        "max": [0.3005455, 0.06985, 0.381]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c006",
+      "sw_path": "braceright-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8XYgByAGEAYwBlAHIAaQBnAGgAdAAtADEAQABsAGUAbgBzAF8AbQBvAHUAbgB0AAQAAAAQAAAAAQAAAAEAAAARAQAA",
+      "step_name": "braceright",
+      "step_occurrence_path": null,
+      "transform": [
+        [0, 0, 1, 0.050799999999999582],
+        [0, 1, 0, 0.11048141557203796],
+        [-1, 0, 0, 0.24440254444656526],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.050799999999999582, 0.11048141557203796, 0.092002544446565235],
+        "max": [0.063499999999999585, 0.35178141557203796, 0.24440254444656523]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c007",
+      "sw_path": "braceleft-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WYgByAGEAYwBlAGwAZQBmAHQALQAxAEAAbABlAG4AcwBfAG0AbwB1AG4AdAAEAAAAEAAAAAEAAAABAAAADAAAAA==",
+      "step_name": "braceleft",
+      "step_occurrence_path": null,
+      "transform": [
+        [0, 0, 1, 0.2412999999999996],
+        [2.7755575615628914E-16, 1, 0, 0.11048141557203793],
+        [-1, 2.7755575615628914E-16, 0, 0.2444025444465652],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.2412999999999996, 0.11048141557203793, 0.092002544446565207],
+        "max": [0.25399999999999961, 0.35178141557203796, 0.24440254444656528]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c008",
+      "sw_path": "lensholder-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8XbABlAG4AcwBoAG8AbABkAGUAcgAtADEAQABsAGUAbgBzAF8AbQBvAHUAbgB0AAQAAAAQAAAAAQAAAAEAAABGAAAA",
+      "step_name": "lensholder",
+      "step_occurrence_path": null,
+      "transform": [
+        [-2.2377932840100812E-16, -1, -2.5851663188455022E-16, 0.15239999999999923],
+        [1, -2.2377932840100812E-16, -6.12203424032808E-16, 0.22478141557203826],
+        [6.1220342403279908E-16, -2.5851663188455056E-16, 1, 0.25964254444656515],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.069627468807582235, 0.16128141557203823, 0.25964254444656509],
+        "max": [0.23517253119241627, 0.31839420506551908, 0.26916754444656521]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c009",
+      "sw_path": "baseplate-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WYgBhAHMAZQBwAGwAYQB0AGUALQAxAEAAbABlAG4AcwBfAG0AbwB1AG4AdAAEAAAAEAAAAAEAAAABAAAAFAAAAA==",
+      "step_name": "baseplate",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, -2.6529998930890578E-16, 2.9968775043771861E-19, -0.0319265297985588],
+        [3.5098426274846166E-19, 1.1102230246251563E-16, -1, 0.11048141557203787],
+        [2.6525236982802417E-16, 1, 1.1102230246251563E-16, -0.1586599700053043],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.0084455000000004388, 0.0914314155720379, 0.05390254444656517],
+        "max": [0.31324549999999973, 0.12635641557203792, 0.30790254444656528]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c010",
+      "sw_path": "rail-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8RcgBhAGkAbAAtADEAQABsAGUAbgBzAF8AbQBvAHUAbgB0AAQAAAAQAAAAAQAAAAEAAAA+CQAA",
+      "step_name": "rail",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.00635],
+        [0, 1, 0, 0.019049999999999997],
+        [0, 0, 1, 0.025400000000000006],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.0042545000000000013, 0.019049999999999997, 0.025400000000000006],
+        "max": [0.0433705, 0.06985, 0.381]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c011",
+      "sw_path": "slider-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8TcwBsAGkAZABlAHIALQAxAEAAbABlAG4AcwBfAG0AbwB1AG4AdAAEAAAAEAAAAAEAAAABAAAAhgkAAA==",
+      "step_name": "slider",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.060060882899609126],
+        [0, 1, 0, 0.079918382033006941],
+        [0, 0, 1, 0.079302544446565093],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.0084455000000000155, 0.046981415572037874, 0.079302544446565093],
+        "max": [0.05607050000000003, 0.091431415572037891, 0.28250254444656508]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c012",
+      "sw_path": "slider-3",
+      "sw_persistent_id": "mDoAAAUAAAD//v8TcwBsAGkAZABlAHIALQAzAEAAbABlAG4AcwBfAG0AbwB1AG4AdAAEAAAAEAAAAAEAAAABAAAAiwkAAA==",
+      "step_name": "slider",
+      "step_occurrence_path": null,
+      "transform": [
+        [1, 0, 0, 0.31723588289960913],
+        [0, 1, 0, 0.079918382033006941],
+        [0, 0, 1, 0.079302544446565065],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [0.2487295, 0.046981415572037874, 0.079302544446565065],
+        "max": [0.3132455, 0.091431415572037891, 0.28250254444656508]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "table",
+      "components": [
+        "c003",
+        "c005",
+        "c010"
+      ],
+      "grounded": true,
+      "frame": [
+        [0, -1, 0, 0.0765911704312115],
+        [0, 0, 1, 0],
+        [-1, 0, 0, 0.30599958932238192],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.51277970172384946
+    },
+    {
+      "id": "g001",
+      "name": "baseplate",
+      "components": [
+        "c001",
+        "c004",
+        "c006",
+        "c007",
+        "c008",
+        "c009"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 0, 0, 0.050799999999999582],
+        [0, 1, 0, 0.11048141557203796],
+        [0, 0, 1, 0.24440254444656526],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.48557514555524794
+    },
+    {
+      "id": "g002",
+      "name": "filterholder",
+      "components": [
+        "c002"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 0, 0, 0.15239999999999909],
+        [0, 1, 0, 0.13905641557203791],
+        [0, 0, 1, 0.27361254444656524],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.25148004339310953
+    },
+    {
+      "id": "g003",
+      "name": "slider",
+      "components": [
+        "c011"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 0, 0, 0.060060882899609126],
+        [0, 1, 0, 0.079918382033006941],
+        [0, 0, 1, 0.079302544446565093],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.21778052428075381
+    },
+    {
+      "id": "g004",
+      "name": "slider",
+      "components": [
+        "c012"
+      ],
+      "grounded": false,
+      "frame": [
+        [1, 0, 0, 0.31723588289960913],
+        [0, 1, 0, 0.079918382033006941],
+        [0, 0, 1, 0.079302544446565065],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.21778052428075384
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "prismatic",
+      "parent_group": "g000",
+      "child_group": "g003",
+      "origin": [0.060060882899609126, 0.079918382033006941, 0.079302544446565093],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric4",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Concentric5",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j002",
+      "type": "prismatic",
+      "parent_group": "g000",
+      "child_group": "g004",
+      "origin": [0.31723588289960913, 0.079918382033006941, 0.079302544446565065],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Concentric6",
+          "type": "swMateCONCENTRIC"
+        },
+        {
+          "sw_feature": "Concentric7",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j003",
+      "type": "revolute",
+      "parent_group": "g001",
+      "child_group": "g002",
+      "origin": [0.21589999999999959, 0.31368141557203794, 0.27361254444656524],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident2",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Concentric2",
+          "type": "swMateCONCENTRIC"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j004",
+      "type": "fixed",
+      "parent_group": "g003",
+      "child_group": "g001",
+      "origin": [0.060060882899609126, 0.079918382033006941, 0.079302544446565093],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Distance11",
+          "type": "swMateDISTANCE"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Read pairwise this is a planar, but the loop cut at this ring removes every freedom: no combination of the ring's other joints can reproduce it, so SolidWorks does not permit it either."
+    },
+    {
+      "id": "j005",
+      "type": "prismatic",
+      "parent_group": "g001",
+      "child_group": "g004",
+      "origin": [0.31723588289960913, 0.079918382033006941, 0.079302544446565065],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident48",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident49",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j006",
+      "type": "fixed",
+      "parent_group": "g003",
+      "child_group": "g004",
+      "origin": [0.31723588289960913, 0.079918382033006941, 0.079302544446565065],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident47",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Read pairwise this is a planar, but the loop cut at this ring removes every freedom: no combination of the ring's other joints can reproduce it, so SolidWorks does not permit it either."
+    }
+  ],
+  "loops": [
+    {
+      "id": "loop001",
+      "member_joints": [
+        "j001",
+        "j002",
+        "j004",
+        "j005"
+      ],
+      "closure_joint": "j002",
+      "closure_kind": "none",
+      "suggested_driver_joint": "j001",
+      "planar": false,
+      "plane_normal": null,
+      "driver_candidates": [
+        {
+          "joint": "j001",
+          "closure_joint": "j002",
+          "closure_kind": "none"
+        },
+        {
+          "joint": "j002",
+          "closure_joint": "j001",
+          "closure_kind": "none"
+        }
+      ]
+    },
+    {
+      "id": "loop002",
+      "member_joints": [
+        "j004",
+        "j005",
+        "j006"
+      ],
+      "closure_joint": "j005",
+      "closure_kind": "none",
+      "suggested_driver_joint": "j004",
+      "planar": false,
+      "plane_normal": null,
+      "driver_candidates": [
+        {
+          "joint": "j004",
+          "closure_joint": "j005",
+          "closure_kind": "none"
+        },
+        {
+          "joint": "j006",
+          "closure_joint": "j005",
+          "closure_kind": "none"
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    {
+      "code": "OCCURRENCE_UNMATCHED",
+      "components": [
+        "c001",
+        "c002",
+        "c003",
+        "c004",
+        "c005",
+        "c006",
+        "c007",
+        "c008",
+        "c009",
+        "c010",
+        "c011",
+        "c012"
+      ],
+      "joints": [],
+      "message": "12 component(s) could not be matched to a STEP occurrence; their step_occurrence_path is null and the Blender side falls back to transform matching."
+    }
+  ]
+}

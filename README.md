@@ -1,15 +1,15 @@
-# SW To Blender
+# CADder Bridge
 
 **Export a SolidWorks assembly as a rigged, posable model in Blender.**
 
 The tool is two programs joined by one file:
 
-1. **`sw-addin/`. Peak.SwToBlender** (C#, SolidWorks add-in, MIT). Reads the
+1. **`sw-addin/`. Peak.Cadder** (C#, SolidWorks add-in, MIT). Reads the
    mates of the open assembly, merges components with no relative freedom into
    rigid groups, classifies the residual freedom between groups as joints, and
    writes a STEP file with a rig manifest (`<name>.rig.json`) beside it.
 2. **The `rig/` subpackage of
-   [STEPper NEXT](https://github.com/Peak-Design/STEPper_NEXT)** (Python,
+   [CADder](https://github.com/Peak-Design/CADder)** (Python,
    Blender 5.1+, GPL-3.0-or-later). Reads the manifest, builds an armature:
    one bone per rigid group, constraints from the joint limits, and parents
    the imported STEP geometry to the bones. It lives in the importer's repo
@@ -57,18 +57,18 @@ the .NET SDK. The build fails with a clear message when it cannot find the
 interops. Point it at them with `-p:SolidWorksApiDir=...`.
 
 ```
-dotnet build sw-addin/src/Peak.SwToBlender/Peak.SwToBlender.csproj -c Release
-sw-addin/src/Peak.SwToBlender/Register-Addin.bat
+dotnet build sw-addin/src/Peak.Cadder/Peak.Cadder.csproj -c Release
+sw-addin/src/Peak.Cadder/Register-Addin.bat
 ```
 
 Registration writes to HKLM, so the script asks for administrator rights.
-Start SolidWorks and tick **SW To Blender** in *Tools → Add-Ins* if it is not
+Start SolidWorks and tick **CADder Bridge** in *Tools → Add-Ins* if it is not
 already ticked. The export command writes `<assembly>.step` and
 `<assembly>.rig.json` side by side.
 
 ## Quick start. Blender side
 
-Install (or update) **STEPper NEXT** and tick **CAD Link (experimental)**
+Install (or update) **CADder** and tick **CAD Link (experimental)**
 in its add-on preferences. The **CAD Link** tab appears in the 3D View
 sidebar. **Send to Blender** in SolidWorks then imports and rigs the
 assembly in one step. The manual route: point the tab's Manifest field at
@@ -84,7 +84,7 @@ The two halves are licensed separately, and the split is deliberate:
   property of Dassault Systèmes, see
   [sw-addin/THIRD-PARTY-NOTICES.md](sw-addin/THIRD-PARTY-NOTICES.md).
 - The Blender half is **GPL-3.0-or-later**, as Blender add-ons that use
-  `bpy` must be; it lives in the STEPper_NEXT repo and carries that repo's
+  `bpy` must be; it lives in the CADder repo and carries that repo's
   licence.
 
 The JSON manifest is the firewall between the two domains. The halves share no
