@@ -180,6 +180,10 @@ def main(argv):
             req["out"] = os.path.abspath(a.out)
     elif a.op == "log":
         req["lines"] = a.lines
+    elif a.op == "tess_uv":
+        if a.args:
+            req["face"] = float(a.args[0])
+        req["limit"] = a.lines
     elif a.op == "refresh":
         pass
     elif a.op == "move":

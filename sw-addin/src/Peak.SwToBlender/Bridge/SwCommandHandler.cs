@@ -48,6 +48,7 @@ namespace Peak.SwToBlender.Bridge
                 case "progress_demo": return Lab(request, () => ProgressDemo(app, request));
                 case "refresh": return Lab(request, () => RefreshPoses(app, request));
                 case "move": return Lab(request, () => Move(app, request));
+                case "tess_uv": return TessUv(app, request);
                 case "appearances":
                     return AppearanceProbe.Run(ModelFor(app, request),
                         (int)MiniJson.Num(request, "max_faces", 60),
@@ -796,6 +797,103 @@ namespace Peak.SwToBlender.Bridge
                 { "components", poses },
                 { "missing", selection.Missing },
             };
+        }
+
+        /// <summary>The tessellation of one face with the texture
+        /// coordinates SolidWorks gives it, so a caller can see what the
+        /// appearance mapping does to a real surface rather than reading it
+        /// off a picture. Points come back in the part's own space.
+        /// </summary>
+        private static Dictionary<string, object> TessUv(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            if (model == null) return Fail("no document is open in SolidWorks");
+            var part = model as IPartDoc;
+            if (part == null) return Fail("the document is not a part");
+            int want = (int)MiniJson.Num(request, "face", 0);
+            int limit = (int)MiniJson.Num(request, "limit", 40);
+
+            object[] bodies = null;
+            try
+            {
+                bodies = part.GetBodies2(
+                    (int)swBodyType_e.swSolidBody, true) as object[];
+            }
+            catch (Exception ex) { return Fail("GetBodies2 failed: " + ex.Message); }
+            if (bodies == null || bodies.Length == 0) return Fail("the part has no solid body");
+
+            var faces = new List<IFace2>();
+            foreach (var b in bodies)
+            {
+                var body = b as IBody2;
+                if (body == null) continue;
+                var list = body.GetFaces() as object[];
+                if (list == null) continue;
+                foreach (var f in list)
+                {
+                    var face = f as IFace2;
+                    if (face != null) faces.Add(face);
+                }
+            }
+            if (want < 0 || want >= faces.Count)
+                return Fail("face " + want + " of " + faces.Count);
+
+            var chosen = faces[want];
+            float[] tris = null;
+            float[] uvs = null;
+            try { tris = chosen.GetTessTriangles(true) as float[]; } catch { }
+            try { uvs = chosen.GetTessTextures() as float[]; } catch { }
+
+            var points = new List<object>();
+            if (tris != null)
+            {
+                int vertices = tris.Length / 9 * 3;
+                int step = Math.Max(1, vertices / Math.Max(1, limit));
+                for (int i = 0; i < vertices; i += step)
+                {
+                    var one = new Dictionary<string, object>
+                    {
+                        { "x", tris[i * 3 + 0] },
+                        { "y", tris[i * 3 + 1] },
+                        { "z", tris[i * 3 + 2] },
+                    };
+                    if (uvs != null && i * 2 + 1 < uvs.Length)
+                    {
+                        one["u"] = uvs[i * 2 + 0];
+                        one["v"] = uvs[i * 2 + 1];
+                    }
+                    points.Add(one);
+                }
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "faces", faces.Count },
+                { "face", want },
+                { "surface", SurfaceName(chosen) },
+                { "triangles", tris == null ? 0 : tris.Length / 9 },
+                { "has_textures", uvs != null },
+                { "texture_values", uvs == null ? 0 : uvs.Length },
+                { "points", points },
+            };
+        }
+
+        /// <summary>What kind of surface a face sits on, in words.</summary>
+        private static string SurfaceName(IFace2 face)
+        {
+            try
+            {
+                var surface = face.GetSurface() as ISurface;
+                if (surface == null) return null;
+                if (surface.IsPlane()) return "plane";
+                if (surface.IsCylinder()) return "cylinder";
+                if (surface.IsCone()) return "cone";
+                if (surface.IsSphere()) return "sphere";
+                if (surface.IsTorus()) return "torus";
+                return "other";
+            }
+            catch { return null; }
         }
 
         /// <summary>Drags one component, as a user would with the mouse,
