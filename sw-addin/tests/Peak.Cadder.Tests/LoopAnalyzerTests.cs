@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
@@ -37,6 +37,79 @@ namespace Peak.Cadder.Tests
             j.ResidualRot = RotFreedom.AboutDirection;
             j.ResidualRotDir = normal;
             return j;
+        }
+
+        /// <summary>
+        /// A closure's origin must be a point that stands still when each
+        /// of its two bodies moves on its own joint. The classifier is free
+        /// to slide it along the joint's own axis (a rotation axis is a
+        /// line), and that is harmless until the joint becomes a cut.
+        ///
+        /// Live wrench.sldasm (2026-09-16, Oscar): "everything rotates with
+        /// the screw but it shouldn't". The centerlink rests on the end of
+        /// a screw, on the screw's own axis, so it stands still while the
+        /// screw turns. The origin had been slid 8.5 mm along the
+        /// centerlink's edge, clear of that axis, and the closure point
+        /// then swung round the screw once per turn.
+        /// </summary>
+        [Fact]
+        public void AClosureOriginIsSeatedOnTheBodysOwnAxis()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+            };
+            var z = new double[] { 0, 0, 1 };
+            var x = new double[] { 1, 0, 0 };
+            // A spinner on the X axis through the origin, a link on a pin,
+            // and the cut between them about Z. The cut's origin sits 8.5
+            // mm off the spinner's axis, where a slide along Z put it.
+            var spin = Joint("j001", JointType.Screw, "g000", "g001", x);
+            spin.Origin = new double[] { 0, 0, 0 };
+            var pin = Joint("j002", JointType.Revolute, "g000", "g002", z);
+            pin.Origin = new double[] { 0.1, 0.05, 0 };
+            var cut = Joint("j003", JointType.Revolute, "g001", "g002", z);
+            cut.Origin = new double[] { 0.02, 0, -0.0085 };
+
+            var loops = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { spin, pin, cut });
+
+            var loop = Assert.Single(loops.Loops);
+            var seated = loops.Joints.Find(j => j.Id == loop.ClosureJoint);
+            Assert.Equal("ik", loop.ClosureKind);
+            // Still on its own axis, and now on the spinner's axis too.
+            Assert.Equal(0.02, seated.Origin[0], 9);
+            Assert.Equal(0.0, seated.Origin[1], 9);
+            Assert.Equal(0.0, seated.Origin[2], 9);
+        }
+
+        /// <summary>A body whose own axis is PARALLEL to the closure's
+        /// cannot carry a point on that axis anywhere, so nothing needs
+        /// moving and the origin the classifier chose is kept.</summary>
+        [Fact]
+        public void AParallelAxisLeavesTheClosureOriginAlone()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+            };
+            var z = new double[] { 0, 0, 1 };
+            var a = Joint("j001", JointType.Revolute, "g000", "g001", z);
+            a.Origin = new double[] { 0, 0, 0 };
+            var b = Joint("j002", JointType.Revolute, "g000", "g002", z);
+            b.Origin = new double[] { 0.1, 0.05, 0 };
+            var cut = Joint("j003", JointType.Revolute, "g001", "g002", z);
+            cut.Origin = new double[] { 0.02, 0, -0.0085 };
+
+            var loops = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { a, b, cut });
+            var loop = Assert.Single(loops.Loops);
+            var kept = loops.Joints.Find(j => j.Id == loop.ClosureJoint);
+            Assert.Equal(-0.0085, kept.Origin[2], 9);
         }
 
         /// <summary>Classic four-bar: four groups in a ring, four revolutes

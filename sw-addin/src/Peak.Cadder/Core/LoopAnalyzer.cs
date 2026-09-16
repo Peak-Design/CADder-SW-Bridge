@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core.Model;
 
@@ -79,6 +79,7 @@ namespace Peak.Cadder.Core
             DeriveSliderDriverLimits(result);
             result.Mechanisms = ComputeMechanisms(groups, joints, result);
             MoveCutsOffWelds(result);
+            SeatClosureOrigins(result);
             AddCouplingMechanisms(result);
             return result;
         }
@@ -449,6 +450,103 @@ namespace Peak.Cadder.Core
             if (tree.SetEquals(startTree)) break;
             }
             return loops;
+        }
+
+        /// <summary>
+        /// Puts every closure's origin where its own bodies cannot carry
+        /// it away.
+        ///
+        /// A rotation axis is a LINE, so any point on it does for the joint
+        /// itself, and the classifier slides the origin along it to sit
+        /// inside the child part. That is cosmetic until the joint becomes
+        /// a loop's CLOSURE: the consumer re-joins the two bodies AT the
+        /// origin, so the origin has to be a point that stands still when
+        /// each body moves on its own joint. A point off the parent's own
+        /// rotation axis does not: it orbits it.
+        ///
+        /// Live wrench.sldasm (2026-09-16, Oscar): "everything rotates with
+        /// the screw but it shouldn't". The centerlink rests on a point on
+        /// the end of the screw, which is ON the screw's axis and stands
+        /// still while the screw turns. The origin had been slid 8.5 mm
+        /// down the centerlink's own edge, clear of that axis, so the
+        /// closure point swung round the screw once per turn and took the
+        /// whole linkage with it. Half a turn and the centerlink was 12 mm
+        /// adrift of the screw it is supposed to rest on.
+        ///
+        /// So the origin slides back along its OWN axis to the point
+        /// nearest the body's other axis. An axis parallel to the closure's
+        /// own cannot move a point on it, so it asks nothing. Two bodies
+        /// that ask for different points get neither: this only ever makes
+        /// a closure stand still, never guesses.
+        /// </summary>
+        private static void SeatClosureOrigins(LoopAnalysisResult result)
+        {
+            if (result == null || result.Loops.Count == 0) return;
+
+            var byId = new Dictionary<string, RigJoint>();
+            foreach (var j in result.Joints) byId[j.Id] = j;
+
+            var cuts = new HashSet<string>();
+            foreach (var lp in result.Loops)
+                if (lp.ClosureKind == "ik") cuts.Add(lp.ClosureJoint);
+            foreach (var mech in result.Mechanisms)
+                foreach (var option in mech.Inputs)
+                    foreach (var lp in option.Loops)
+                        if (lp.ClosureKind == "ik") cuts.Add(lp.ClosureJoint);
+
+            foreach (string id in cuts)
+            {
+                RigJoint cut;
+                if (!byId.TryGetValue(id, out cut)) continue;
+                if (cut.Axis == null || cut.Origin == null) continue;
+
+                double[] seat = null;
+                bool disagree = false;
+                foreach (string group in new[] { cut.ParentGroup, cut.ChildGroup })
+                {
+                    foreach (var other in result.Joints)
+                    {
+                        if (ReferenceEquals(other, cut)) continue;
+                        if (other.ParentGroup != group && other.ChildGroup != group) continue;
+                        if (other.Axis == null || other.Origin == null) continue;
+                        if (other.Type != JointType.Revolute
+                            && other.Type != JointType.Cylindrical
+                            && other.Type != JointType.Screw) continue;
+                        var found = NearestOnAxis(cut.Origin, cut.Axis,
+                                                  other.Origin, other.Axis);
+                        if (found == null) continue;
+                        if (seat == null) seat = found;
+                        else if (MathOps.Distance2(seat, found) > 1e-12) disagree = true;
+                    }
+                }
+                if (seat != null && !disagree)
+                    cut.Origin = MathOps.Threshold(seat, 1e-11);
+            }
+        }
+
+        /// <summary>
+        /// The point on the line (origin, axis) nearest the line
+        /// (otherOrigin, otherAxis), or null when the two are parallel: a
+        /// point on the closure's axis is then already as near the other
+        /// as any point on it can be, and nothing needs moving.
+        /// </summary>
+        private static double[] NearestOnAxis(
+            double[] origin, double[] axis, double[] otherOrigin, double[] otherAxis)
+        {
+            var a = MathOps.Normalized(axis);
+            var b = MathOps.Normalized(otherAxis);
+            if (a == null || b == null) return null;
+            double ab = MathOps.Dot(a, b);
+            double denom = 1.0 - ab * ab;
+            if (denom < 1e-9) return null;      // parallel, or near enough
+            var w = new[]
+            {
+                origin[0] - otherOrigin[0],
+                origin[1] - otherOrigin[1],
+                origin[2] - otherOrigin[2],
+            };
+            double t = (ab * MathOps.Dot(b, w) - MathOps.Dot(a, w)) / denom;
+            return new[] { origin[0] + t * a[0], origin[1] + t * a[1], origin[2] + t * a[2] };
         }
 
         /// <summary>
