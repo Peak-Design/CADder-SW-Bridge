@@ -92,6 +92,9 @@ namespace Peak.Cadder.Sw
                 DefinitionId = 0,
                 ComponentId = "c001",
                 Name = def.Name,
+                // A part on its own is the whole tree: one occurrence, at
+                // the root, under its own name.
+                Path = def.Name,
                 Transform = Identity(),
             });
             return scene;
