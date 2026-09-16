@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Peak.Cadder.Core.Model
 {
@@ -217,6 +217,19 @@ namespace Peak.Cadder.Core.Model
         public string ClosureKind = "ik";
         public bool Planar;
         public double[] PlaneNormal;         // null when not planar
+
+        /// <summary>How many inputs this ring takes: its own joints' freedom
+        /// less what closing the ring spends. One for almost every ring, and
+        /// 2 for a five-bar. The consumer solves the closure with the driven
+        /// chain, so a ring of mobility m must leave m-1 of that chain's
+        /// bones OUT of the solve, for the user to pose.
+        ///
+        /// Only ever counted for a planar ring, where a joint's contribution
+        /// is plain; elsewhere it stays 1, and a ring that reads as rigid
+        /// stays 1 as well. Under-counting costs a control the user could
+        /// have had. Over-counting takes a constraint away, which is the
+        /// error that shows as a mechanism falling apart.</summary>
+        public int Mobility = 1;
 
         /// <summary>Every input the analyzer weighed for this loop, the
         /// chosen one first, each with the cut and closure its choice

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core.Model;
 
@@ -1470,7 +1470,7 @@ namespace Peak.Cadder.Core
                     // nothing else stated it. See RackSlide.
                     RackSlide(result, mate, driver, driven);
                     coupling.Kind = "rack_pinion";
-                    coupling.MetersPerRadian = SignedRackRatio(mate, driver, driven, grouping);
+                    coupling.MetersPerRadian = SignedRackRatio(mate, driver, driven);
                 }
                 else
                 {
@@ -1536,49 +1536,53 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>
-        /// Bone-local signed metres of rack per radian of pinion. The world
-        /// relation is pure geometry: a positive right-handed pinion turn
-        /// moves the contact point along pinionAxis × (rackPoint − centre),
-        /// so the sign against the rack's slide axis is computable instead
-        /// of guessed. Converted to bone-local through both mount joints'
-        /// axis senses; the reader's Reverse sign rides on top. Not yet
-        /// pinned live (no rack in the corpus until 18): the reader logs
-        /// the raw mate numbers for the day it disagrees.
+        /// Bone-local signed metres of rack per radian of pinion.
+        ///
+        /// The mate states the relation in its own two entities' senses:
+        /// the rack travels along its selected edge as the pinion turns
+        /// about its selected axis, and the Reverse tick picks which way.
+        /// The reader folds Reverse into MetersPerRadian, so the only work
+        /// left is to carry that number from the mate's two senses into the
+        /// two bones' own senses.
+        ///
+        /// Pinned live on the SolidWorks sample "rack and pinion.sldasm"
+        /// (2026-09-16): the pinion entity points down -Z and its bone up
+        /// +Z, the rack entity and its bone both run -Y, and Reverse is
+        /// ticked. One flip, so +12.7 mm per radian, and the rack then
+        /// runs the way it runs in SolidWorks. This code read the sign off
+        /// the rolling contact before that (the pinion axis crossed into
+        /// the offset to the rack) and fought the tick: the two answers
+        /// differ whenever the tick is set, because SolidWorks does not use
+        /// the rolling sense as its unticked default.
         /// </summary>
         private static double? SignedRackRatio(
-            GraphMate mate, RigJoint driver, RigJoint driven, RigidGroupingResult grouping)
+            GraphMate mate, RigJoint driver, RigJoint driven)
         {
             if (!mate.MetersPerRadian.HasValue) return null;
-            double raw = mate.MetersPerRadian.Value;
+            double value = mate.MetersPerRadian.Value;
 
-            GraphMateEntity pinion = null, rackSide = null;
-            foreach (var e in mate.Entities)
+            // The reader writes the rack first and the pinion second, as
+            // the mate lists them. A cylinder in the first slot means the
+            // pair arrived the other way round.
+            GraphMateEntity rackSide = null, pinion = null;
+            if (mate.Entities.Count >= 2)
             {
-                if (e.EntityTypeName == "cylinder" && e.Direction != null && e.Point != null)
+                rackSide = mate.Entities[0];
+                pinion = mate.Entities[1];
+                if (rackSide.EntityTypeName == "cylinder"
+                    && pinion.EntityTypeName != "cylinder")
                 {
-                    if (pinion == null) pinion = e;
+                    var swap = rackSide; rackSide = pinion; pinion = swap;
                 }
-                else if (e.Point != null && rackSide == null) rackSide = e;
             }
-            if (pinion == null || rackSide == null
-                || driver.Axis == null || driven.Axis == null)
-                return raw;    // geometry incomplete: the raw value is all there is
 
-            var ap = MathOps.Normalized(pinion.Direction);
-            var offset = new[]
-            {
-                rackSide.Point[0] - pinion.Point[0],
-                rackSide.Point[1] - pinion.Point[1],
-                rackSide.Point[2] - pinion.Point[2],
-            };
-            var contactVel = MathOps.Cross(ap, offset);
-            if (MathOps.Norm(contactVel) < 1e-9) return raw;
-
-            double s = 1.0;
-            if (MathOps.Dot(contactVel, driven.Axis) < 0) s = -s;
-            if (MathOps.Dot(driver.Axis, ap) < 0) s = -s;
-            // raw already carries the Reverse tick's sign from the reader.
-            return s * raw;
+            if (pinion != null && pinion.Direction != null && driver.Axis != null
+                && MathOps.Dot(driver.Axis, MathOps.Normalized(pinion.Direction)) < 0)
+                value = -value;
+            if (rackSide != null && rackSide.Direction != null && driven.Axis != null
+                && MathOps.Dot(driven.Axis, MathOps.Normalized(rackSide.Direction)) < 0)
+                value = -value;
+            return value;
         }
 
         /// <summary>Fills a path joint from the sampled curve: origin at the

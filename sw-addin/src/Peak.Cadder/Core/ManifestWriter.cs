@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -292,6 +292,7 @@ namespace Peak.Cadder.Core
             w.Field("closure_joint").String(l.ClosureJoint);
             w.Field("closure_kind").String(l.ClosureKind);
             w.Field("suggested_driver_joint").String(l.SuggestedDriverJoint);
+            w.Field("mobility").Number(l.Mobility);
             w.Field("planar").Bool(l.Planar);
             w.Field("plane_normal").Vector(l.PlaneNormal);
             w.Field("driver_candidates").BeginArray();

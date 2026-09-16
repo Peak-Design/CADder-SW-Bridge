@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
@@ -291,7 +291,7 @@ namespace Peak.Cadder
             if (walked.Count == 0)
                 throw new InvalidOperationException("The assembly has no components to export.");
             progress.Stage("Reading the mates", 8, 20);
-            var graph = MateReader.Read(walked, AddIn.Log);
+            var graph = MateReader.Read(walked, AddIn.Log, model);
             // Mirror features carry no mate, so they are read straight off the
             // feature tree and paired by geometry.
             MirrorFeatureReader.Read(model, walked, graph, AddIn.Log);

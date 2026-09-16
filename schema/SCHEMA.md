@@ -338,6 +338,24 @@ tree and re-closes each loop at the cut. Consumers must not re-derive loops.
 `closure_kind` says HOW to re-close it. Absent means `"ik"`, which is what
 every manifest written before the field meant.
 
+`mobility` says how many inputs the loop takes: its members' freedom less the
+three that closing a planar ring spends. It is 1 for almost every loop, and 1
+for every manifest written before the field. A four-bar is 1. A five-bar (four
+pins and a screw around one ring, which is what an adjustable wrench is) is 2.
+
+A loop of mobility `m` must leave `m-1` bones of the driven chain OUT of the
+solve, taken from the ROOT end, where they move the most. Those bones are
+controls: the user poses them beside the loop's own driver, and the solver
+closes the ring around whatever they do. Solve the whole chain instead and the
+solver spends a freedom the user is meant to hold, then fights whatever the
+user does with it.
+
+The exporter counts this only where each member's part in it is plain: a
+PLANAR ring built from pins about its normal and slides in its plane.
+Everything else is 1. Under-counting costs a control the user could have had;
+over-counting takes a constraint away, and that is the error that shows as a
+mechanism coming apart.
+
 **`"ik"`**: the cut is a pin, and the closure is a point coincidence: the
 consumer solves the driven side so the two halves of the cut meet again. The
 cut is chosen to be a joint whose bodies SHARE a point (revolute, cylindrical,

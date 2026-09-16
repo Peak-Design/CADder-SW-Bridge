@@ -296,6 +296,7 @@
           "description": "How to re-close the cut. 'ik' is a point coincidence solved by rotating the driven chain. 'aim_pair' is a slider-crank: the bodies either side of the cut hang off their own pins and aim at each other, because no rotational solver can lengthen a slide. 'none' means the tree already carries the motion and the consumer must not solve the cut at all."
         },
         "suggested_driver_joint": { "type": ["string", "null"] },
+        "mobility": { "type": "integer", "minimum": 1, "default": 1, "description": "How many inputs this loop takes: its joints' freedom less the three a planar closure spends. A loop of mobility m must leave m-1 bones of the driven chain OUT of the solve, nearest the root, for the user to pose. Counted only for a planar loop of pins and slides; 1 everywhere else." },
         "planar": { "type": "boolean", "default": false },
         "plane_normal": { "oneOf": [{ "$ref": "#/$defs/vec3" }, { "type": "null" }] },
         "driver_candidates": {

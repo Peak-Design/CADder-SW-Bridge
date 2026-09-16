@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Linq;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
@@ -75,6 +75,20 @@ namespace Peak.Cadder.Tests
             Assert.Equal(JointType.Revolute, driver.Type);
             Assert.NotNull(driven.Coupling.MetersPerRadian);
             Assert.Equal(0.0127, System.Math.Abs(driven.Coupling.MetersPerRadian.Value), 6);
+
+            // The sign, pinned against SolidWorks on 2026-09-16: "the
+            // rotation of the pinion is reversed" (Oscar) against the
+            // rolling-contact reading this used to take. The mate's own
+            // senses give it: pinion entity -Z under a bone on +Z is one
+            // flip, rack entity -Y under a bone on -Y is none, and Reverse
+            // is ticked, so the reader's -12.7 mm arrives as +12.7 mm.
+            Assert.True(driven.Coupling.MetersPerRadian.Value > 0,
+                "a positive pinion turn must run the rack along its own bone axis, got "
+                + driven.Coupling.MetersPerRadian.Value);
+            // The two senses the sign is built from, so a change in either
+            // shows up here rather than as a silent flip.
+            Assert.Equal(1.0, driver.Axis[2], 6);      // pinion bone, +Z
+            Assert.Equal(-1.0, driven.Axis[1], 6);     // rack bone, -Y
         }
 
         [Fact]

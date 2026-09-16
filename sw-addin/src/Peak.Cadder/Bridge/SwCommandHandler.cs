@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -204,7 +204,7 @@ namespace Peak.Cadder.Bridge
             if (assembly == null) return Fail("the document is not an assembly");
             long mark = LogMark();
             var walked = AssemblyWalker.Walk(assembly, AddIn.Log);
-            var graph = MateReader.Read(walked, AddIn.Log);
+            var graph = MateReader.Read(walked, AddIn.Log, model);
 
             var components = new List<object>();
             foreach (var c in graph.Components)

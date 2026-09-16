@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core.Model;
 
@@ -78,6 +78,7 @@ namespace Peak.Cadder.Core
             }
             DeriveSliderDriverLimits(result);
             result.Mechanisms = ComputeMechanisms(groups, joints, result);
+            MoveCutsOffWelds(result);
             return result;
         }
 
@@ -433,6 +434,7 @@ namespace Peak.Cadder.Core
                 loop.DriverCandidates = candidates;
                 chosenDrivers.Add(driver.Id);
                 SetPlanarity(loop, members);
+                loop.Mobility = Mobility(loop, members);
                 // The ring's groups and the driver's moving body, for the
                 // control rule in ComputeMechanisms. Never serialised.
                 loop.RingGroups = new List<string>();
@@ -446,6 +448,246 @@ namespace Peak.Cadder.Core
             if (tree.SetEquals(startTree)) break;
             }
             return loops;
+        }
+
+        /// <summary>
+        /// Moves a closure off a WELD, where its ring gives it somewhere
+        /// else to go.
+        ///
+        /// A closure re-joins one POINT and the solver only rotates, so a
+        /// cut at a fixed joint keeps its two bodies meeting at that point
+        /// and leaves the far one free to turn about it. That is the one
+        /// thing the weld forbids. A weld belongs in the tree, where it
+        /// carries the angle as well as the place.
+        ///
+        /// Live landing_gear.sldasm (2026-09-16, Oscar): "the wheel_hub
+        /// part rotates as I move the slider up and down, it should not, it
+        /// should only slide". The ring narrows the pin between the oleo
+        /// piston and the wheel assembly to fixed, the cut landed on that
+        /// pin, and the wheel was then reached the long way round through
+        /// the two sway links: IK put it in the right place at the wrong
+        /// angle. The hinge input posed correctly because its cut fell
+        /// elsewhere.
+        ///
+        /// This runs LAST, after the narrowing has settled, and it changes
+        /// nothing but the cut. Moved any earlier it moves the spanning
+        /// tree with it, and the rings that tree finds are what the
+        /// narrowing reads: tried inside the choice, the live plunger came
+        /// back with both nuts welded to their plates, which SolidWorks
+        /// lets turn.
+        /// </summary>
+        private static void MoveCutsOffWelds(LoopAnalysisResult result)
+        {
+            if (result == null || result.Loops.Count == 0) return;
+            var byId = new Dictionary<string, RigJoint>();
+            foreach (var j in result.Joints) byId[j.Id] = j;
+
+            Recut(result.Loops, result.Loops, byId);
+            foreach (var mech in result.Mechanisms)
+                foreach (var option in mech.Inputs)
+                {
+                    // An input re-cuts only the mechanism's own loops; the
+                    // rest of the model keeps the closures it has, and one
+                    // tree has to hold for all of them at once.
+                    var all = new List<RigLoop>(option.Loops);
+                    var mine = new HashSet<string>();
+                    foreach (var lp in option.Loops) mine.Add(lp.Id);
+                    foreach (var lp in result.Loops)
+                        if (!mine.Contains(lp.Id)) all.Add(lp);
+                    Recut(option.Loops, all, byId);
+                }
+
+            // The per-loop candidate list is the same choice said again,
+            // for a consumer that reads no mechanisms. Bring it with the
+            // input it stands for, and drop what has nowhere to go: an
+            // option that cannot hold a weld is not an option to offer.
+            foreach (var loop in result.Loops)
+            {
+                var kept = new List<RigLoopCandidate>();
+                foreach (var candidate in loop.DriverCandidates)
+                {
+                    RigJoint stood;
+                    if (candidate.ClosureKind != "ik"
+                        || !byId.TryGetValue(candidate.ClosureJoint, out stood)
+                        || stood.Type != JointType.Fixed)
+                    {
+                        kept.Add(candidate);      // it was never on a weld
+                        continue;
+                    }
+                    foreach (var mech in result.Mechanisms)
+                        foreach (var option in mech.Inputs)
+                        {
+                            if (option.Joint != candidate.DriverJoint) continue;
+                            foreach (var lp in option.Loops)
+                                if (lp.Id == loop.Id)
+                                {
+                                    candidate.ClosureJoint = lp.ClosureJoint;
+                                    candidate.ClosureKind = lp.ClosureKind;
+                                }
+                        }
+                    RigJoint cut;
+                    if (candidate.ClosureKind == "ik"
+                        && byId.TryGetValue(candidate.ClosureJoint, out cut)
+                        && cut.Type == JointType.Fixed)
+                        continue;
+                    kept.Add(candidate);
+                }
+                loop.DriverCandidates = kept;
+            }
+        }
+
+        private static void Recut(
+            IList<RigLoop> editable, IList<RigLoop> all,
+            Dictionary<string, RigJoint> byId)
+        {
+            foreach (var loop in editable)
+            {
+                RigJoint cut;
+                if (loop.ClosureKind != "ik") continue;
+                if (!byId.TryGetValue(loop.ClosureJoint, out cut)) continue;
+                if (cut.Type != JointType.Fixed) continue;
+
+                string was = loop.ClosureJoint;
+                foreach (var next in AwayFromTheDriver(loop, cut, byId))
+                {
+                    if (next.Id == loop.SuggestedDriverJoint) continue;
+                    if (next.Type == JointType.Fixed || !IsPinCut(next)) continue;
+                    loop.ClosureJoint = next.Id;
+                    if (EveryClosureStillHasItsPath(all, byId)) break;
+                    loop.ClosureJoint = was;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The ring's other members, nearest the cut first, and of two at
+        /// the same distance the one further from the driver. The bodies
+        /// nearest the driver then stay in the tree and the solver gets the
+        /// far end, which is where every other cut here is placed.
+        ///
+        /// The ring is a cycle through the groups, so it is walked out from
+        /// one end of the cut round to the other, without using the cut.
+        /// </summary>
+        private static List<RigJoint> AwayFromTheDriver(
+            RigLoop loop, RigJoint cut, Dictionary<string, RigJoint> byId)
+        {
+            var order = new List<RigJoint> { cut };
+            var adjacency = new Dictionary<string, List<RigJoint>>();
+            foreach (string id in loop.MemberJoints)
+            {
+                RigJoint j;
+                if (!byId.TryGetValue(id, out j) || ReferenceEquals(j, cut)) continue;
+                if (!adjacency.ContainsKey(j.ParentGroup))
+                    adjacency[j.ParentGroup] = new List<RigJoint>();
+                if (!adjacency.ContainsKey(j.ChildGroup))
+                    adjacency[j.ChildGroup] = new List<RigJoint>();
+                adjacency[j.ParentGroup].Add(j);
+                adjacency[j.ChildGroup].Add(j);
+            }
+            var walked = new HashSet<string>();
+            string at = cut.ParentGroup;
+            while (at != cut.ChildGroup)
+            {
+                List<RigJoint> next;
+                if (!adjacency.TryGetValue(at, out next)) break;
+                RigJoint step = null;
+                foreach (var j in next)
+                    if (!walked.Contains(j.Id)) { step = j; break; }
+                if (step == null) break;
+                walked.Add(step.Id);
+                order.Add(step);
+                at = step.ParentGroup == at ? step.ChildGroup : step.ParentGroup;
+            }
+            if (order.Count != loop.MemberJoints.Count) return new List<RigJoint>();
+
+            int n = order.Count, driver = -1;
+            for (int i = 0; i < n; i++)
+                if (order[i].Id == loop.SuggestedDriverJoint) driver = i;
+            var places = new Dictionary<string, int>();
+            for (int i = 0; i < n; i++) places[order[i].Id] = i;
+            var ranked = order.GetRange(1, n - 1);
+            int driverAt = driver;
+            ranked.Sort(delegate (RigJoint a, RigJoint b)
+            {
+                int ia = places[a.Id], ib = places[b.Id];
+                int c = Round(ia, n).CompareTo(Round(ib, n));
+                if (c != 0) return c;
+                if (driverAt >= 0)
+                {
+                    c = Round(ib - driverAt, n).CompareTo(Round(ia - driverAt, n));
+                    if (c != 0) return c;
+                }
+                return string.CompareOrdinal(a.Id, b.Id);
+            });
+            return ranked;
+        }
+
+        /// <summary>Steps between two places on a ring of n, the short way
+        /// round.</summary>
+        private static int Round(int steps, int n)
+        {
+            int k = ((steps % n) + n) % n;
+            return Math.Min(k, n - k);
+        }
+
+        /// <summary>
+        /// Whether the tree that is left when every closure is taken out
+        /// still joins each closure's two ends, by exactly that loop's own
+        /// members. The consumer checks this before it builds a rig, so a
+        /// cut that breaks it is not a cut worth making.
+        /// </summary>
+        private static bool EveryClosureStillHasItsPath(
+            IList<RigLoop> loops, Dictionary<string, RigJoint> byId)
+        {
+            var closures = new HashSet<string>();
+            foreach (var lp in loops)
+                if (!closures.Add(lp.ClosureJoint)) return false;
+
+            var adjacency = new Dictionary<string, List<RigJoint>>();
+            foreach (var pair in byId)
+            {
+                var j = pair.Value;
+                if (j.Type == JointType.Free || closures.Contains(j.Id)) continue;
+                if (!adjacency.ContainsKey(j.ParentGroup))
+                    adjacency[j.ParentGroup] = new List<RigJoint>();
+                if (!adjacency.ContainsKey(j.ChildGroup))
+                    adjacency[j.ChildGroup] = new List<RigJoint>();
+                adjacency[j.ParentGroup].Add(j);
+                adjacency[j.ChildGroup].Add(j);
+            }
+
+            foreach (var lp in loops)
+            {
+                RigJoint cj;
+                if (!byId.TryGetValue(lp.ClosureJoint, out cj)) return false;
+                var via = new Dictionary<string, RigJoint>();
+                var queue = new Queue<string>();
+                queue.Enqueue(cj.ParentGroup);
+                via[cj.ParentGroup] = null;
+                while (queue.Count > 0 && !via.ContainsKey(cj.ChildGroup))
+                {
+                    string g = queue.Dequeue();
+                    List<RigJoint> next;
+                    if (!adjacency.TryGetValue(g, out next)) continue;
+                    foreach (var j in next)
+                    {
+                        string other = j.ParentGroup == g ? j.ChildGroup : j.ParentGroup;
+                        if (via.ContainsKey(other)) continue;
+                        via[other] = j;
+                        queue.Enqueue(other);
+                    }
+                }
+                if (!via.ContainsKey(cj.ChildGroup)) return false;
+                var path = new HashSet<string> { cj.Id };
+                for (string g = cj.ChildGroup; via[g] != null; )
+                {
+                    var j = via[g];
+                    path.Add(j.Id);
+                    g = j.ParentGroup == g ? j.ChildGroup : j.ParentGroup;
+                }
+                if (!path.SetEquals(lp.MemberJoints)) return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -1658,6 +1900,57 @@ namespace Peak.Cadder.Core
         /// <summary>A loop is planar when every revolute member spins about
         /// the same direction (within 1e-6); the Blender side can then keep
         /// its IK in one plane.</summary>
+        /// <summary>
+        /// How many inputs the ring takes: Gruebler on one planar loop, the
+        /// members' freedom less the three the closure spends.
+        ///
+        /// Counted only where each member's contribution is plain, which is
+        /// a PLANAR ring built from pins about its normal and slides in its
+        /// plane. Anything else answers 1, the answer this gave everywhere
+        /// before: a ring is far better short of a control than short of a
+        /// constraint.
+        ///
+        /// Live wrench.sldasm (2026-09-16, Oscar): "the arm2 assembly can
+        /// rotate around a pin on clamp2, but the only control bone I am
+        /// getting in Blender is the screw". Four pins and a screw around
+        /// one ring is a five-bar: five freedoms, three spent, two inputs.
+        /// The rig solved all three of the driven bodies from the screw
+        /// alone and the second freedom had nowhere to go.
+        /// </summary>
+        private static int Mobility(RigLoop loop, List<RigJoint> members)
+        {
+            if (!loop.Planar || loop.PlaneNormal == null) return 1;
+            var n = MathOps.Normalized(loop.PlaneNormal);
+            int freedom = 0;
+            foreach (var j in members)
+            {
+                if (j.Type == JointType.Fixed) continue;
+                if (j.Axis == null) return 1;
+                var a = MathOps.Normalized(j.Axis);
+                double along = Math.Abs(MathOps.Dot(a, n));
+                if (j.Type == JointType.Revolute)
+                {
+                    // A pin about the ring's normal turns in the plane.
+                    if (along < 1.0 - 1e-6) return 1;
+                    freedom++;
+                }
+                else if (j.Type == JointType.Prismatic || j.Type == JointType.Screw)
+                {
+                    // A slide in the plane travels in the plane. A screw
+                    // brings its spin with it, about that same in-plane
+                    // line, and a spin about an in-plane line moves nothing
+                    // in the plane: one freedom either way.
+                    if (along > 1e-6) return 1;
+                    freedom++;
+                }
+                else
+                {
+                    return 1;   // a freedom this count cannot read plainly
+                }
+            }
+            return Math.Max(1, freedom - 3);
+        }
+
         private static void SetPlanarity(RigLoop loop, List<RigJoint> members)
         {
             double[] normal = null;

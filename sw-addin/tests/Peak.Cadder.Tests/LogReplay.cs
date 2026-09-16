@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -61,6 +61,22 @@ namespace Peak.Cadder.Tests
         private static readonly Regex RackLine = new Regex(
             @"^rack mate (\S+): diameterVal=([-+0-9.eE]+) type=(\d+) reverse=(True|False)$",
             RegexOptions.Compiled);
+        /// <summary>The reader's own line for a screw mate. The lead is
+        /// worked out from the mate's numbers and the document's linear
+        /// unit, neither of which the mate line carries. A log written
+        /// before the unit was read has no unit= field: it replays as the
+        /// metre, which is what that export used.</summary>
+        private static readonly Regex ScrewLine = new Regex(
+            @"^screw mate (\S+): revolutionVal=([-+0-9.eE]+) type=(\d+) "
+            + @"reverse=(True|False)( unit=[-+0-9.eE]+)? -> lead=[-+0-9.eE]+$",
+            RegexOptions.Compiled);
+        /// <summary>An entity the reader rebuilt from its selection: the
+        /// mate line above it still says "unknown", and its param slots are
+        /// filler. Logs written before 2026-09-16 carry no dir= field and
+        /// cannot be replayed, so they are left alone.</summary>
+        private static readonly Regex RecoverLine = new Regex(
+            @"^recovered edge direction on (\S+) @(\S+) dir=\[([^\]]*)\] at=\[([^\]]*)\]$",
+            RegexOptions.Compiled);
         private static readonly Regex RetypeLine = new Regex(
             @"^retyped (\w+)?->(\w+)(?: \(half-angle ([-+0-9.eE]+)\))? on (\S+) @(\S+)$",
             RegexOptions.Compiled);
@@ -110,6 +126,8 @@ namespace Peak.Cadder.Tests
             var byName = new Dictionary<string, GraphMate>();
             var retypes = new List<Match>();
             var racks = new List<Match>();
+            var screws = new List<Match>();
+            var recovered = new List<Match>();
             var locks = new HashSet<string>();
             foreach (var raw in logLines)
             {
@@ -144,7 +162,38 @@ namespace Peak.Cadder.Tests
                 var lm = LockLine.Match(line);
                 if (lm.Success) { locks.Add(lm.Groups[1].Value); continue; }
                 var km = RackLine.Match(line);
-                if (km.Success) racks.Add(km);
+                if (km.Success) { racks.Add(km); continue; }
+                var sm = ScrewLine.Match(line);
+                if (sm.Success) { screws.Add(sm); continue; }
+                var vm = RecoverLine.Match(line);
+                if (vm.Success) recovered.Add(vm);
+            }
+
+            foreach (var sm in screws)
+            {
+                GraphMate mate;
+                if (!byName.TryGetValue(sm.Groups[1].Value, out mate)) continue;
+                double value = double.Parse(sm.Groups[2].Value, CultureInfo.InvariantCulture);
+                double unit = 1.0;
+                if (sm.Groups[5].Success)
+                    unit = double.Parse(sm.Groups[5].Value.Substring(" unit=".Length),
+                                        CultureInfo.InvariantCulture);
+                mate.LeadMPerRev = ScrewLead.Metres(
+                    value, sm.Groups[3].Value == "1", sm.Groups[4].Value == "True", unit);
+            }
+
+            foreach (var vm in recovered)
+            {
+                GraphMate mate;
+                if (!byName.TryGetValue(vm.Groups[1].Value, out mate)) continue;
+                foreach (var e in mate.Entities)
+                {
+                    if ((e.ComponentId ?? "asm") != vm.Groups[2].Value) continue;
+                    e.EntityTypeName = "edge";
+                    e.Direction = ParseVector(vm.Groups[3].Value);
+                    var at = ParseVector(vm.Groups[4].Value);
+                    if (at != null) e.Point = at;
+                }
             }
 
             foreach (var km in racks)
@@ -183,6 +232,17 @@ namespace Peak.Cadder.Tests
                 if (byName.TryGetValue(name, out mate)) mate.LockRotation = true;
             }
             return graph;
+        }
+
+        /// <summary>A bracketed vector as the diag lines write one.</summary>
+        private static double[] ParseVector(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+            var parts = text.Split(',');
+            var v = new double[parts.Length];
+            for (int i = 0; i < parts.Length; i++)
+                v[i] = double.Parse(parts[i].Trim(), CultureInfo.InvariantCulture);
+            return v;
         }
 
         /// <summary>"min,max,current" as the diag line prints a limit.</summary>

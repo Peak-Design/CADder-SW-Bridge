@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -16,9 +16,17 @@ namespace Peak.Cadder.Sw
     /// </summary>
     public static class MateReader
     {
-        public static MateGraph Read(List<WalkedComponent> walked, Action<string> log)
+        /// <summary>
+        /// <paramref name="document"/> is the assembly the mates belong to.
+        /// It is read for one thing only: a screw mate stated as turns per
+        /// unit length counts the document's OWN linear unit (ScrewLead).
+        /// Without it that mate reads as turns per metre.
+        /// </summary>
+        public static MateGraph Read(List<WalkedComponent> walked, Action<string> log,
+                                     IModelDoc2 document = null)
         {
             var graph = new MateGraph();
+            double unitMetres = LinearUnitMetres(document, log);
             var byPath = new Dictionary<string, WalkedComponent>(StringComparer.OrdinalIgnoreCase);
             foreach (var w in walked)
             {
@@ -55,7 +63,7 @@ namespace Peak.Cadder.Sw
                 }
                 if (mates == null) continue;
                 foreach (var o in mates)
-                    ReadOne(o, w, byPath, graph, seen, log);
+                    ReadOne(o, w, byPath, graph, seen, log, unitMetres);
             }
 
             foreach (var w in walked)
@@ -74,7 +82,7 @@ namespace Peak.Cadder.Sw
         private static void ReadOne(
             object o, WalkedComponent owner,
             Dictionary<string, WalkedComponent> byPath, MateGraph graph,
-            HashSet<string> seen, Action<string> log)
+            HashSet<string> seen, Action<string> log, double unitMetres)
         {
             var mate = o as IMate2;
             if (mate == null) return;
@@ -82,7 +90,7 @@ namespace Peak.Cadder.Sw
             if (feat == null) return;
 
             GraphMate gm;
-            try { gm = ReadMate(mate, feat, owner, byPath, log); }
+            try { gm = ReadMate(mate, feat, owner, byPath, log, unitMetres); }
             catch (Exception ex)
             {
                 if (log != null) log("mate read failed on " + owner.Graph.Path + ": " + ex.Message);
@@ -107,10 +115,13 @@ namespace Peak.Cadder.Sw
             MateGraph graph, HashSet<string> seen, Action<string> log)
         {
             object[] comps = null;
+            double unitMetres = 1.0;
             try
             {
                 var asm = sub.Comp.GetModelDoc2() as IAssemblyDoc;
                 if (asm != null) comps = asm.GetComponents(true) as object[];
+                // The sub document states its own mates in its own unit.
+                unitMetres = LinearUnitMetres(asm as IModelDoc2, log);
             }
             catch (Exception ex)
             {
@@ -132,7 +143,7 @@ namespace Peak.Cadder.Sw
                 }
                 if (mates == null) continue;
                 foreach (var m in mates)
-                    ReadOne(m, sub, byPath, graph, seen, log);
+                    ReadOne(m, sub, byPath, graph, seen, log, unitMetres);
             }
         }
 
@@ -140,7 +151,8 @@ namespace Peak.Cadder.Sw
 
         private static GraphMate ReadMate(
             IMate2 mate, IFeature feat, WalkedComponent owner,
-            Dictionary<string, WalkedComponent> byPath, Action<string> log)
+            Dictionary<string, WalkedComponent> byPath, Action<string> log,
+            double unitMetres)
         {
             var gm = new GraphMate();
             int type = mate.Type;
@@ -153,7 +165,7 @@ namespace Peak.Cadder.Sw
             ReadErrorState(feat, gm, log);
 
             ReadDimensionAndLimits(mate, feat, type, gm);
-            ReadCoupling(feat, type, gm, log);
+            ReadCoupling(feat, type, gm, log, unitMetres);
             ReadLockRotation(feat, type, gm, log);
             ReadSlotConstraint(feat, type, gm, log);
             ReadEntities(mate, feat, owner, byPath, gm, log);
@@ -687,7 +699,8 @@ namespace Peak.Cadder.Sw
         /// on single live samples and the log is what settles the next
         /// disagreement.
         /// </summary>
-        private static void ReadCoupling(IFeature feat, int type, GraphMate gm, Action<string> log)
+        private static void ReadCoupling(IFeature feat, int type, GraphMate gm,
+                                         Action<string> log, double unitMetres)
         {
             if (type == (int)swMateType_e.swMateGEAR)
             {
@@ -722,33 +735,21 @@ namespace Peak.Cadder.Sw
             {
                 var data = SafeDefinition(feat) as IScrewMateFeatureData;
                 if (data == null) return;
-                // RevolutionVal is distance-per-revolution or its reciprocal,
-                // by RevolutionType (API help, IScrewMateFeatureData~
-                // RevolutionType.html). The doc mentions the user's linear
-                // unit for the reciprocal form; the API convention everywhere
-                // else is metres, and that is what this code assumes: a live
-                // check is the only way to settle it.
+                // RevolutionVal is distance-per-revolution or turns per unit
+                // length, by RevolutionType. The two do not share a unit:
+                // see ScrewLead, which holds the rule and the evidence.
                 double v = data.RevolutionVal;
-                double lead;
-                if (data.RevolutionType == (int)swScrewMateDistanceOptions_e.swDistancePerRevolution)
-                    lead = v;
-                else if (Math.Abs(v) > 1e-12)
-                    lead = 1.0 / v;
-                else
-                    return;
-                // Sign convention pinned on live corpus 09 (2026-08-22): the
-                // default screw mate behaved as a RIGHT-hand thread in
-                // SolidWorks while Reverse read true, so Reverse=true means
-                // +lead (advance along the rotation's right-hand direction).
-                // A lead's handedness is chirality: independent of which way
-                // the joint axis points, so no axis-sense term belongs here.
-                // Single live sample; the log line is the tie-breaker if a
-                // future left-hand or re-reversed screw disagrees.
-                gm.LeadMPerRev = data.Reverse ? lead : -lead;
+                bool perRevolution = data.RevolutionType
+                    == (int)swScrewMateDistanceOptions_e.swDistancePerRevolution;
+                var lead = ScrewLead.Metres(v, perRevolution, data.Reverse, unitMetres);
+                if (!lead.HasValue) return;
+                gm.LeadMPerRev = lead.Value;
                 if (log != null)
                     log("screw mate " + gm.FeatureName + ": revolutionVal=" + v
                         + " type=" + data.RevolutionType + " reverse=" + data.Reverse
-                        + " -> lead=" + gm.LeadMPerRev);
+                        + " unit=" + unitMetres.ToString("R", CultureInfo.InvariantCulture)
+                        + " -> lead=" + gm.LeadMPerRev.Value.ToString(
+                            "R", CultureInfo.InvariantCulture));
             }
             else if (type == (int)swMateType_e.swMateLINEARCOUPLER)
             {
@@ -761,6 +762,62 @@ namespace Peak.Cadder.Sw
                     log("linear coupler mate " + gm.FeatureName + ": num=" + data.CouplerRatioNumerator
                         + " den=" + data.CouplerRatioDenominator + " reverse=" + data.Reverse);
             }
+        }
+
+        /// <summary>A vector as the diagnostic lines write one: round-trip
+        /// precision, because a replay rebuilds the mate from it.</summary>
+        private static string Vec(double[] v)
+        {
+            if (v == null) return "null";
+            var sb = new StringBuilder("[");
+            for (int i = 0; i < v.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(v[i].ToString("R", CultureInfo.InvariantCulture));
+            }
+            return sb.Append(']').ToString();
+        }
+
+        /// <summary>
+        /// One of the document's linear units, in metres. Mates state
+        /// lengths in metres, with one exception: a screw mate's turns per
+        /// unit length counts THIS unit (see ScrewLead).
+        ///
+        /// A document that cannot be read falls back to the metre, which
+        /// leaves such a mate exactly as it read before this was added.
+        /// </summary>
+        private static double LinearUnitMetres(IModelDoc2 document, Action<string> log)
+        {
+            if (document == null) return 1.0;
+            int unit;
+            try
+            {
+                unit = document.Extension.GetUserPreferenceInteger(
+                    (int)swUserPreferenceIntegerValue_e.swUnitsLinear,
+                    (int)swUserPreferenceOption_e.swDetailingNoOptionSpecified);
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log("linear unit unreadable, taking metres: " + ex.Message);
+                return 1.0;
+            }
+            switch (unit)
+            {
+                case (int)swLengthUnit_e.swMM: return 1e-3;
+                case (int)swLengthUnit_e.swCM: return 1e-2;
+                case (int)swLengthUnit_e.swMETER: return 1.0;
+                case (int)swLengthUnit_e.swINCHES: return 0.0254;
+                case (int)swLengthUnit_e.swFEET: return 0.3048;
+                // Feet and inches is one display of an INCH entry.
+                case (int)swLengthUnit_e.swFEETINCHES: return 0.0254;
+                case (int)swLengthUnit_e.swANGSTROM: return 1e-10;
+                case (int)swLengthUnit_e.swNANOMETER: return 1e-9;
+                case (int)swLengthUnit_e.swMICRON: return 1e-6;
+                case (int)swLengthUnit_e.swMIL: return 2.54e-5;
+                case (int)swLengthUnit_e.swUIN: return 2.54e-8;
+            }
+            if (log != null) log("unknown linear unit " + unit + ", taking metres");
+            return 1.0;
         }
 
         /// <summary>
@@ -1037,8 +1094,15 @@ namespace Peak.Cadder.Sw
                                     ge.Point = SwFrames.LiftPoint(
                                         lift, new[] { lp[0], lp[1], lp[2] });
                                 if (log != null)
+                                    // With the direction: the mate line above
+                                    // prints the params as they arrived, and
+                                    // for an entity of this kind those slots
+                                    // are filler. Without this a replay of the
+                                    // log cannot rebuild the entity.
                                     log("recovered edge direction on " + gm.FeatureName
-                                        + " @" + (ge.ComponentId ?? "asm"));
+                                        + " @" + (ge.ComponentId ?? "asm")
+                                        + " dir=" + Vec(ge.Direction)
+                                        + " at=" + Vec(ge.Point));
                             }
                         }
                         continue;

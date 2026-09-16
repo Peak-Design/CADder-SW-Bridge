@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -85,7 +85,7 @@ namespace Peak.Cadder.Tests
             Assert.Equal(new[] { "sw_feature", "type" }, joint["source_mates"].Items[0].Keys);
 
             Assert.Equal(
-                new[] { "id", "member_joints", "closure_joint", "closure_kind", "suggested_driver_joint", "planar", "plane_normal", "driver_candidates" },
+                new[] { "id", "member_joints", "closure_joint", "closure_kind", "suggested_driver_joint", "mobility", "planar", "plane_normal", "driver_candidates" },
                 parsed["loops"].Items[0].Keys);
             var mechanism = parsed["mechanisms"].Items[0];
             Assert.Equal(new[] { "id", "loops", "inputs" }, mechanism.Keys);

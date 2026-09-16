@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using Peak.Cadder.Core;
@@ -89,6 +89,102 @@ namespace Peak.Cadder.Tests
             // narrowed by the ring, only the tree joints are.
             Assert.Contains(cut.Type, new[] { JointType.Revolute, JointType.Cylindrical });
             Assert.Contains("g001", new[] { cut.ParentGroup, cut.ChildGroup });
+        }
+
+        /// <summary>
+        /// The same sample, re-exported on 2026-09-16 with the wheel hub
+        /// and the wheel assembly in one group. The ring then narrows the
+        /// pin between the oleo piston and that group to FIXED: the wheel
+        /// rides the piston and nothing turns it.
+        ///
+        /// Oscar: "the wheel_hub part rotates as I move the slider up and
+        /// down, it should not, it should only slide. Switching Mechanism
+        /// to upprsway_link - hinge and rotating the hinge produces the
+        /// correct motion without the hub rotating."
+        ///
+        /// The cut had landed on that weld. A closure re-joins one point
+        /// and the solver only rotates, so the hub arrived in the right
+        /// place at the wrong angle, and only the input whose cut fell
+        /// elsewhere posed correctly. A weld belongs in the tree.
+        /// </summary>
+        [Fact]
+        public void TheLandingGearNeverClosesItsLoopOnAWeld()
+        {
+            var graph = Fixture("landing_gear_welded_hub", new LogReplay.Options());
+            foreach (var c in graph.Components)
+                if (c.Path == "oleostrut-1") c.IsFixed = true;
+            var outcome = LogReplay.Run(graph);
+            _out.WriteLine(LogReplay.Report(graph, outcome));
+
+            var loop = Assert.Single(outcome.Loops.Loops);
+            var welds = new List<string>();
+            foreach (string id in loop.MemberJoints)
+            {
+                var j = FindJoint(outcome, id);
+                if (j != null && j.Type == JointType.Fixed) welds.Add(id);
+            }
+            // The weld is the point of the fixture: without it the ring
+            // never had the fault and the test proves nothing.
+            Assert.NotEmpty(welds);
+
+            Assert.DoesNotContain(loop.ClosureJoint, welds);
+            foreach (var candidate in loop.DriverCandidates)
+                Assert.DoesNotContain(candidate.ClosureJoint, welds);
+            foreach (var mechanism in outcome.Loops.Mechanisms)
+                foreach (var input in mechanism.Inputs)
+                    foreach (var l in input.Loops)
+                        Assert.DoesNotContain(l.ClosureJoint, welds);
+
+            // And the slide is still the offered input: the cut moved, the
+            // choice of driver did not.
+            var driver = FindJoint(outcome, loop.SuggestedDriverJoint);
+            Assert.Equal(JointType.Prismatic, driver.Type);
+        }
+
+        /// <summary>
+        /// The SolidWorks 2022 sample wrench.sldasm, from the live export
+        /// of 2026-09-16. The screw threads into the main grip and pushes
+        /// the centerlink; the centerlink pins to arm2, arm2 to clamp2, and
+        /// clamp2 back to the grip. Four pins and a screw around one ring
+        /// is a FIVE-BAR: five freedoms, three spent closing the ring, so
+        /// it takes two inputs.
+        ///
+        /// Oscar: "the arm2 assembly can rotate around a pin on clamp2, but
+        /// the only control bone I am getting in Blender is the screw which
+        /// IS correct, but there should be an additional revolute joint".
+        /// The ring read as one input, the whole driven side was solved
+        /// from the screw, and the second freedom had nowhere to go.
+        ///
+        /// Replayed from the manifest, not the log: one of the wrench's
+        /// mates is a point on an edge the reader rebuilds from the
+        /// selection, and the log of that export recorded that it had done
+        /// so without recording the edge. The reader now writes the
+        /// direction too, so a later export of this assembly replays whole.
+        /// </summary>
+        [Fact]
+        public void TheWrenchIsAFiveBarAndTakesTwoInputs()
+        {
+            var inputs = ManifestReplay.Load(
+                File.ReadAllText(LogReplay.FixturePath("wrench", "manifest.rig.json")));
+            var loops = LoopAnalyzer.Analyze(inputs.Groups, inputs.Joints);
+            foreach (var note in loops.Notes) _out.WriteLine("NOTE " + note);
+            foreach (var j in loops.Joints)
+                _out.WriteLine(j.Id + " " + j.Type + " " + j.ParentGroup + " -> " + j.ChildGroup);
+
+            var loop = Assert.Single(loops.Loops);
+            _out.WriteLine(loop.Id + " members " + string.Join(",", loop.MemberJoints.ToArray())
+                           + " cut " + loop.ClosureJoint + " driver " + loop.SuggestedDriverJoint
+                           + " mobility " + loop.Mobility);
+            Assert.True(loop.Planar);
+            Assert.Equal(5, loop.MemberJoints.Count);
+            Assert.Equal(2, loop.Mobility);
+
+            // The screw is the input, and the ring leaves it alone: a five-bar
+            // spends three of its five freedoms, and narrowing a member here
+            // would spend a fourth.
+            var driver = FindJoint(loops.Joints, loop.SuggestedDriverJoint);
+            Assert.Equal(JointType.Screw, driver.Type);
+            AssertLoopsMatchTheTree(loops.Loops, loops.Joints);
         }
 
         /// <summary>
