@@ -1466,6 +1466,9 @@ namespace Peak.Cadder.Core
                 }
                 else if (rack)
                 {
+                    // The slide the rack-pinion mate itself states, where
+                    // nothing else stated it. See RackSlide.
+                    RackSlide(result, mate, driver, driven);
                     coupling.Kind = "rack_pinion";
                     coupling.MetersPerRadian = SignedRackRatio(mate, driver, driven, grouping);
                 }
@@ -1755,6 +1758,63 @@ namespace Peak.Cadder.Core
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// Gives the rack the slide the rack-pinion mate states, when the
+        /// rack's own mates did not state one.
+        ///
+        /// A rack is usually held by nothing but the pinion it runs on: in
+        /// the SolidWorks sample (live "rack and pinion", 2026-09-16) its
+        /// mates are one plane coincident and one distance to the PINION,
+        /// plus a parallel to an assembly plane. Against ground that leaves
+        /// four freedoms and against the pinion two, so neither pair is a
+        /// pattern the resolver knows, and both came out free: a rack that
+        /// could be dragged anywhere, with a coupling hanging off it doing
+        /// nothing (Oscar: "they do not interact").
+        ///
+        /// Nothing pairwise can see the slide, because the evidence is
+        /// split across two pairs. The MATE can: a rack-pinion mate says
+        /// the rack translates along its own entity's direction and nothing
+        /// else. So where the rack's joint is free, this makes it the
+        /// prismatic the mate describes, along that direction.
+        ///
+        /// Only ever an upgrade FROM free: a rack whose own mates define a
+        /// slide keeps the joint they defined, geometry and all.
+        /// </summary>
+        private static void RackSlide(
+            ClassificationResult result, GraphMate mate, RigJoint driver, RigJoint driven)
+        {
+            if (driven == null || driven.Type != JointType.Free) return;
+
+            GraphMateEntity rackSide = null;
+            foreach (var e in mate.Entities)
+            {
+                if (e.EntityTypeName == "cylinder") continue;
+                if (e.Direction == null || e.Point == null) continue;
+                rackSide = e;
+                break;
+            }
+            if (rackSide == null) return;
+            var axis = MathOps.Normalized(rackSide.Direction);
+            if (axis == null || MathOps.Norm(axis) < 0.5) return;
+
+            driven.Type = JointType.Prismatic;
+            driven.Axis = axis;
+            driven.Origin = new[] { rackSide.Point[0], rackSide.Point[1], rackSide.Point[2] };
+            driven.SecondaryAxis = SecondaryAxis(axis);
+            driven.SourceMates.Add(new SourceMate
+            {
+                SwFeature = mate.FeatureName,
+                Type = mate.TypeName,
+            });
+            driven.Notes = AppendNote(driven.Notes,
+                "the slide comes from the rack-pinion mate: the rack's own "
+                + "mates leave more than one freedom, and the mate says the "
+                + "rack travels along its own edge.");
+            // The under-defined warning was about the joint as it was.
+            result.Warnings.RemoveAll(w =>
+                w.Code == "UNDER_DEFINED" && w.Joints.Contains(driven.Id));
         }
 
         private static void WarnCoupling(ClassificationResult result, RigJoint edgeJoint, GraphMate mate)

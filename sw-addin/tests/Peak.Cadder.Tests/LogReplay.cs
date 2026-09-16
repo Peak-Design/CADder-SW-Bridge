@@ -55,6 +55,12 @@ namespace Peak.Cadder.Tests
         private static readonly Regex EntityText = new Regex(
             @"^(\w+)\((\d+)/(\d+)\)@([^\s\[]+)(\[![^\]]*\])? raw=(\[[^\]]*\]|null)$",
             RegexOptions.Compiled);
+        /// <summary>The reader's own line for a rack-pinion mate. The mate
+        /// line carries the entities and not the numbers, so the coupling
+        /// would replay without its ratio.</summary>
+        private static readonly Regex RackLine = new Regex(
+            @"^rack mate (\S+): diameterVal=([-+0-9.eE]+) type=(\d+) reverse=(True|False)$",
+            RegexOptions.Compiled);
         private static readonly Regex RetypeLine = new Regex(
             @"^retyped (\w+)?->(\w+)(?: \(half-angle ([-+0-9.eE]+)\))? on (\S+) @(\S+)$",
             RegexOptions.Compiled);
@@ -103,6 +109,7 @@ namespace Peak.Cadder.Tests
             // ── Mates, from the log ────────────────────────────────────────
             var byName = new Dictionary<string, GraphMate>();
             var retypes = new List<Match>();
+            var racks = new List<Match>();
             var locks = new HashSet<string>();
             foreach (var raw in logLines)
             {
@@ -135,7 +142,22 @@ namespace Peak.Cadder.Tests
                 var rm = RetypeLine.Match(line);
                 if (rm.Success) { retypes.Add(rm); continue; }
                 var lm = LockLine.Match(line);
-                if (lm.Success) locks.Add(lm.Groups[1].Value);
+                if (lm.Success) { locks.Add(lm.Groups[1].Value); continue; }
+                var km = RackLine.Match(line);
+                if (km.Success) racks.Add(km);
+            }
+
+            foreach (var km in racks)
+            {
+                GraphMate mate;
+                if (!byName.TryGetValue(km.Groups[1].Value, out mate)) continue;
+                double value = double.Parse(km.Groups[2].Value, CultureInfo.InvariantCulture);
+                // 1 is travel per revolution, anything else a pitch diameter
+                // (MateReader).
+                double perRadian = km.Groups[3].Value == "1"
+                    ? value / (2.0 * Math.PI) : value / 2.0;
+                mate.MetersPerRadian =
+                    km.Groups[4].Value == "True" ? -perRadian : perRadian;
             }
 
             foreach (var rm in retypes)
@@ -201,7 +223,10 @@ namespace Peak.Cadder.Tests
                             // a datum axis: point-typed, direction slots real
                             || (kind == 1 && e.EntityTypeName == "axis");
             bool aboutDirections = mateType.IndexOf("PARALLEL", StringComparison.OrdinalIgnoreCase) >= 0
-                                || mateType.IndexOf("PERPENDICULAR", StringComparison.OrdinalIgnoreCase) >= 0;
+                                || mateType.IndexOf("PERPENDICULAR", StringComparison.OrdinalIgnoreCase) >= 0
+                                // The rack side of a rack-pinion mate carries
+                                // the edge the rack runs along. MateReader.
+                                || mateType.IndexOf("RACKPINION", StringComparison.OrdinalIgnoreCase) >= 0;
             if ((directional || aboutDirections) && p.Length >= 6)
             {
                 var dir = new[] { p[3], p[4], p[5] };

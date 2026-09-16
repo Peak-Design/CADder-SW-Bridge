@@ -917,6 +917,15 @@ namespace Peak.Cadder.Sw
                     if (gm.TypeValue == (int)swMateType_e.swMatePARALLEL
                         || gm.TypeValue == (int)swMateType_e.swMatePERPENDICULAR)
                         directional = true;
+                    // A rack-pinion mate is about a direction too: the rack
+                    // side is the edge the rack travels along, and
+                    // SolidWorks records that edge's direction even where it
+                    // types the entity as a point (live "rack and pinion",
+                    // the 2022 MechanicalMates sample, 2026-09-16:
+                    // point(1/1) carrying a clean (0,-1,0)). Without it the
+                    // rack has a coupling and no slide to apply it to.
+                    if (gm.TypeValue == (int)swMateType_e.swMateRACKPINION)
+                        directional = true;
                     if (directional && p.Length >= 6)
                     {
                         var dir = new[] { p[3], p[4], p[5] };

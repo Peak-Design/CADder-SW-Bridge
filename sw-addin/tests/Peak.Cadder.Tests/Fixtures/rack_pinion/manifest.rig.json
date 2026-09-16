@@ -1,0 +1,214 @@
+{
+  "manifest_version": "1.0.0",
+  "generator": {
+    "name": "Peak.Cadder",
+    "version": "v0.1.0",
+    "solidworks_version": "30.5.0",
+    "exported_utc": "2026-09-16T16:54:30Z"
+  },
+  "units": {
+    "length": "meter",
+    "angle": "radian"
+  },
+  "frame": {
+    "handedness": "right",
+    "up_axis": "Z",
+    "transform_convention": "row_major_4x4_global"
+  },
+  "step_export": {
+    "file": "rack and pinion.step",
+    "ap": "AP214",
+    "sha1": null,
+    "occurrence_matching": "peak-nauo-tree/1"
+  },
+  "components": [
+    {
+      "id": "c001",
+      "sw_path": "rack-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8WcgBhAGMAawAtADEAQAByAGEAYwBrACAAYQBuAGQAIABwAGkAbgBpAG8AbgAEAAAAEAAAAAEAAAABAAAAEgAAAA==",
+      "step_name": "rack",
+      "step_occurrence_path": null,
+      "transform": [
+        [1.0000000000000002, -1.4632422257544686E-16, 3.7470027081099033E-16, -0.021269907527987256],
+        [3.7470027081099033E-16, -5.1009866675945614E-18, -1.0000000000000002, -0.10291316220141757],
+        [1.4632422257544679E-16, 1, -5.1009866675938388E-18, -0.028638500000000004],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.046669907527987393, -0.092913162201417543, -0.028638500000000011],
+        "max": [-0.021269907527987263, 0.087586837798582479, -0.0062865000000000022]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    },
+    {
+      "id": "c002",
+      "sw_path": "spurgear-1",
+      "sw_persistent_id": "mDoAAAUAAAD//v8acwBwAHUAcgBnAGUAYQByAC0AMQBAAHIAYQBjAGsAIABhAG4AZAAgAHAAaQBuAGkAbwBuAAQAAAAQAAAAAQAAAAEAAAAOAAAA",
+      "step_name": "spurgear",
+      "step_occurrence_path": null,
+      "transform": [
+        [0.81359441906069752, -0.58143281750627573, 2.4258459049262357E-16, 1.7547314474898741E-17],
+        [0.58143281750627573, 0.81359441906069752, 8.61552747934672E-17, -2.0051767271845414E-17],
+        [-2.4745897314111635E-16, 7.0951191189126618E-17, 1, -0.017462499999999995],
+        [0, 0, 0, 1]
+      ],
+      "bbox_local": {
+        "min": [-0.031986414550666739, -0.031986414550666774, -0.034925],
+        "max": [0.031986414550666267, 0.031986414550666677, 1.0408340855860843E-17]
+      },
+      "suppressed": false,
+      "subassembly_solving": null
+    }
+  ],
+  "rigid_groups": [
+    {
+      "id": "g000",
+      "name": "assembly",
+      "components": [],
+      "grounded": true,
+      "frame": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": null
+    },
+    {
+      "id": "g001",
+      "name": "rack",
+      "components": [
+        "c001"
+      ],
+      "grounded": false,
+      "frame": [
+        [1.0000000000000002, -1.4632422257544686E-16, 3.7470027081099033E-16, -0.021269907527987256],
+        [3.7470027081099033E-16, -5.1009866675945614E-18, -1.0000000000000002, -0.10291316220141757],
+        [1.4632422257544679E-16, 1, -5.1009866675938388E-18, -0.028638500000000004],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.18364373635928891
+    },
+    {
+      "id": "g002",
+      "name": "spurgear",
+      "components": [
+        "c002"
+      ],
+      "grounded": false,
+      "frame": [
+        [0.81359441906069752, -0.58143281750627573, 2.4258459049262357E-16, 1.7547314474898741E-17],
+        [0.58143281750627573, 0.81359441906069752, 8.61552747934672E-17, -2.0051767271845414E-17],
+        [-2.4745897314111635E-16, 7.0951191189126618E-17, 1, -0.017462499999999995],
+        [0, 0, 0, 1]
+      ],
+      "bbox_diag": 0.096978355066771355
+    }
+  ],
+  "joints": [
+    {
+      "id": "j001",
+      "type": "free",
+      "parent_group": "g000",
+      "child_group": "g001",
+      "origin": null,
+      "axis": null,
+      "secondary_axis": null,
+      "limits": null,
+      "coupling": {
+        "kind": "rack_pinion",
+        "driver_joint": "j002",
+        "ratio": null,
+        "meters_per_radian": -0.012700000000000029,
+        "lead_m_per_rev": null
+      },
+      "source_mates": [
+        {
+          "sw_feature": "Parallel1",
+          "type": "swMatePARALLEL"
+        },
+        {
+          "sw_feature": "RackPinionMate1",
+          "type": "swMateRACKPINION"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j002",
+      "type": "revolute",
+      "parent_group": "g000",
+      "child_group": "g002",
+      "origin": [0, 0, 0],
+      "axis": [0, 0, 1],
+      "secondary_axis": [1, 0, 0],
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident1",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident2",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Coincident3",
+          "type": "swMateCOINCIDENT"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    },
+    {
+      "id": "j003",
+      "type": "free",
+      "parent_group": "g001",
+      "child_group": "g002",
+      "origin": null,
+      "axis": null,
+      "secondary_axis": null,
+      "limits": null,
+      "coupling": null,
+      "source_mates": [
+        {
+          "sw_feature": "Coincident7",
+          "type": "swMateCOINCIDENT"
+        },
+        {
+          "sw_feature": "Distance1",
+          "type": "swMateDISTANCE"
+        },
+        {
+          "sw_feature": "RackPinionMate1",
+          "type": "swMateRACKPINION"
+        }
+      ],
+      "confidence": "high",
+      "notes": null
+    }
+  ],
+  "loops": [],
+  "mechanisms": [],
+  "warnings": [
+    {
+      "code": "UNDER_DEFINED",
+      "components": [],
+      "joints": [
+        "j001"
+      ],
+      "message": "Mates between g000 and g001 leave 3 or more DOF with no recognised pattern; joint exported as free."
+    },
+    {
+      "code": "UNDER_DEFINED",
+      "components": [],
+      "joints": [
+        "j003"
+      ],
+      "message": "Mates between g001 and g002 leave 3 or more DOF with no recognised pattern; joint exported as free."
+    }
+  ]
+}
