@@ -180,6 +180,12 @@ def main(argv):
             req["out"] = os.path.abspath(a.out)
     elif a.op == "log":
         req["lines"] = a.lines
+    elif a.op == "refresh":
+        pass
+    elif a.op == "move":
+        req["component"] = a.args[0]
+        for key, value in zip(("x", "y", "z", "angle"), a.args[1:]):
+            req[key] = float(value)
     elif a.op == "progress_demo":
         if a.args:
             req["steps"] = float(a.args[0])

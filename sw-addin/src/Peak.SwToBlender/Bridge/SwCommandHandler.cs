@@ -46,6 +46,8 @@ namespace Peak.SwToBlender.Bridge
                 case "apply_appearance": return Lab(request, () => ApplyAppearance(app, request));
                 case "select": return Lab(request, () => Select(app, request));
                 case "progress_demo": return Lab(request, () => ProgressDemo(app, request));
+                case "refresh": return Lab(request, () => RefreshPoses(app, request));
+                case "move": return Lab(request, () => Move(app, request));
                 case "appearances":
                     return AppearanceProbe.Run(ModelFor(app, request),
                         (int)MiniJson.Num(request, "max_faces", 60),
@@ -794,6 +796,99 @@ namespace Peak.SwToBlender.Bridge
                 { "components", poses },
                 { "missing", selection.Missing },
             };
+        }
+
+        /// <summary>Drags one component, as a user would with the mouse,
+        /// so a harness session can check what a moved assembly does. The
+        /// move stays: nothing here saves the document, and the next
+        /// rebuild or close puts the assembly back the way the mates want
+        /// it.</summary>
+        private static Dictionary<string, object> Move(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            var assembly = model as IAssemblyDoc;
+            if (assembly == null) return Fail("the document is not an assembly");
+            string name = MiniJson.Str(request, "component", null);
+            if (string.IsNullOrEmpty(name)) return Fail("no component named");
+            var comp = FindComponent(assembly, name);
+            if (comp == null) return Fail("no component named " + name);
+
+            var axis = new double[]
+            {
+                MiniJson.Num(request, "x", 0.0),
+                MiniJson.Num(request, "y", 0.0),
+                MiniJson.Num(request, "z", 0.0),
+            };
+            double angle = MiniJson.Num(request, "angle", 0.0);
+            double length = Math.Sqrt(axis[0] * axis[0] + axis[1] * axis[1]
+                                    + axis[2] * axis[2]);
+            if (length < 1e-12) return Fail("the move has no direction");
+
+            var mover = new Sw.ComponentMover(app, model);
+            if (!mover.Ready) return Fail("the mover could not start");
+            bool ok;
+            if (Math.Abs(angle) > 1e-12)
+            {
+                var origin = new double[]
+                {
+                    MiniJson.Num(request, "ox", 0.0),
+                    MiniJson.Num(request, "oy", 0.0),
+                    MiniJson.Num(request, "oz", 0.0),
+                };
+                for (int i = 0; i < 3; i++) axis[i] /= length;
+                ok = mover.DragBy(comp,
+                    Sw.ComponentMover.RotationAboutAxis(axis, origin, angle));
+            }
+            else
+            {
+                var unit = new double[] { axis[0] / length, axis[1] / length, axis[2] / length };
+                ok = mover.DragBy(comp,
+                    Sw.ComponentMover.TranslationAlong(unit, length));
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", ok },
+                { "component", name },
+                { "moved", ok },
+            };
+        }
+
+        /// <summary>Pushes the poses of the open assembly to a running
+        /// Blender, as the ribbon's Refresh Poses does. The harness has no
+        /// one to ask, so it takes the only Blender it finds.</summary>
+        private static Dictionary<string, object> RefreshPoses(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            var assembly = model as IAssemblyDoc;
+            if (assembly == null) return Fail("the document is not an assembly");
+            var instances = BlenderBridge.Discover(AddIn.Log);
+            if (instances.Count == 0) return Fail("no running Blender with the bridge");
+            if (instances.Count > 1)
+                return Fail(instances.Count + " Blender instances are running: "
+                            + "the harness cannot choose");
+            long mark = LogMark();
+            var payload = RefreshPosesCommand.Payload(model, assembly);
+            var reply = BlenderBridge.PostImport(
+                instances[0], payload, 5 * 60 * 1000, AddIn.Log);
+            return new Dictionary<string, object>
+            {
+                { "ok", MiniJson.Flag(reply, "ok") },
+                { "blender", reply },
+                { "summary", RefreshPosesCommand.Summary(reply, Sent(payload)) },
+                { "log", LogSince(mark) },
+            };
+        }
+
+        /// <summary>How many component poses a refresh payload carries.</summary>
+        private static int Sent(Dictionary<string, object> payload)
+        {
+            var poses = MiniJson.Obj(payload, "poses");
+            if (poses == null) return 0;
+            var list = poses.ContainsKey("components")
+                ? poses["components"] as List<object> : null;
+            return list == null ? 0 : list.Count;
         }
 
         /// <summary>Runs the export's progress bar through its stages,

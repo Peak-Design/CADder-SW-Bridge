@@ -25,13 +25,15 @@ administrator rights, because the add-in keys live under HKLM.
 
 ## Use
 
-Open an assembly. The **SW To Blender** tab on the ribbon has two buttons,
-and two more when "Show the advanced commands" is ticked in Export Options:
+Open an assembly. The **SW To Blender** tab on the ribbon has three
+buttons, and two more when "Show the advanced commands" is ticked in
+Export Options:
 
 | Button | What it does |
 |---|---|
 | Send to Blender | Tessellates the parts in SolidWorks and sends them with the rig manifest to the running Blender: geometry, appearances, rig, parenting. Starts Blender when none is running. Blender can ask for a finer mesh later. |
 | Export Options | Import quality, hierarchy, up axis, what Blender does after the import, and which Blender to start. |
+| Refresh Poses | Moves the parts in Blender to where they are now in SolidWorks. It reads no mates and writes no files, so it answers in about a second on an assembly a send takes minutes over. Send the assembly first, and send it again when parts are added or removed. |
 | Export STEP+ (advanced) | Writes a STEP file with the appearance and engineering-material repairs, no rig. |
 | Export Rig (advanced) | Writes only the rig manifest to disk. |
 

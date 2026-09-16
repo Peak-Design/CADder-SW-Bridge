@@ -27,6 +27,7 @@ MASTER_PX = 128
 COMMANDS = (
     "send_direct",       # Send to Blender
     "options",           # Export Options
+    "refresh",           # Refresh Poses
     "step+",             # Export STEP+ (advanced)
     "export_rig",        # Export Rig (advanced)
 )

@@ -63,6 +63,7 @@ namespace Peak.SwToBlender
         private const int CmdOptionsUserId = 3;
         private const int CmdExportJsonUserId = 4;
         private const int CmdSendNativeUserId = 5;
+        private const int CmdRefreshPosesUserId = 6;
 
         // The interop types are EMBEDDED (see SolidWorksApi.props), so this
         // add-in has no SolidWorks assembly reference to satisfy: it loads on
@@ -208,7 +209,8 @@ namespace Peak.SwToBlender
             // menu items under Tools.
             bool advanced = AppSettings.Load(Log).AdvancedCommands;
             var knownIds = new[] { CmdSendNativeUserId, CmdOptionsUserId,
-                                   CmdStepPlusUserId, CmdExportJsonUserId };
+                                   CmdRefreshPosesUserId, CmdStepPlusUserId,
+                                   CmdExportJsonUserId };
             bool ignorePrevious = hadPrevious && !SameIds(registryIds as int[], knownIds);
 
             var group = _cmdMgr.CreateCommandGroup2(
@@ -242,9 +244,19 @@ namespace Peak.SwToBlender
                 CmdOptionsUserId, both);
 
             group.AddCommandItem2(
+                "Refresh Poses", -1,
+                "Move the parts in Blender to where they are now in SolidWorks. "
+                + "No re-export: send the assembly again if parts were added "
+                + "or removed",
+                "Refresh Poses", 2,
+                nameof(CommandCallbacks.RefreshPoses),
+                nameof(CommandCallbacks.EnableExportRig),
+                CmdRefreshPosesUserId, both);
+
+            group.AddCommandItem2(
                 "Export STEP+", -1,
                 "Export STEP and keep the full appearance hierarchy (the NEXT-STEP engine)",
-                "Export STEP+", 2,
+                "Export STEP+", 3,
                 nameof(CommandCallbacks.ExportStepPlus),
                 nameof(CommandCallbacks.EnableAnyDoc),
                 CmdStepPlusUserId, rest);
@@ -254,7 +266,7 @@ namespace Peak.SwToBlender
                 "Export the rig manifest to disk, no STEP write and no Blender. "
                 + "Occurrences are matched against the STEP file beside the "
                 + "manifest when there is one",
-                "Export Rig", 3,
+                "Export Rig", 4,
                 nameof(CommandCallbacks.ExportRigJson),
                 nameof(CommandCallbacks.EnableExportRig),
                 CmdExportJsonUserId, rest);
@@ -288,16 +300,18 @@ namespace Peak.SwToBlender
 
                 // get_CommandID takes the command's INDEX in the group, in
                 // the order AddCommandItem2 was called: 0 Send to Blender,
-                // 1 Export Options, 2 Export STEP+, 3 Export Rig. Passing
-                // the user ids here put the wrong buttons on the ribbon
-                // (Oscar, 2026-09-15). Export Rig needs mates: assemblies.
+                // 1 Export Options, 2 Refresh Poses, 3 Export STEP+,
+                // 4 Export Rig. Passing the user ids here put the wrong
+                // buttons on the ribbon (Oscar, 2026-09-15). Refresh Poses
+                // and Export Rig need mates: assemblies.
                 int[] indexes;
+                bool isAssembly = docType == swDocumentTypes_e.swDocASSEMBLY;
                 if (!advanced)
-                    indexes = new[] { 0, 1 };
-                else if (docType == swDocumentTypes_e.swDocASSEMBLY)
-                    indexes = new[] { 0, 1, 2, 3 };
+                    indexes = isAssembly ? new[] { 0, 1, 2 } : new[] { 0, 1 };
+                else if (isAssembly)
+                    indexes = new[] { 0, 1, 2, 3, 4 };
                 else
-                    indexes = new[] { 0, 1, 2 };
+                    indexes = new[] { 0, 1, 3 };
                 var commandIds = indexes.Select(i => group.get_CommandID(i)).ToArray();
                 var styles = indexes.Select(
                     _ => (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow).ToArray();
@@ -413,6 +427,7 @@ namespace Peak.SwToBlender
         public void SendToBlender() => SendToBlenderCommand.Run(AddIn.SwApp);
         public void SendToBlenderNative() => SendToBlenderCommand.Run(AddIn.SwApp, native: true);
         public void BlenderOptions() => BlenderOptionsDialog.Run(AddIn.SwApp);
+        public void RefreshPoses() => RefreshPosesCommand.Run(AddIn.SwApp);
 
         /// <summary>1 enables the button. 0 makes it grey.</summary>
         public int EnableExportRig()

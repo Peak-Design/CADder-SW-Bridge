@@ -7,18 +7,18 @@ namespace Peak.SwToBlender.Tests
     /// <summary>
     /// SolidWorks reads the ribbon artwork by absolute path and says nothing
     /// when a file is missing or the wrong shape: the button just shows the
-    /// stock icon. AddIn.ApplyIcons expects one strip per size with the
-    /// four command icons side by side, in registration order, and one
+    /// stock icon. AddIn.ApplyIcons expects one strip per size with one
+    /// icon per command side by side, in registration order, and one
     /// square group icon per size. These tests pin that shape against the
     /// files tools/Make-Icons.py writes from the masters in icons/.
     /// </summary>
     public class IconStripTests
     {
         private static readonly int[] Sizes = { 20, 32, 40, 64, 96, 128 };
-        private const int Commands = 4;
+        private const int Commands = 5;
 
         [Fact]
-        public void EveryStripHoldsFourIconsOfItsSize()
+        public void EveryStripHoldsOneIconPerCommandAtItsSize()
         {
             string dir = IconsDir();
             foreach (int size in Sizes)
@@ -46,7 +46,8 @@ namespace Peak.SwToBlender.Tests
         {
             string masters = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(IconsDir())),
                                           "..", "..", "icons");
-            foreach (string name in new[] { "send_direct", "options", "step+", "export_rig", "logo" })
+            foreach (string name in new[] { "send_direct", "options", "refresh",
+                                            "step+", "export_rig", "logo" })
             {
                 var size = PngSize(Path.Combine(masters, name + ".png"));
                 Assert.Equal(128, size.Item1);
