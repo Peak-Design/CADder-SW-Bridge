@@ -42,6 +42,15 @@ namespace Peak.Cadder.Core
         /// do it, so a send and a rebuild in Blender give the same mesh.
         /// </summary>
         public bool TrisToQuads = true;
+
+        // ── The ribbon ──────────────────────────────────────────────────────
+        /// <summary>When the add-in file this ribbon was built from was
+        /// written. SolidWorks keeps the toolbar layout of a command group
+        /// in the registry and reuses it, and a layout saved against an
+        /// older build has shown the wrong caption on a button ("User
+        /// Defined Route" on Send to Blender, Oscar, 2026-09-17). A build
+        /// this has not seen throws the saved layout away once.</summary>
+        public string CommandUiBuild = "";
         /// <summary>Free edges as POLY curves. The STEP route only: a
         /// direct send carries triangles, which have no free edges.
         /// </summary>
@@ -144,6 +153,7 @@ namespace Peak.Cadder.Core
                     obj, "export_texture_mapping", settings.ExportTextureMapping);
                 settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
                 settings.TrisToQuads = MiniJson.Flag(obj, "tris_to_quads", settings.TrisToQuads);
+                settings.CommandUiBuild = MiniJson.Str(obj, "command_ui_build", settings.CommandUiBuild);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
                 settings.RelationStepDeg = MiniJson.Int(obj, "relation_step_deg", settings.RelationStepDeg);
@@ -183,6 +193,7 @@ namespace Peak.Cadder.Core
                     { "import_curves", ImportCurves },
                     { "separate_solids", SeparateSolids },
                     { "tris_to_quads", TrisToQuads },
+                    { "command_ui_build", CommandUiBuild },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },
                     { "export_texture_mapping", ExportTextureMapping },

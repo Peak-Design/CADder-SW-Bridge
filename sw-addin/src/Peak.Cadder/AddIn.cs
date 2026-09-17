@@ -5,6 +5,7 @@ using SolidWorks.Interop.swpublished;
 using System;
 using Peak.Cadder.Core;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -242,11 +243,29 @@ namespace Peak.Cadder
             // start (2026-09-15, twice). The advanced option decides only
             // what reaches the ribbon tab and the toolbar; the rest stay
             // menu items under Tools.
-            bool advanced = AppSettings.Load(Log).AdvancedCommands;
+            var settings = AppSettings.Load(Log);
+            bool advanced = settings.AdvancedCommands;
             var knownIds = new[] { CmdSendNativeUserId, CmdOptionsUserId,
                                    CmdRefreshModelUserId, CmdStepPlusUserId,
                                    CmdExportJsonUserId };
             bool ignorePrevious = hadPrevious && !SameIds(registryIds as int[], knownIds);
+
+            // A saved layout belongs to the build it was saved against.
+            // After an update, or a rebuild during development, SolidWorks
+            // has drawn one of its OWN captions on a button of ours ("User
+            // Defined Route" on Send to Blender, Oscar, 2026-09-17). So a
+            // build this machine has not seen throws the layout away once.
+            // It costs a user who moved the buttons that arrangement, which
+            // is the same thing every version of the add-in costs anyway.
+            string build = BuildStamp();
+            if (build != settings.CommandUiBuild)
+            {
+                ignorePrevious = true;
+                settings.CommandUiBuild = build;
+                settings.Save(Log);
+                Log("new build of the add-in: the ribbon is built again from "
+                    + "nothing (" + build + ")");
+            }
 
             var group = _cmdMgr.CreateCommandGroup2(
                 MainCmdGroupId, AddInTitle, AddInDescription, "", -1, ignorePrevious, ref errors);
@@ -308,7 +327,9 @@ namespace Peak.Cadder
 
             group.HasToolbar = true;
             group.HasMenu = true;
-            group.Activate();
+            if (!group.Activate())
+                Log("the command group did not activate: the ribbon may hold "
+                    + "the wrong buttons");
 
             // Keep the command ids beside their titles, so the lab can say
             // which buttons the ribbon holds.
@@ -316,6 +337,11 @@ namespace Peak.Cadder
             CommandTitles.Clear();
             for (int i = 0; i < CommandOrder.Length; i++)
                 CommandTitles[group.get_CommandID(i)] = CommandOrder[i];
+            // The ids SolidWorks gave us. A button that draws somebody
+            // else's caption is drawing somebody else's id, and this is
+            // where that shows.
+            Log("ribbon: " + string.Join(", ", CommandOrder.Select(
+                (t, i) => t + " = " + group.get_CommandID(i)).ToArray()));
 
             // Both document types get the same buttons. Export Rig needs
             // mates, so EnableExportRig greys it on a part, and Refresh
@@ -404,6 +430,19 @@ namespace Peak.Cadder
                 group.MainIconList = main;
             }
             catch (Exception ex) { Log("ApplyIcons: " + ex.Message); }
+        }
+
+        /// <summary>When the running add-in file was written, which is
+        /// what tells one build from the next.</summary>
+        private static string BuildStamp()
+        {
+            try
+            {
+                string path = typeof(AddIn).Assembly.Location;
+                return File.GetLastWriteTimeUtc(path).Ticks
+                    .ToString(CultureInfo.InvariantCulture);
+            }
+            catch (Exception) { return ""; }
         }
 
         private static bool SameIds(int[] a, int[] b)
