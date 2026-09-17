@@ -64,6 +64,60 @@ namespace Peak.Cadder.Tests
             }
         }
 
+        /// <summary>
+        /// A key for an undirected edge by POSITION, so that two points that
+        /// happen to sit on one spot count as one place.
+        /// </summary>
+        private static string Edge(double[] a, double[] b)
+        {
+            string p = a[0].ToString("F9") + "," + a[1].ToString("F9");
+            string q = b[0].ToString("F9") + "," + b[1].ToString("F9");
+            return string.CompareOrdinal(p, q) <= 0 ? p + "|" + q : q + "|" + p;
+        }
+
+        /// <summary>
+        /// The outline of the triangles has to be the outline it was given,
+        /// exactly. This is the property that matters on a real part and that
+        /// area alone cannot see: a fill that stops one corner short of its
+        /// ring has very nearly the right area, and leaves a crack in the
+        /// mesh, because the face next door still has triangles that reach
+        /// the corner the fill gave up on.
+        /// </summary>
+        private static void SameOutline(
+            List<int> tris, List<double[]> points,
+            IList<double[]> outer, IList<IList<double[]>> holes)
+        {
+            var used = new Dictionary<string, int>();
+            for (int i = 0; i < tris.Count; i += 3)
+                for (int k = 0; k < 3; k++)
+                {
+                    string key = Edge(points[tris[i + k]],
+                                      points[tris[i + (k + 1) % 3]]);
+                    int had;
+                    used[key] = used.TryGetValue(key, out had) ? had + 1 : 1;
+                }
+            var edges = new HashSet<string>();
+            var rings = new List<IList<double[]>> { outer };
+            foreach (var hole in holes ?? new List<IList<double[]>>())
+                if (hole != null && hole.Count >= 3) rings.Add(hole);
+            foreach (var ring in rings)
+                for (int i = 0; i < ring.Count; i++)
+                {
+                    string key = Edge(ring[i], ring[(i + 1) % ring.Count]);
+                    if (key.Split('|')[0] != key.Split('|')[1]) edges.Add(key);
+                }
+            foreach (var kv in used)
+            {
+                if (kv.Value >= 2) continue;            // inside the fill
+                Assert.True(edges.Contains(kv.Key),
+                            "the fill has an open edge that the outline does "
+                            + "not: " + kv.Key);
+            }
+            foreach (string key in edges)
+                Assert.True(used.ContainsKey(key),
+                            "the fill does not reach the outline at " + key);
+        }
+
         private static void Check(
             IList<double[]> outer, IList<IList<double[]>> holes, double expectedArea,
             int expectedTriangles = -1)
@@ -74,6 +128,7 @@ namespace Peak.Cadder.Tests
             var points = All(outer, holes);
             double area, worstSign;
             Measure(tris, points, out area, out worstSign);
+            SameOutline(tris, points, outer, holes);
             Assert.Equal(expectedArea, area, 9);
             Assert.True(worstSign > 0.0,
                         "a triangle is wound the other way or has no area");

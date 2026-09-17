@@ -82,11 +82,11 @@ namespace Peak.Cadder.Sw
             var loops = PlaneRefill.Boundary(tris);
             if (loops == null || loops.Count == 0) return null;
 
+            var rims = PlaneRefill.Matched(tess, loops, gone);
             List<int> caps = null;
-            foreach (var loop in loops)
+            foreach (int i in rims)
             {
-                if (!PlaneRefill.IsGone(tess, loop, gone)) continue;
-                var lid = Lid(loop, point);
+                var lid = Lid(loops[i], point);
                 if (lid == null)
                 {
                     if (log != null)

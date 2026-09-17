@@ -51,8 +51,32 @@ namespace Peak.Cadder.Sw
             SmallFeatureSurvey.Plan simplify = null)
         {
             if (body == null || mesh == null) return false;
+            int vertexMark = mesh.VertexCount;
+            int triangleMark = mesh.Triangles.Count;
             if (AppendTessellation(body, mesh, tolerance, materialOf, log,
-                                   simplify: simplify)) return true;
+                                   simplify: simplify))
+            {
+                int amiss = simplify == null
+                    ? 0 : NotClosed(mesh, vertexMark, triangleMark);
+                if (amiss == 0) return true;
+                // The last word on the contract. A body SolidWorks
+                // tessellates is closed, so a body that comes out of this
+                // open has had something taken out of it that was holding it
+                // together, and a part with a hole in it is worse than a part
+                // with its bolt holes still in. The plan is thrown away and
+                // the body goes as it is.
+                //
+                // The count is off the triangles already in hand, so it costs
+                // no call to SolidWorks and nothing at all for a body nobody
+                // asked to simplify.
+                if (log != null)
+                    log("small features: this body would not close ("
+                        + amiss + " edge(s) wrong), so it is sent as it is");
+                Truncate(mesh, vertexMark, triangleMark);
+                if (AppendTessellation(body, mesh, tolerance, materialOf, log))
+                    return true;
+                Truncate(mesh, vertexMark, triangleMark);
+            }
             if (log != null)
                 log("tessellation refused this body at "
                     + tolerance.ToString("G4", CultureInfo.InvariantCulture)
@@ -206,13 +230,20 @@ namespace Peak.Cadder.Sw
                         dropped++;
                         continue;
                     }
+                    // The rims this face loses. A flat face is rebuilt
+                    // without them, which is exact and leaves the face
+                    // simpler as well. Anything else keeps its own triangles
+                    // and has the rims capped, and so does a flat face whose
+                    // fill was refused: a face that kept its rim while the
+                    // feature behind it went would leave the body open.
+                    IList<PlaneRefill.Hole> rims = null;
                     if (simplify != null)
                     {
                         int at = simplify.FillAt(face);
                         if (at >= 0)
                         {
-                            var fill = PlaneRefill.Build(
-                                face, tess, simplify.FillHoles[at], log);
+                            rims = simplify.FillHoles[at];
+                            var fill = PlaneRefill.Build(face, tess, rims, log);
                             if (fill != null)
                             {
                                 foreach (int facet in facets)
@@ -226,6 +257,11 @@ namespace Peak.Cadder.Sw
                             }
                             refused++;      // it keeps the triangles it had
                         }
+                        else
+                        {
+                            int lid = simplify.CapAt(face);
+                            if (lid >= 0) rims = simplify.CapHoles[lid];
+                        }
                     }
 
                     foreach (int facet in facets)
@@ -236,17 +272,11 @@ namespace Peak.Cadder.Sw
                         AddFacet(state, facet, material);
                     }
 
-                    // A curved face keeps every triangle it had, because its
-                    // triangles are what give it its shape, and gains a lid
-                    // over the rim the feature left behind.
-                    if (simplify == null) continue;
-                    int lidAt = simplify.CapAt(face);
-                    if (lidAt < 0) continue;
-                    var lid = SurfaceCap.Build(
-                        face, tess, simplify.CapHoles[lidAt], log);
-                    if (lid == null) continue;
-                    for (int t = 0; t + 2 < lid.Count; t += 3)
-                        AddTriangle(state, lid[t], lid[t + 1], lid[t + 2], material);
+                    if (rims == null) continue;
+                    var cap = SurfaceCap.Build(face, tess, rims, log);
+                    if (cap == null) continue;
+                    for (int t = 0; t + 2 < cap.Count; t += 3)
+                        AddTriangle(state, cap[t], cap[t + 1], cap[t + 2], material);
                     capped++;
                 }
             }
@@ -439,6 +469,80 @@ namespace Peak.Cadder.Sw
                 if (v >= 0 && v < vertexCount) mesh.Triangles[i] = baseVertex + map[v];
             }
             return kept;
+        }
+
+        /// <summary>
+        /// How many edges of the triangles just appended have anything but
+        /// two faces on them. Zero is a closed solid, which is what
+        /// SolidWorks gave us and what has to come back.
+        ///
+        /// Matched by POSITION. A tessellated vertex is shared inside one
+        /// face and never across faces, so the two triangles either side of a
+        /// model edge carry different indices for the same point. A tenth of
+        /// a micron is far finer than any tessellation tolerance and far
+        /// coarser than the rounding between two faces reading one point.
+        /// </summary>
+        private static int NotClosed(
+            MeshDefinition mesh, int vertexMark, int triangleMark)
+        {
+            var used = new Dictionary<long, int>();
+            var places = new Dictionary<int, long>();
+            for (int i = triangleMark; i + 2 < mesh.Triangles.Count; i += 3)
+            {
+                long a = Place(mesh, mesh.Triangles[i], places);
+                long b = Place(mesh, mesh.Triangles[i + 1], places);
+                long c = Place(mesh, mesh.Triangles[i + 2], places);
+                Seen(used, a, b);
+                Seen(used, b, c);
+                Seen(used, c, a);
+            }
+            int amiss = 0;
+            foreach (var kv in used) if (kv.Value != 2) amiss++;
+            return amiss;
+        }
+
+        private static void Seen(Dictionary<long, int> used, long a, long b)
+        {
+            long key = a < b ? a * 1000003L + b : b * 1000003L + a;
+            int had;
+            used[key] = used.TryGetValue(key, out had) ? had + 1 : 1;
+        }
+
+        private static long Place(
+            MeshDefinition mesh, int vertex, Dictionary<int, long> places)
+        {
+            long place;
+            if (places.TryGetValue(vertex, out place)) return place;
+            unchecked
+            {
+                long hash = 17;
+                for (int k = 0; k < 3; k++)
+                    hash = hash * 1000003L
+                        + (long)Math.Round(mesh.Positions[vertex * 3 + k] / 1e-7);
+                places[vertex] = hash;
+                return hash;
+            }
+        }
+
+        /// <summary>Puts the mesh back as it was before this body.</summary>
+        private static void Truncate(
+            MeshDefinition mesh, int vertexMark, int triangleMark)
+        {
+            if (mesh.Positions.Count > vertexMark * 3)
+                mesh.Positions.RemoveRange(
+                    vertexMark * 3, mesh.Positions.Count - vertexMark * 3);
+            if (mesh.Normals.Count > vertexMark * 3)
+                mesh.Normals.RemoveRange(
+                    vertexMark * 3, mesh.Normals.Count - vertexMark * 3);
+            if (mesh.Uvs.Count > vertexMark * 2)
+                mesh.Uvs.RemoveRange(
+                    vertexMark * 2, mesh.Uvs.Count - vertexMark * 2);
+            if (mesh.Triangles.Count > triangleMark)
+                mesh.Triangles.RemoveRange(
+                    triangleMark, mesh.Triangles.Count - triangleMark);
+            if (mesh.TriangleMaterials.Count > triangleMark / 3)
+                mesh.TriangleMaterials.RemoveRange(
+                    triangleMark / 3, mesh.TriangleMaterials.Count - triangleMark / 3);
         }
 
         private static void Fill(List<double> source, int vertex, double[] into)

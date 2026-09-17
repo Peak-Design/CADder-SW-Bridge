@@ -283,19 +283,33 @@ namespace Peak.Cadder.Core
                 }
                 if (cut) { stall = 0; continue; }
 
-                // No ear anywhere. A ring with points repeated on a bridge,
-                // or three points in a line, can look like that. Drop the
-                // flattest vertex once and try again; twice in a row means
-                // the boundary is not one this can cut, and the caller
-                // leaves the face alone.
+                // No ear anywhere. A bridge lays two edges over each
+                // other and leaves a second copy of its endpoints in the
+                // ring, and a ring like that can have no ear to cut. Dropping
+                // one of those copies changes nothing, because the point it
+                // stood on is still in the ring.
+                //
+                // Dropping a REAL corner is a different thing and this used
+                // to do it. The fill then stopped short of the boundary while
+                // the face next door still had triangles reaching it, and the
+                // part came back with a crack a few edges long. A fill either
+                // covers its ring or there is no fill: the face keeps the
+                // triangles it had.
                 if (++stall > 1) return null;
-                int flat = Flattest(points, left);
-                if (flat < 0) return null;
-                left.RemoveAt(flat);
+                int spare = Duplicate(points, left);
+                if (spare < 0) return null;
+                left.RemoveAt(spare);
             }
-            // The last three, unless they are in a line: a ring that ends
-            // on a sliver has no triangle left to give, and emitting one of
-            // no area puts a black facet in the mesh.
+            // The last three. THREE REAL POINTS in a line have no triangle
+            // left to give: emitting one of no area puts a black facet in the
+            // mesh, and leaving it out stops the fill short of its ring,
+            // which cracks the part along the boundary. Neither is a fill, so
+            // it is refused and the face keeps the triangles it had.
+            //
+            // Three points where two are in the same PLACE are a different
+            // thing. The ring has already closed on itself there, its two
+            // remaining edges run the same line in opposite directions, and
+            // dropping the lot leaves nothing uncovered.
             if (left.Count == 3
                 && Cross(points[left[0]], points[left[1]], points[left[2]]) > 0.0)
             {
@@ -303,24 +317,28 @@ namespace Peak.Cadder.Core
                 result.Add(left[1]);
                 result.Add(left[2]);
             }
+            else if (left.Count != 3 || Duplicate(points, left) < 0)
+                return null;
             return result.Count >= 3 ? result : null;
         }
 
         /// <summary>The vertex whose corner is nearest to straight.</summary>
-        private static int Flattest(List<double[]> points, List<int> ring)
+        /// <summary>
+        /// A point in the ring that sits exactly where its neighbour does,
+        /// and can therefore be dropped without changing what the ring
+        /// covers. Minus one when there is none.
+        /// </summary>
+        private static int Duplicate(List<double[]> points, List<int> ring)
         {
-            int n = ring.Count, best = -1;
-            double flattest = double.MaxValue;
+            int n = ring.Count;
             for (int i = 0; i < n; i++)
             {
-                double area = Math.Abs(Cross(points[ring[(i + n - 1) % n]],
-                                             points[ring[i]],
-                                             points[ring[(i + 1) % n]]));
-                if (area >= flattest) continue;
-                flattest = area;
-                best = i;
+                var here = points[ring[i]];
+                if (Samey(here, points[ring[(i + 1) % n]])
+                    || Samey(here, points[ring[(i + n - 1) % n]]))
+                    return i;
             }
-            return best;
+            return -1;
         }
 
         private static double Cross(double[] a, double[] b, double[] c)

@@ -304,6 +304,14 @@ namespace Peak.Cadder.Bridge
                     var tess = TessellationOf(body, tolerance, needParams: true);
                     var survey = SmallFeatureSurvey.Survey(
                         body, maxExtent, tess, AddIn.Log, tolerance, curved);
+                    // The body is closed before anything is taken out of it,
+                    // so it has to be closed afterwards too. Measured both
+                    // ways, because a baseline that is not zero would mean
+                    // the measurement and not the plan is wrong.
+                    var was = ClosureCheck.Run(body, tess, null, AddIn.Log);
+                    var plan = SmallFeatureSurvey.Choose(
+                        body, maxExtent, AddIn.Log, curved);
+                    var now = ClosureCheck.Run(body, tess, plan, AddIn.Log);
                     var declined = new Dictionary<string, object>();
                     var sizes = new List<object>();
                     foreach (var f in survey.Features)
@@ -328,6 +336,10 @@ namespace Peak.Cadder.Bridge
                         { "fill_after", survey.FilledFacetsAfter },
                         { "fill_refused", survey.FillRefused },
                         { "capped_faces", survey.CappedFaces },
+                        { "open_before", was.Open + was.Doubled },
+                        { "open_after", now.Open },
+                        { "doubled_after", now.Doubled },
+                        { "open_where", now.Where },
                         { "cap_facets", survey.CapFacets },
                         { "worst_area_slip", survey.WorstAreaSlip },
                         { "worst_area_where", survey.WorstAreaWhere },
@@ -855,7 +867,11 @@ namespace Peak.Cadder.Bridge
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
                         settings.SeparateSolids, keep, bar,
-                        AppearanceOptions.From(settings));
+                        AppearanceOptions.From(settings),
+                        // A consumer asking for the whole assembly again says
+                        // which parts it holds simplified, so that a rebuild
+                        // gives back what the scene had rather than undoing it.
+                        SimplifyOptions.From(request));
                     result["mesh"] = meshPath;
                 }
             }

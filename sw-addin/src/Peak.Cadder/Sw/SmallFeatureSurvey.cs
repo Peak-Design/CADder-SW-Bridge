@@ -19,11 +19,13 @@ namespace Peak.Cadder.Sw
     /// need them, because the add-in tessellates FACE BY FACE and so
     /// decides what each face contributes.
     ///
-    /// Three rules make it general and safe.
+    /// Four rules make it general and safe.
     ///
-    /// The unit is a small INNER LOOP of a planar face, not a cylinder.
-    /// That covers round holes, slots, keyways and small cutouts alike,
-    /// with less code than a cylinder classifier.
+    /// The unit is a small INNER LOOP of a face, not a cylinder. That
+    /// covers round holes, slots, keyways and small cutouts alike, with
+    /// less code than a cylinder classifier. Flat faces always count.
+    /// Curved ones count when the caller asks, which is what reaches a hole
+    /// drilled into a boss or a shaft.
     ///
     /// The feature behind a loop is found by walking INWARD: cross into the
     /// face on the other side, then keep crossing every edge that is not
@@ -37,6 +39,13 @@ namespace Peak.Cadder.Sw
     /// is no repair step and nothing to fail, only "simplified" and "left
     /// alone", and the counts of each are reported so the result can be
     /// trusted.
+    ///
+    /// Every rim that goes is dealt with on BOTH its faces. The one inside
+    /// the feature goes with it; the one outside is rebuilt without the rim
+    /// when it is flat, and keeps its own triangles with the rim capped when
+    /// it is not. A rim left on a surviving face is a hole in the part, so
+    /// BodyTessellator counts the open edges of what this plan produces and
+    /// throws the whole plan away rather than send one.
     /// </summary>
     public static class SmallFeatureSurvey
     {
@@ -49,6 +58,24 @@ namespace Peak.Cadder.Sw
         /// same loop seen from its two faces. They share their edges, so
         /// they agree exactly bar floating point.</summary>
         private const double SameLoop = 1e-9;
+
+        /// <summary>
+        /// One small loop that a feature is taken out through: where it is,
+        /// how wide, and the EDGES it is made of.
+        ///
+        /// The edges are what say which faces have to deal with it. A loop
+        /// key cannot: the same rim can be a loop of its own on the flat face
+        /// it breaks into and part of a longer loop on the cylinder beside
+        /// it, so matching whole loops left a cylinder holding a rim nobody
+        /// covered, and the part came back open (drum_pedal bolts, 68 edges).
+        /// </summary>
+        private sealed class Rim
+        {
+            public string Key;
+            public double[] Centre;
+            public double Extent;
+            public List<IEdge> Edges = new List<IEdge>();
+        }
 
         public sealed class Feature
         {
@@ -192,6 +219,7 @@ namespace Peak.Cadder.Sw
             if (faces == null) return plan;
 
             var marked = new HashSet<string>();
+            var rims = new Dictionary<string, Rim>();
             var owners = new List<KeyValuePair<IFace2, ILoop2>>();
             foreach (var o in faces)
             {
@@ -211,6 +239,17 @@ namespace Peak.Cadder.Sw
                     string key = LoopKey(loop, out extent);
                     if (key == null || extent > maxExtent) continue;
                     marked.Add(key);
+                    if (!rims.ContainsKey(key))
+                    {
+                        var rim = new Rim
+                        {
+                            Key = key,
+                            Extent = extent,
+                            Centre = LoopCentre(loop),
+                        };
+                        foreach (var edge in EdgesOf(loop)) rim.Edges.Add(edge);
+                        if (rim.Centre != null) rims[key] = rim;
+                    }
                     owners.Add(new KeyValuePair<IFace2, ILoop2>(face, loop));
                 }
             }
@@ -236,32 +275,43 @@ namespace Peak.Cadder.Sw
 
                 foreach (string b in bounds) if (!claimed.Contains(b)) claimed.Add(b);
                 foreach (var f in region) if (!Contains(plan.Gone, f)) plan.Gone.Add(f);
-                foreach (var owner in OwnersOf(owners, bounds))
-                {
-                    // A flat owner is rebuilt from its own boundary, which is
-                    // exact and leaves the face simpler as well. A curved one
-                    // keeps its triangles and has the rim capped.
-                    var into = IsPlane(owner) ? plan.Fill : plan.Cap;
-                    if (!Contains(into, owner)) into.Add(owner);
-                }
             }
 
-            // A face INSIDE a region is not filled, it is gone. Counting it
-            // both ways took a part below zero triangles. It happens on a
-            // counterbore, whose annulus is a planar face with a small inner
-            // loop of its own: the walk stops at that loop, so the annulus is
-            // in the first region AND owns the loop that bounds the second.
-            // Dropping it from the fill list is also what makes the whole
-            // counterbore go rather than half of it.
-            for (int i = plan.Fill.Count - 1; i >= 0; i--)
-                if (Contains(plan.Gone, plan.Fill[i])) plan.Fill.RemoveAt(i);
-            for (int i = plan.Cap.Count - 1; i >= 0; i--)
-                if (Contains(plan.Gone, plan.Cap[i])) plan.Cap.RemoveAt(i);
-
-            foreach (var face in plan.Fill)
-                plan.FillHoles.Add(GoneFrom(face, claimed));
-            foreach (var face in plan.Cap)
-                plan.CapHoles.Add(GoneFrom(face, claimed));
+            // Every rim that goes has two faces. The one inside the feature
+            // goes with it. The one OUTSIDE has to lose the rim as well, or
+            // the body is left open where the feature was: the faces around
+            // the hole still have triangles that reach its edge and now have
+            // nothing on the other side.
+            //
+            // The faces are taken from the rim's EDGES, which is the only
+            // thing that names them exactly. Two other ways were tried and
+            // both left parts open. Taking the face the rim was found on
+            // misses the case where a rim found from a flat face has a
+            // cylinder on the other side. Sweeping the body for faces holding
+            // a matching LOOP misses the case where the rim is a loop of its
+            // own on one face and part of a longer loop on the next.
+            //
+            // It runs when every region is settled, so a face that is inside
+            // one feature and outside another is seen for what it is. That is
+            // a counterbore: its annulus is in the first region and carries
+            // the rim of the second.
+            //
+            // A flat face is rebuilt from its own boundary, which is exact
+            // and leaves the face simpler as well. A curved one keeps its
+            // triangles, because they are what give it its shape, and has the
+            // rim capped. Capping is not what the curved switch turns on: it
+            // is what closing the body needs, whichever way the switch is set.
+            foreach (string key in claimed)
+            {
+                Rim rim;
+                if (!rims.TryGetValue(key, out rim)) continue;
+                foreach (var edge in rim.Edges)
+                    foreach (var face in BothSides(edge))
+                    {
+                        if (Contains(plan.Gone, face)) continue;
+                        Cover(plan, face, rim);
+                    }
+            }
             return plan;
         }
 
@@ -314,8 +364,13 @@ namespace Peak.Cadder.Sw
                     face, tess, plan.FillHoles[plan.Fill.IndexOf(face)], log, report);
                 if (refill == null)
                 {
+                    // It keeps its own triangles and the rims are capped
+                    // instead, which is what closes the body.
                     result.FillRefused++;
                     result.FilledFacetsAfter += before;
+                    var lid = SurfaceCap.Build(
+                        face, tess, plan.FillHoles[plan.Fill.IndexOf(face)], log);
+                    if (lid != null) result.CapFacets += lid.Count / 3;
                     continue;
                 }
                 result.FilledFacetsAfter += refill.Count / 3;
@@ -412,6 +467,47 @@ namespace Peak.Cadder.Sw
             }
             if (bounds.Count == 0) return "nothing bounded the region";
             return null;
+        }
+
+        /// <summary>Both faces of an edge, however many it can answer.</summary>
+        private static IEnumerable<IFace2> BothSides(IEdge edge)
+        {
+            object[] pair = null;
+            try { pair = edge.GetTwoAdjacentFaces2() as object[]; }
+            catch { }
+            foreach (var o in pair ?? new object[0])
+            {
+                var face = o as IFace2;
+                if (face != null) yield return face;
+            }
+        }
+
+        /// <summary>Notes that a surviving face has to lose this rim: rebuilt
+        /// without it when it is flat, capped over it when it is not.</summary>
+        private static void Cover(Plan plan, IFace2 face, Rim rim)
+        {
+            bool plane = IsPlane(face);
+            var into = plane ? plan.Fill : plan.Cap;
+            var holes = plane ? plan.FillHoles : plan.CapHoles;
+            int at = -1;
+            for (int i = 0; i < into.Count && at < 0; i++)
+                if (Same(into[i], face)) at = i;
+            if (at < 0)
+            {
+                into.Add(face);
+                holes.Add(new List<PlaneRefill.Hole>());
+                at = into.Count - 1;
+            }
+            foreach (var had in holes[at])
+                if (had.Extent == rim.Extent && had.Centre[0] == rim.Centre[0]
+                    && had.Centre[1] == rim.Centre[1]
+                    && had.Centre[2] == rim.Centre[2]) return;
+            holes[at].Add(new PlaneRefill.Hole
+            {
+                Centre = rim.Centre,
+                Extent = rim.Extent,
+                Edges = rim.Edges,
+            });
         }
 
         /// <summary>The face on the other side of an edge, or null.</summary>
@@ -680,24 +776,6 @@ namespace Peak.Cadder.Sw
         /// triangulates to n + 2h - 2 triangles, and the holes that stay
         /// are the ones this survey did not claim.
         /// </summary>
-        /// <summary>The holes of this face that a region has claimed, as
-        /// the fill wants them: where they are and how wide.</summary>
-        private static List<PlaneRefill.Hole> GoneFrom(
-            IFace2 face, List<string> claimed)
-        {
-            var holes = new List<PlaneRefill.Hole>();
-            foreach (var loop in LoopsOf(face))
-            {
-                double extent;
-                string key = LoopKey(loop, out extent);
-                if (key == null || !claimed.Contains(key)) continue;
-                var centre = LoopCentre(loop);
-                if (centre == null) continue;
-                holes.Add(new PlaneRefill.Hole { Centre = centre, Extent = extent });
-            }
-            return holes;
-        }
-
         private static double[] LoopCentre(ILoop2 loop)
         {
             double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
@@ -743,15 +821,5 @@ namespace Peak.Cadder.Sw
             return Math.Max(1, points + 2 * holes - 2);
         }
 
-        private static IEnumerable<IFace2> OwnersOf(
-            List<KeyValuePair<IFace2, ILoop2>> owners, List<string> keys)
-        {
-            foreach (var pair in owners)
-            {
-                double extent;
-                string key = LoopKey(pair.Value, out extent);
-                if (key != null && keys.Contains(key)) yield return pair.Key;
-            }
-        }
     }
 }
