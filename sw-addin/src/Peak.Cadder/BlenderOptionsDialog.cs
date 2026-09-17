@@ -137,7 +137,7 @@ namespace Peak.Cadder
                 + "plane, a cylinder and a cone keep the exact coordinates of "
                 + "their own surface either way");
             _matchView = Check(
-                "Match the Blender view to this one", settings.MatchView,
+                "Match the Blender view", settings.MatchView,
                 "Turn the Blender viewport to the angle this SolidWorks view "
                 + "is at once the parts arrive, and frame the model. Off, "
                 + "Blender keeps the view it has");
