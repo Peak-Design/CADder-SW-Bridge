@@ -47,10 +47,12 @@ namespace Peak.Cadder.Sw
         /// </summary>
         public static bool Append(
             IBody2 body, MeshDefinition mesh, double tolerance,
-            Func<IFace2, IBody2, int> materialOf, Action<string> log)
+            Func<IFace2, IBody2, int> materialOf, Action<string> log,
+            SmallFeatureSurvey.Plan simplify = null)
         {
             if (body == null || mesh == null) return false;
-            if (AppendTessellation(body, mesh, tolerance, materialOf, log)) return true;
+            if (AppendTessellation(body, mesh, tolerance, materialOf, log,
+                                   simplify: simplify)) return true;
             if (log != null)
                 log("tessellation refused this body at "
                     + tolerance.ToString("G4", CultureInfo.InvariantCulture)
@@ -79,7 +81,7 @@ namespace Peak.Cadder.Sw
         private static bool AppendTessellation(
             IBody2 body, MeshDefinition mesh, double tolerance,
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
-            bool skipRejected = false)
+            bool skipRejected = false, SmallFeatureSurvey.Plan simplify = null)
         {
             ITessellation tess;
             try
@@ -175,6 +177,8 @@ namespace Peak.Cadder.Sw
             var state = new FacetState { Tess = tess, Body = body, Mesh = mesh,
                                          BaseVertex = baseVertex, VertexCount = vertexCount };
             var covered = new bool[facetCount];
+            int firstTriangle = mesh.Triangles.Count;
+            int dropped = 0, refilled = 0, refused = 0;
 
             object[] faces = null;
             try { faces = body.GetFaces() as object[]; } catch { }
@@ -188,6 +192,42 @@ namespace Peak.Cadder.Sw
                     try { facets = tess.GetFaceFacets(face) as int[]; } catch { }
                     if (facets == null || facets.Length == 0) continue;
                     int material = materialOf == null ? 0 : materialOf(face, body);
+
+                    // A face inside a removed feature never travels, and one
+                    // that owned the feature's loops travels as a fill of its
+                    // own boundary instead of as the triangles SolidWorks
+                    // drew around the holes. Its facets are still marked
+                    // covered, so the orphan sweep below does not put them
+                    // back.
+                    if (simplify != null && simplify.IsGone(face))
+                    {
+                        foreach (int facet in facets)
+                            if (facet >= 0 && facet < facetCount) covered[facet] = true;
+                        dropped++;
+                        continue;
+                    }
+                    if (simplify != null)
+                    {
+                        int at = simplify.FillAt(face);
+                        if (at >= 0)
+                        {
+                            var fill = PlaneRefill.Build(
+                                face, tess, simplify.FillHoles[at], log);
+                            if (fill != null)
+                            {
+                                foreach (int facet in facets)
+                                    if (facet >= 0 && facet < facetCount)
+                                        covered[facet] = true;
+                                for (int t = 0; t + 2 < fill.Count; t += 3)
+                                    AddTriangle(state, fill[t], fill[t + 1],
+                                                fill[t + 2], material);
+                                refilled++;
+                                continue;
+                            }
+                            refused++;      // it keeps the triangles it had
+                        }
+                    }
+
                     foreach (int facet in facets)
                     {
                         if (facet < 0 || facet >= facetCount || covered[facet]) continue;
@@ -218,6 +258,19 @@ namespace Peak.Cadder.Sw
             if (log != null && state.Skipped > 0)
                 log("tessellation: " + state.Stitched + " facet(s) kept, "
                     + state.Skipped + " skipped");
+
+            if (simplify != null && (dropped > 0 || refilled > 0))
+            {
+                int before = vertexCount;
+                int after = Compact(mesh, baseVertex, vertexCount, firstTriangle);
+                if (log != null)
+                    log("small features: " + simplify.Removed + " removed, "
+                        + simplify.Declined + " left alone; " + dropped
+                        + " face(s) dropped, " + refilled + " refilled"
+                        + (refused > 0 ? ", " + refused + " kept their triangles "
+                           + "because the fill refused them" : "")
+                        + "; " + before + " vertices to " + after);
+            }
             return state.Stitched > 0;
         }
 
@@ -284,6 +337,94 @@ namespace Peak.Cadder.Sw
             s.Mesh.Triangles.Add(s.BaseVertex + c);
             s.Mesh.TriangleMaterials.Add(material);
             s.Stitched++;
+        }
+
+        /// <summary>
+        /// Adds one triangle by vertex index, flipped to agree with the
+        /// normals exactly as a facet would be. A fill's winding comes from
+        /// the face's own parameters, and a face can be reversed relative to
+        /// its body, so it needs the same check.
+        /// </summary>
+        private static void AddTriangle(FacetState s, int a, int b, int c, int material)
+        {
+            if (a < 0 || b < 0 || c < 0
+                || a >= s.VertexCount || b >= s.VertexCount || c >= s.VertexCount)
+            {
+                s.Skipped++;
+                return;
+            }
+            Fill(s.Mesh.Positions, s.BaseVertex + a, s.P0);
+            Fill(s.Mesh.Positions, s.BaseVertex + b, s.P1);
+            Fill(s.Mesh.Positions, s.BaseVertex + c, s.P2);
+            for (int k = 0; k < 3; k++)
+                s.NormalSum[k] = s.Mesh.Normals[(s.BaseVertex + a) * 3 + k]
+                    + s.Mesh.Normals[(s.BaseVertex + b) * 3 + k]
+                    + s.Mesh.Normals[(s.BaseVertex + c) * 3 + k];
+            if (FacetStitcher.NeedsFlip(s.P0, s.P1, s.P2, s.NormalSum))
+            {
+                int swap = b; b = c; c = swap;
+            }
+            s.Mesh.Triangles.Add(s.BaseVertex + a);
+            s.Mesh.Triangles.Add(s.BaseVertex + b);
+            s.Mesh.Triangles.Add(s.BaseVertex + c);
+            s.Mesh.TriangleMaterials.Add(material);
+            s.Stitched++;
+        }
+
+        /// <summary>
+        /// Drops the vertices this body no longer uses and renumbers its
+        /// triangles, returning how many are left.
+        ///
+        /// A removed feature takes whole faces with it, and the rims its
+        /// holes left on the faces around it go too. Their vertices were read
+        /// before any of that was decided, so without this they would travel
+        /// as loose points: nothing to see in a render, but they are most of
+        /// what a mesh weighs, and the transfer is where half the saving is
+        /// meant to be.
+        ///
+        /// This body's vertices are the last block in the mesh, because a
+        /// body is appended and then compacted before the next one starts.
+        /// </summary>
+        private static int Compact(
+            MeshDefinition mesh, int baseVertex, int vertexCount, int firstTriangle)
+        {
+            if (vertexCount <= 0) return 0;
+            var used = new bool[vertexCount];
+            for (int i = firstTriangle; i < mesh.Triangles.Count; i++)
+            {
+                int v = mesh.Triangles[i] - baseVertex;
+                if (v >= 0 && v < vertexCount) used[v] = true;
+            }
+            var map = new int[vertexCount];
+            int kept = 0;
+            for (int i = 0; i < vertexCount; i++) map[i] = used[i] ? kept++ : -1;
+            if (kept == vertexCount) return kept;
+
+            bool normals = mesh.Normals.Count >= (baseVertex + vertexCount) * 3;
+            bool uvs = mesh.Uvs.Count >= (baseVertex + vertexCount) * 2;
+            for (int i = 0; i < vertexCount; i++)
+            {
+                if (!used[i] || map[i] == i) continue;
+                int to = baseVertex + map[i], from = baseVertex + i;
+                for (int k = 0; k < 3; k++)
+                {
+                    mesh.Positions[to * 3 + k] = mesh.Positions[from * 3 + k];
+                    if (normals) mesh.Normals[to * 3 + k] = mesh.Normals[from * 3 + k];
+                }
+                if (!uvs) continue;
+                mesh.Uvs[to * 2] = mesh.Uvs[from * 2];
+                mesh.Uvs[to * 2 + 1] = mesh.Uvs[from * 2 + 1];
+            }
+            int spare = vertexCount - kept;
+            mesh.Positions.RemoveRange((baseVertex + kept) * 3, spare * 3);
+            if (normals) mesh.Normals.RemoveRange((baseVertex + kept) * 3, spare * 3);
+            if (uvs) mesh.Uvs.RemoveRange((baseVertex + kept) * 2, spare * 2);
+            for (int i = firstTriangle; i < mesh.Triangles.Count; i++)
+            {
+                int v = mesh.Triangles[i] - baseVertex;
+                if (v >= 0 && v < vertexCount) mesh.Triangles[i] = baseVertex + map[v];
+            }
+            return kept;
         }
 
         private static void Fill(List<double> source, int vertex, double[] into)

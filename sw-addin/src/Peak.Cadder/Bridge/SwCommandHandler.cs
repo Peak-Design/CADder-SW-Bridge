@@ -850,7 +850,7 @@ namespace Peak.Cadder.Bridge
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
                         settings.SeparateSolids, keep, bar,
-                        AppearanceOptions.From(settings));
+                        AppearanceOptions.From(settings), settings.SmallFeatureCut);
                     result["mesh"] = meshPath;
                 }
             }
@@ -1396,7 +1396,8 @@ namespace Peak.Cadder.Bridge
                 selection = Selection(request, persistent);
                 scene = NativeSceneBuilder.Build(
                     walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
-                    separateSolids, appearance: appearance);
+                    separateSolids, appearance: appearance,
+                    smallFeatures: AppSettings.Load(AddIn.Log).SmallFeatureCut);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }
@@ -1404,8 +1405,10 @@ namespace Peak.Cadder.Bridge
             {
                 // A part document is one component; a filter naming anything
                 // else simply does not apply to it.
-                scene = NativeExport.Build(app, model, quality, AddIn.Log,
-                                           separateSolids, appearance: appearance);
+                scene = NativeExport.Build(
+                    app, model, quality, AddIn.Log, separateSolids,
+                    appearance: appearance,
+                    smallFeatures: AppSettings.Load(AddIn.Log).SmallFeatureCut);
             }
             if (scene.Definitions.Count == 0) return Fail("nothing to tessellate");
 

@@ -38,6 +38,9 @@ namespace Peak.Cadder
         private readonly CheckBox _onlySelected;
         private readonly CheckBox _importCurves;
         private readonly CheckBox _separateSolids;
+        private readonly CheckBox _removeSmallFeatures;
+        private readonly ComboBox _smallFeatureSize;
+        private readonly Control _smallFeatureRow;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
         private readonly CheckBox _labOps;
@@ -121,6 +124,32 @@ namespace Peak.Cadder
                 "Send how a texture is projected onto the part. Off, the "
                 + "image still travels at its own tile size, boxed in the "
                 + "axes of the part");
+            _removeSmallFeatures = Check(
+                "Leave out small features", settings.RemoveSmallFeatures,
+                "Send the parts without their bolt holes and other small "
+                + "features. A hole costs far more triangles than the shape "
+                + "it is in, and a model for a game engine rarely wants it. "
+                + "Nothing in the part document is changed. A feature is "
+                + "left in unless the whole of it can be accounted for");
+            _smallFeatureSize = Combo(new[]
+            {
+                new Item { Label = "4 mm", Value = "0.004" },
+                new Item { Label = "8 mm", Value = "0.008" },
+                new Item { Label = "12 mm", Value = "0.012" },
+                new Item { Label = "20 mm", Value = "0.020" },
+                new Item { Label = "40 mm", Value = "0.040" },
+            }, settings.SmallFeatureSize.ToString(
+                "0.000", CultureInfo.InvariantCulture));
+            _smallFeatureRow = Row("Smaller than:", _smallFeatureSize,
+                "Set how wide a feature may be and still be left out. "
+                + "Measured across the hole it makes in the face it breaks "
+                + "into");
+            _smallFeatureRow.Margin = new Padding(16, 0, 0, 2);
+            EventHandler sizes = (s, e) =>
+                _smallFeatureRow.Enabled = _removeSmallFeatures.Checked;
+            _removeSmallFeatures.CheckedChanged += sizes;
+            sizes(null, EventArgs.Empty);
+
             _buildRig = Check(
                 "Build the rig", settings.BuildRig,
                 "Read the mates of an assembly and build an armature in "
@@ -147,6 +176,8 @@ namespace Peak.Cadder
                 "Name the SolidWorks axis that points up. It becomes the Z "
                 + "axis of Blender"));
             import.Controls.Add(_separateSolids);
+            import.Controls.Add(_removeSmallFeatures);
+            import.Controls.Add(_smallFeatureRow);
             import.Controls.Add(_onlySelected);
             import.Controls.Add(_appearances);
             import.Controls.Add(_decals);
@@ -380,6 +411,15 @@ namespace Peak.Cadder
             settings.OnlySelected = _onlySelected.Checked;
             settings.ImportCurves = _importCurves.Checked;
             settings.SeparateSolids = _separateSolids.Checked;
+            settings.RemoveSmallFeatures = _removeSmallFeatures.Checked;
+            double size;
+            if (double.TryParse(
+                    Selected(_smallFeatureSize,
+                             settings.SmallFeatureSize.ToString(
+                                 "0.000", CultureInfo.InvariantCulture)),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out size)
+                && size > 0.0)
+                settings.SmallFeatureSize = size;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;
             settings.LabOps = _labOps.Checked;

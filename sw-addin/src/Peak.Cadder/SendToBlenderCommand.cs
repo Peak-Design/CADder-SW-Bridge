@@ -110,7 +110,7 @@ namespace Peak.Cadder
                     NativeExport.Write(app, model, meshPath,
                         QualityDial(settings.QualityPreset), AddIn.Log,
                         settings.SeparateSolids, keep, bar,
-                        AppearanceOptions.From(settings));
+                        AppearanceOptions.From(settings), settings.SmallFeatureCut);
                 }
                 else
                 {

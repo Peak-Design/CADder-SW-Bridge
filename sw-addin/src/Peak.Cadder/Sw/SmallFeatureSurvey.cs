@@ -57,6 +57,8 @@ namespace Peak.Cadder.Sw
             public int Faces;                // faces in the region
             public int Facets;               // triangles those faces cost now
             public string Declined;          // null when it would be removed
+            /// <summary>The faces behind the loop. Empty when declined.</summary>
+            public List<IFace2> Region = new List<IFace2>();
         }
 
         public sealed class Result
@@ -104,36 +106,74 @@ namespace Peak.Cadder.Sw
         }
 
         /// <summary>
-        /// Surveys one body. maxExtent is the size under which an inner loop
-        /// counts as small, in metres. tess may be null, in which case the
-        /// triangle columns come back zero and only the counts are answered.
+        /// What a body would be sent without, as faces rather than as
+        /// numbers: the ones inside a removed feature, which go, and the
+        /// planar ones that owned their loops, which are rebuilt from their
+        /// own boundary with those loops left out.
         /// </summary>
-        public static Result Survey(
-            IBody2 body, double maxExtent, ITessellation tess, Action<string> log,
-            double tolerance = 0.0)
+        public sealed class Plan
         {
-            var result = new Result();
-            if (body == null) return result;
+            public List<IFace2> Gone = new List<IFace2>();
+            public List<IFace2> Fill = new List<IFace2>();
+            public List<List<PlaneRefill.Hole>> FillHoles =
+                new List<List<PlaneRefill.Hole>>();
+            public List<Feature> Features = new List<Feature>();
+            public int Faces;
+            public int PlanarFaces;
+
+            public int Removed
+            {
+                get
+                {
+                    int n = 0;
+                    foreach (var f in Features) if (f.Declined == null) n++;
+                    return n;
+                }
+            }
+
+            public int Declined { get { return Features.Count - Removed; } }
+
+            /// <summary>Whether the plan asks for anything at all.</summary>
+            public bool Any { get { return Gone.Count > 0 || Fill.Count > 0; } }
+
+            public int FillAt(IFace2 face)
+            {
+                for (int i = 0; i < Fill.Count; i++)
+                    if (Same(Fill[i], face)) return i;
+                return -1;
+            }
+
+            public bool IsGone(IFace2 face) { return Contains(Gone, face); }
+        }
+
+        /// <summary>
+        /// Works out what a body could be sent without. maxExtent is the size
+        /// under which an inner loop counts as small, in metres. Reads the
+        /// body's topology only: no tessellation, and nothing is changed.
+        /// </summary>
+        public static Plan Choose(IBody2 body, double maxExtent, Action<string> log)
+        {
+            var plan = new Plan();
+            if (body == null) return plan;
 
             object[] faces = null;
             try { faces = body.GetFaces() as object[]; }
             catch (Exception ex)
             {
                 if (log != null) log("small features: GetFaces failed: " + ex.Message);
-                return result;
+                return plan;
             }
-            if (faces == null) return result;
+            if (faces == null) return plan;
 
-            // ── Pass one: every small inner loop of a planar face ──────────
             var marked = new HashSet<string>();
             var owners = new List<KeyValuePair<IFace2, ILoop2>>();
             foreach (var o in faces)
             {
                 var face = o as IFace2;
                 if (face == null) continue;
-                result.Faces++;
+                plan.Faces++;
                 if (!IsPlane(face)) continue;
-                result.PlanarFaces++;
+                plan.PlanarFaces++;
                 foreach (var loop in LoopsOf(face))
                 {
                     bool outer;
@@ -147,13 +187,9 @@ namespace Peak.Cadder.Sw
                     owners.Add(new KeyValuePair<IFace2, ILoop2>(face, loop));
                 }
             }
-            result.Facets = FacetsOfBody(tess, faces);
-            if (owners.Count == 0) return result;
+            if (owners.Count == 0) return plan;
 
-            // ── Pass two: what sits behind each loop ───────────────────────
-            var claimed = new List<string>();        // loop keys already in a region
-            var gone = new List<IFace2>();           // faces inside a removed region
-            var fillFaces = new List<IFace2>();
+            var claimed = new List<string>();
             foreach (var pair in owners)
             {
                 double extent;
@@ -166,15 +202,15 @@ namespace Peak.Cadder.Sw
                 string declined = Walk(pair.Key, pair.Value, marked, region, bounds, log);
                 feature.Faces = region.Count;
                 feature.Loops = bounds.Count;
-                feature.Facets = FacetsOf(tess, region);
                 feature.Declined = declined;
-                result.Features.Add(feature);
+                feature.Region = region;
+                plan.Features.Add(feature);
                 if (declined != null) continue;
 
                 foreach (string b in bounds) if (!claimed.Contains(b)) claimed.Add(b);
-                foreach (var f in region) if (!Contains(gone, f)) gone.Add(f);
+                foreach (var f in region) if (!Contains(plan.Gone, f)) plan.Gone.Add(f);
                 foreach (var owner in OwnersOf(owners, bounds))
-                    if (!Contains(fillFaces, owner)) fillFaces.Add(owner);
+                    if (!Contains(plan.Fill, owner)) plan.Fill.Add(owner);
             }
 
             // A face INSIDE a region is not filled, it is gone. Counting it
@@ -184,8 +220,41 @@ namespace Peak.Cadder.Sw
             // in the first region AND owns the loop that bounds the second.
             // Dropping it from the fill list is also what makes the whole
             // counterbore go rather than half of it.
-            for (int i = fillFaces.Count - 1; i >= 0; i--)
-                if (Contains(gone, fillFaces[i])) fillFaces.RemoveAt(i);
+            for (int i = plan.Fill.Count - 1; i >= 0; i--)
+                if (Contains(plan.Gone, plan.Fill[i])) plan.Fill.RemoveAt(i);
+
+            foreach (var face in plan.Fill)
+                plan.FillHoles.Add(GoneFrom(face, claimed));
+            return plan;
+        }
+
+        /// <summary>
+        /// Surveys one body: the plan, plus what it would cost in triangles.
+        /// tess may be null, in which case the triangle columns come back
+        /// zero and only the counts are answered.
+        /// </summary>
+        public static Result Survey(
+            IBody2 body, double maxExtent, ITessellation tess, Action<string> log,
+            double tolerance = 0.0)
+        {
+            var result = new Result();
+            if (body == null) return result;
+
+            object[] faces = null;
+            try { faces = body.GetFaces() as object[]; }
+            catch { return result; }
+            if (faces == null) return result;
+
+            var plan = Choose(body, maxExtent, log);
+            result.Faces = plan.Faces;
+            result.PlanarFaces = plan.PlanarFaces;
+            result.Facets = FacetsOfBody(tess, faces);
+            foreach (var f in plan.Features)
+            {
+                f.Facets = FacetsOf(tess, f.Region);
+                result.Features.Add(f);
+            }
+            var fillFaces = plan.Fill;
 
             // ── What the faces that lose their holes cost, before and after ─
             //
@@ -205,7 +274,7 @@ namespace Peak.Cadder.Sw
                 result.FilledFacetsBefore += before;
                 var report = new PlaneRefill.Report();
                 var refill = PlaneRefill.Build(
-                    face, tess, GoneFrom(face, claimed), log, report);
+                    face, tess, plan.FillHoles[plan.Fill.IndexOf(face)], log, report);
                 if (refill == null)
                 {
                     result.FillRefused++;
