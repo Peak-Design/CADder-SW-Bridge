@@ -68,9 +68,8 @@ already ticked. The export command writes `<assembly>.step` and
 
 ## Quick start. Blender side
 
-Install (or update) **CADder** and tick **CAD Link (experimental)**
-in its add-on preferences. The **CAD Link** tab appears in the 3D View
-sidebar. **Send to Blender** in SolidWorks then imports and rigs the
+Install (or update) **CADder** and tick **SolidWorks Bridge** in its
+add-on preferences. The **CADder** tab appears in the 3D View sidebar. **Send to Blender** in SolidWorks then imports and rigs the
 assembly in one step. The manual route: point the tab's Manifest field at
 a `.rig.json` with the STEP file beside it, exactly as the exporter wrote
 the pair, and press the Rig buttons in order.

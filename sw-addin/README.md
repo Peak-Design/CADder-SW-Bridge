@@ -2,7 +2,7 @@
 
 The add-in reads the mates of the open assembly, works out the joints they
 leave free, and sends the geometry and a rig manifest to Blender. Blender
-builds an armature from the manifest through the CAD Link tab of
+builds an armature from the manifest through the CADder tab of
 [CADder](https://github.com/Peak-Design/CADder). The manifest
 contract lives in [../schema](../schema) and outranks both halves.
 
@@ -17,7 +17,7 @@ You need SolidWorks 2022 or newer and Blender 5.1 with CADder.
 2. Start SolidWorks. Open **Tools > Add-Ins** and tick **CADder Bridge** in
    both columns if it is not ticked already.
 3. In Blender, open **Edit > Preferences > Add-ons > CADder** and tick
-   **CAD Link (experimental)**.
+   **SolidWorks Bridge**.
 
 To remove it, use **Settings > Apps > Installed apps > CADder Bridge**, or
 the entry in Control Panel. The uninstaller takes the registration out
@@ -87,9 +87,11 @@ build copies the strips next to the DLL.
 
 The add-in listens on localhost so a test harness can drive SolidWorks
 without the ribbon. Requests that change the open model (open, close,
-suppress, set a dimension, rebuild, quit) run only while **Test harness**
-is ticked in Export Options. It is off by default. Nothing saves a
-document. See [tools/README-swlab.md](tools/README-swlab.md).
+suppress, set a dimension, rebuild, quit) need a **Debug build**: a
+Release build has no switch for them and refuses them. In a Debug build
+they also run only while **Test harness** is ticked in Export Options,
+which is off by default. Nothing saves a document. See
+[tools/README-swlab.md](tools/README-swlab.md).
 
 ## Licence
 
