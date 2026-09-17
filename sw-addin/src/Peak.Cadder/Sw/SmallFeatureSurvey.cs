@@ -601,8 +601,15 @@ namespace Peak.Cadder.Sw
                 }
             }
             if (edges == 0 || minX > maxX) return null;
+            // The WIDEST SIDE of the box, not its diagonal. A dial that says
+            // 12 mm has to mean a 12 mm hole, and the diagonal of a circle's
+            // box is 1.414 times its diameter whichever way the circle
+            // faces, so the diagonal made the dial mean 8.5 mm instead.
+            // The widest side is the diameter exactly for a hole drilled
+            // along an axis, never less than 0.82 of it for one drilled at
+            // an angle, and the length of a slot rather than its diagonal.
             double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-            extent = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            extent = Math.Max(dx, Math.Max(dy, dz));
             return string.Format(
                 CultureInfo.InvariantCulture, "{0}|{1:F7},{2:F7},{3:F7}|{4:F7}",
                 edges, (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5,

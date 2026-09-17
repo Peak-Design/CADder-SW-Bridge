@@ -396,8 +396,9 @@ namespace Peak.Cadder.Sw
                 if (p[2] > maxZ) maxZ = p[2];
             }
             if (minX > maxX) return null;
+            // The widest side, matching how a rim's own size is measured.
             double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-            extent = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            extent = Math.Max(dx, Math.Max(dy, dz));
             return new[]
             {
                 (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5,
