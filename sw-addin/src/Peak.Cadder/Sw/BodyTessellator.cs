@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
 using SolidWorks.Interop.sldworks;
@@ -204,14 +205,30 @@ namespace Peak.Cadder.Sw
             int firstTriangle = mesh.Triangles.Count;
             int dropped = 0, refilled = 0, refused = 0, capped = 0;
 
+            // The faces are numbered first, because a vertex has to be able
+            // to say which one it belongs to: its surface parameters mean
+            // nothing without the surface they are on, and SurfaceUv turns
+            // them into a UV map once the triangles are all in.
             object[] faces = null;
             try { faces = body.GetFaces() as object[]; } catch { }
-            if (faces != null)
+            var numbered = new List<IFace2>();
+            var ordinalOf = new Dictionary<IntPtr, int>();
+            foreach (var o in faces ?? new object[0])
             {
-                foreach (var o in faces)
+                var found = o as IFace2;
+                if (found == null) continue;
+                ordinalOf[Identity(found)] = numbered.Count;
+                numbered.Add(found);
+            }
+            state.FaceOf = new int[vertexCount];
+            for (int i = 0; i < vertexCount; i++) state.FaceOf[i] = -1;
+
+            if (numbered.Count > 0)
+            {
+                for (int ordinal = 0; ordinal < numbered.Count; ordinal++)
                 {
-                    var face = o as IFace2;
-                    if (face == null) continue;
+                    var face = numbered[ordinal];
+                    state.Face = ordinal;
                     int[] facets = null;
                     try { facets = tess.GetFaceFacets(face) as int[]; } catch { }
                     if (facets == null || facets.Length == 0) continue;
@@ -290,6 +307,9 @@ namespace Peak.Cadder.Sw
                 orphans++;
                 IFace2 face = null;
                 try { face = tess.GetFacetFace(f) as IFace2; } catch { }
+                int ordinal;
+                state.Face = face != null
+                    && ordinalOf.TryGetValue(Identity(face), out ordinal) ? ordinal : -1;
                 int orphanMaterial = materialOf == null ? 0 : materialOf(face, body);
                 if (skipRejected && orphanMaterial < 0) continue;
                 AddFacet(state, f, orphanMaterial);
@@ -301,6 +321,12 @@ namespace Peak.Cadder.Sw
             if (log != null && state.Skipped > 0)
                 log("tessellation: " + state.Stitched + " facet(s) kept, "
                     + state.Skipped + " skipped");
+
+            // Last, because it reads the triangles: every one of them, the
+            // fills and the caps included, so a face rebuilt by this add-in
+            // gets the same UVs as one SolidWorks drew.
+            SurfaceUv.Apply(mesh, baseVertex, vertexCount, firstTriangle,
+                            numbered, state.FaceOf, log);
 
             if (simplify != null && (dropped > 0 || refilled > 0 || capped > 0))
             {
@@ -331,6 +357,16 @@ namespace Peak.Cadder.Sw
             public int VertexCount;
             public int Stitched;
             public int Skipped;
+
+            /// <summary>The face being read, as an index into the numbered
+            /// faces of the body, or -1 for a facet whose face is unknown.
+            /// </summary>
+            public int Face = -1;
+
+            /// <summary>Which face each vertex came from. A tessellated
+            /// vertex belongs to exactly one face, so a triangle writes the
+            /// face of all three.</summary>
+            public int[] FaceOf;
 
             public readonly int[] Pairs = new int[6];
             public readonly double[] P0 = new double[3];
@@ -376,6 +412,7 @@ namespace Peak.Cadder.Sw
                 int swap = b; b = c; c = swap;
             }
 
+            Claim(s, a, b, c);
             s.Mesh.Triangles.Add(s.BaseVertex + a);
             s.Mesh.Triangles.Add(s.BaseVertex + b);
             s.Mesh.Triangles.Add(s.BaseVertex + c);
@@ -408,11 +445,35 @@ namespace Peak.Cadder.Sw
             {
                 int swap = b; b = c; c = swap;
             }
+            Claim(s, a, b, c);
             s.Mesh.Triangles.Add(s.BaseVertex + a);
             s.Mesh.Triangles.Add(s.BaseVertex + b);
             s.Mesh.Triangles.Add(s.BaseVertex + c);
             s.Mesh.TriangleMaterials.Add(material);
             s.Stitched++;
+        }
+
+        /// <summary>Notes which face these three vertices came from.
+        /// </summary>
+        private static void Claim(FacetState s, int a, int b, int c)
+        {
+            if (s.FaceOf == null || s.Face < 0) return;
+            if (a < s.FaceOf.Length) s.FaceOf[a] = s.Face;
+            if (b < s.FaceOf.Length) s.FaceOf[b] = s.Face;
+            if (c < s.FaceOf.Length) s.FaceOf[c] = s.Face;
+        }
+
+        /// <summary>
+        /// The same COM object always gives the same pointer here, which is
+        /// what lets a face read back from a facet be matched with the face
+        /// it was numbered as. Comparing the wrappers would not do it: two
+        /// reads of one face need not hand back one wrapper.
+        /// </summary>
+        private static IntPtr Identity(object com)
+        {
+            IntPtr found = Marshal.GetIUnknownForObject(com);
+            Marshal.Release(found);
+            return found;
         }
 
         /// <summary>

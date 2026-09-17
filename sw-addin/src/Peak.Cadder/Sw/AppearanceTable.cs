@@ -188,7 +188,7 @@ namespace Peak.Cadder.Sw
                     ?? (ctx.Comp != null ? FromValues(SafeValues(ctx.Comp), "component") : null)
                     ?? FromValues(PartValues(ctx.Doc), "part")
                     ?? new AppearanceSpec();
-                plain.DropMapping();
+                plain.Mapping = null;
                 return Add(plain);
             }
             string source;
@@ -211,6 +211,9 @@ namespace Peak.Cadder.Sw
             }
             if (ctx.Decals != null) AddDecals(face, ctx, spec, relative);
             if (!_options.TextureMapping) spec.DropMapping();
+            // An appearance with no texture and no bump map has nothing for
+            // a mapping to place, whatever the option says.
+            if (!spec.MappingUsed) spec.Mapping = null;
             int id = Add(spec);
             if (rm != null && ctx.Decals == null) _indexOf[spec] = id;
             return id;
@@ -327,12 +330,19 @@ namespace Peak.Cadder.Sw
                 ?? ResolveFile(LibraryValue(s.Library, "bumpTexture"), ctx.DocDir, dataDir)
                 ?? ResolveFile(LibraryValue(s.Library, "texture:bump_file_texture"), ctx.DocDir, dataDir);
 
-            s.Mapping = ReadMapping(rm, s.Library);
-            // An appearance on the occurrence is placed in assembly space;
-            // the triangles are in the part's.
-            if (source == "component" && ctx.AssemblyToPart != null)
-                s.Mapping = s.Mapping.Transformed(ctx.AssemblyToPart);
-            if (relative != null) s.Mapping = s.Mapping.Transformed(relative);
+            // The mapping places the texture, so with no texture to place
+            // there is nothing to read. That saves a dozen COM properties
+            // per appearance as well as the bytes.
+            s.Mapping = null;
+            if (s.MappingUsed)
+            {
+                s.Mapping = ReadMapping(rm, s.Library);
+                // An appearance on the occurrence is placed in assembly
+                // space; the triangles are in the part's.
+                if (source == "component" && ctx.AssemblyToPart != null)
+                    s.Mapping = s.Mapping.Transformed(ctx.AssemblyToPart);
+                if (relative != null) s.Mapping = s.Mapping.Transformed(relative);
+            }
             return s;
         }
 

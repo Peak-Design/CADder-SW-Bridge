@@ -19,7 +19,9 @@ namespace Peak.Cadder.Core
     ///     projection that places it. Blender then boxes it at the
     ///     texture's own size. The mapping is the part most likely to be
     ///     wrong (see the spherical mapping in TODO.md), so it can be
-    ///     turned off without losing the image.
+    ///     turned off without losing the image. On, it travels only for an
+    ///     appearance that HAS a texture or a bump map: nothing else is
+    ///     placed by it.
     /// </summary>
     public sealed class AppearanceOptions
     {

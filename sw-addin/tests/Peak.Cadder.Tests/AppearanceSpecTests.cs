@@ -174,6 +174,29 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void OnlyATextureIsPlacedByTheMapping()
+        {
+            // The mapping is the projection that places a texture. A decal
+            // carries a mapping of its own and a colour is the same
+            // everywhere, so an appearance with neither texture has nothing
+            // for a mapping to place, and reading one out of SolidWorks is
+            // a dozen COM properties spent on nobody.
+            var spec = Gold(new[] { 0.9, 0.8, 0.5 });
+            Assert.False(spec.MappingUsed);
+
+            spec.Texture = "checker.png";
+            Assert.True(spec.MappingUsed);
+
+            spec.Texture = null;
+            spec.BumpTexture = "bumps.png";
+            Assert.True(spec.MappingUsed);
+
+            spec.BumpTexture = null;
+            spec.Decals.Add(new DecalSpec { Image = "logo.png" });
+            Assert.False(spec.MappingUsed);
+        }
+
+        [Fact]
         public void AMappingMovesWithTheFrameItIsSeenFrom()
         {
             var m = new TextureMapping { U = new[] { 1.0, 0, 0 }, V = new[] { 0, 1.0, 0 }, Centre = new[] { 0.1, 0, 0 } };

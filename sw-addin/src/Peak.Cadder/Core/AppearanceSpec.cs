@@ -58,6 +58,20 @@ namespace Peak.Cadder.Core
         /// Decals keep their own frame. A decal's placement IS its
         /// mapping, and whether decals travel at all is its own
         /// switch.</summary>
+        /// <summary>
+        /// Whether anything in this appearance is PLACED by the mapping.
+        ///
+        /// Only the texture and the bump map are. A decal carries a mapping
+        /// of its own, and a colour is the same everywhere. So an
+        /// appearance with neither texture has a mapping that says nothing,
+        /// and a mapping that says nothing is not worth reading out of
+        /// SolidWorks or sending (Oscar, 2026-09-17).
+        /// </summary>
+        public bool MappingUsed
+        {
+            get { return Texture != null || BumpTexture != null; }
+        }
+
         public void DropMapping()
         {
             if (Mapping == null) return;
