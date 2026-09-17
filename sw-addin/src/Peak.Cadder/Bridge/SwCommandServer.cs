@@ -141,7 +141,7 @@ namespace Peak.Cadder.Bridge
                 });
                 return;
             }
-            string sent = ctx.Request.Headers["X-CADLink-Token"] ?? ctx.Request.Headers["X-SWTB-Token"];
+            string sent = ctx.Request.Headers["X-CADLink-Token"];
             if (!string.Equals(sent, _token, StringComparison.Ordinal))
             {
                 Respond(ctx, 403, new Dictionary<string, object>

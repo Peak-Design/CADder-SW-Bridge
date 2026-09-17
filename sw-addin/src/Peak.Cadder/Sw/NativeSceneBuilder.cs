@@ -51,7 +51,7 @@ namespace Peak.Cadder.Sw
             List<WalkedComponent> walked, double quality, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
-            AppearanceOptions appearance = null, SimplifyOptions simplify = null)
+            AppearanceOptions appearance = null, DefeatureOptions defeature = null)
         {
             progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
@@ -93,9 +93,9 @@ namespace Peak.Cadder.Sw
                     // what the triangles carry, so it is part of the key.
                     // Two occurrences of one document share one mesh, which
                     // is most of why this path is fast. Two occurrences the
-                    // consumer wants simplified DIFFERENTLY are no longer the
+                    // consumer wants defeatured DIFFERENTLY are no longer the
                     // same geometry, so the spec is part of the key.
-                    var spec = simplify == null ? null : simplify.For(w.Id);
+                    var spec = defeature == null ? null : defeature.For(w.Id);
                     string key = DefinitionKey(leaf.Comp)
                         + materials.OccurrenceKey(leaf.Comp)
                         + (spec == null ? "" : spec.Key);
@@ -319,7 +319,7 @@ namespace Peak.Cadder.Sw
         private static double BuildDefinitions(
             Leaf leaf, List<MeshDefinition> defs, double quality,
             AppearanceTable materials, Action<string> log, bool separateSolids,
-            ref int nextId, SimplifySpec spec)
+            ref int nextId, DefeatureSpec spec)
         {
             double tolerance = 0.0;
             string baseName = leaf.Name ?? "part";
@@ -367,7 +367,7 @@ namespace Peak.Cadder.Sw
                 BodyTessellator.Append(
                     body, def, tol,
                     (face, b) => materials.Resolve(face, b, appearance, null),
-                    log, NativeExport.Simplify(body, spec, log));
+                    log, NativeExport.Defeature(body, spec, log));
             }
             // A part with one body keeps the plain name whichever way.
             if (separateSolids && defs.Count == 1) defs[0].Name = baseName;

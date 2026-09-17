@@ -167,7 +167,7 @@ process writes a small JSON file naming its port and a per-session token.
 ```
 
 `POST /ping` needs no token and answers `{"ok": true, …}`. Everything else
-goes to `POST /job` with an `X-SWTB-Token` header and a JSON body naming an
+goes to `POST /job` with an `X-CADLink-Token` header and a JSON body naming an
 `op`:
 
 | op | asks for | answers with |

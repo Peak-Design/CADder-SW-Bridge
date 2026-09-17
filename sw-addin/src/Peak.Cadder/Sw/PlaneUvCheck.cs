@@ -12,7 +12,7 @@ namespace Peak.Cadder.Sw
     /// a face's triangles with a fill of this code's own means giving the
     /// new points texture coordinates, and if those do not agree with the
     /// ones SolidWorks would have given, a textured part shifts where it
-    /// was simplified and nowhere else, which is worse than not simplifying
+    /// was defeatured and nowhere else, which is worse than not defeaturing
     /// at all.
     ///
     /// The recovery is the obvious one: a plane's surface is

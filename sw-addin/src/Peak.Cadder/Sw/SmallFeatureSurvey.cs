@@ -36,7 +36,7 @@ namespace Peak.Cadder.Sw
     /// The region is removed only when its WHOLE boundary is marked loops.
     /// A hole running into a fillet, a hole breaking the silhouette, a
     /// thread, anything odd: the walk escapes and the feature stays. There
-    /// is no repair step and nothing to fail, only "simplified" and "left
+    /// is no repair step and nothing to fail, only "defeatured" and "left
     /// alone", and the counts of each are reported so the result can be
     /// trusted.
     ///
@@ -353,7 +353,7 @@ namespace Peak.Cadder.Sw
             //
             // A face the fill refuses keeps every triangle it had. That is
             // not a failure to report as a number missed: it is the whole
-            // contract, simplified or left alone.
+            // contract, defeatured or left alone.
             foreach (var face in fillFaces)
             {
                 int before = FacetsOf(tess, new List<IFace2> { face });
@@ -451,7 +451,7 @@ namespace Peak.Cadder.Sw
                         // gone round the OUTSIDE of the body, not into a
                         // pocket. Without this a nut block with too few faces
                         // to trip the budget came back as one feature holding
-                        // every face it had, and the body simplified to
+                        // every face it had, and the body defeatured to
                         // nothing at all.
                         if (Same(next, from))
                             return "the walk came back to the face it started from";

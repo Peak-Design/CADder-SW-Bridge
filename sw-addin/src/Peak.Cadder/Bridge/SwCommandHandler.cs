@@ -276,7 +276,7 @@ namespace Peak.Cadder.Bridge
         /// Counts the small features every part of the open document could
         /// be sent without, and the triangles that would save. Reads only:
         /// it opens nothing, changes nothing and writes nothing. The first
-        /// step of the simplify work is this measurement, so the feature can
+        /// step of the defeature work is this measurement, so the feature can
         /// be judged before any of it reaches the ribbon.
         /// </summary>
         private static Dictionary<string, object> SmallFeatures(
@@ -365,7 +365,7 @@ namespace Peak.Cadder.Bridge
         /// Asks whether a planar face's texture coordinates can be rebuilt
         /// from its surface. Reads only. A fill of our own has to give its
         /// new points coordinates SolidWorks would agree with, or a textured
-        /// part shifts where it was simplified.
+        /// part shifts where it was defeatured.
         /// </summary>
         private static Dictionary<string, object> PlaneUv(
             ISldWorks app, Dictionary<string, object> request)
@@ -869,9 +869,9 @@ namespace Peak.Cadder.Bridge
                         settings.SeparateSolids, keep, bar,
                         AppearanceOptions.From(settings),
                         // A consumer asking for the whole assembly again says
-                        // which parts it holds simplified, so that a rebuild
+                        // which parts it holds defeatured, so that a rebuild
                         // gives back what the scene had rather than undoing it.
-                        SimplifyOptions.From(request));
+                        DefeatureOptions.From(request));
                     result["mesh"] = meshPath;
                 }
             }
@@ -1404,10 +1404,10 @@ namespace Peak.Cadder.Bridge
             bool separateSolids = MiniJson.Flag(
                 request, "separate_solids", settings.SeparateSolids);
             var appearance = AppearanceOptions.From(settings);
-            // Which parts travel simplified is the consumer's decision and
+            // Which parts travel defeatured is the consumer's decision and
             // arrives with the request, one entry per component. The add-in
             // holds no setting of its own.
-            var simplify = SimplifyOptions.From(request);
+            var defeature = DefeatureOptions.From(request);
             var assembly = model as IAssemblyDoc;
             MeshScene scene;
             ComponentSelection selection = null;
@@ -1421,7 +1421,7 @@ namespace Peak.Cadder.Bridge
                 selection = Selection(request, persistent);
                 scene = NativeSceneBuilder.Build(
                     walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
-                    separateSolids, appearance: appearance, simplify: simplify);
+                    separateSolids, appearance: appearance, defeature: defeature);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }
@@ -1431,7 +1431,7 @@ namespace Peak.Cadder.Bridge
                 // else simply does not apply to it.
                 scene = NativeExport.Build(
                     app, model, quality, AddIn.Log, separateSolids,
-                    appearance: appearance, simplify: simplify);
+                    appearance: appearance, defeature: defeature);
             }
             if (scene.Definitions.Count == 0) return Fail("nothing to tessellate");
 
@@ -1445,7 +1445,7 @@ namespace Peak.Cadder.Bridge
             foreach (var d in scene.Definitions) triangles += d.TriangleCount;
             AddIn.Log("sw bridge: retessellated " + scene.Instances.Count
                 + " instance(s)"
-                + (simplify.Any ? ", " + simplify.Count + " simplified," : "")
+                + (defeature.Any ? ", " + defeature.Count + " defeatured," : "")
                 + " at quality "
                 + quality.ToString("G3", CultureInfo.InvariantCulture)
                 + " -> " + triangles + " triangle(s)");

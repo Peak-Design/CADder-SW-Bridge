@@ -49,15 +49,15 @@ namespace Peak.Cadder.Sw
         public static bool Append(
             IBody2 body, MeshDefinition mesh, double tolerance,
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
-            SmallFeatureSurvey.Plan simplify = null)
+            SmallFeatureSurvey.Plan defeature = null)
         {
             if (body == null || mesh == null) return false;
             int vertexMark = mesh.VertexCount;
             int triangleMark = mesh.Triangles.Count;
             if (AppendTessellation(body, mesh, tolerance, materialOf, log,
-                                   simplify: simplify))
+                                   defeature: defeature))
             {
-                int amiss = simplify == null
+                int amiss = defeature == null
                     ? 0 : NotClosed(mesh, vertexMark, triangleMark);
                 if (amiss == 0) return true;
                 // The last word on the contract. A body SolidWorks
@@ -69,7 +69,7 @@ namespace Peak.Cadder.Sw
                 //
                 // The count is off the triangles already in hand, so it costs
                 // no call to SolidWorks and nothing at all for a body nobody
-                // asked to simplify.
+                // asked to defeature.
                 if (log != null)
                     log("small features: this body would not close ("
                         + amiss + " edge(s) wrong), so it is sent as it is");
@@ -106,7 +106,7 @@ namespace Peak.Cadder.Sw
         private static bool AppendTessellation(
             IBody2 body, MeshDefinition mesh, double tolerance,
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
-            bool skipRejected = false, SmallFeatureSurvey.Plan simplify = null)
+            bool skipRejected = false, SmallFeatureSurvey.Plan defeature = null)
         {
             ITessellation tess;
             try
@@ -240,7 +240,7 @@ namespace Peak.Cadder.Sw
                     // drew around the holes. Its facets are still marked
                     // covered, so the orphan sweep below does not put them
                     // back.
-                    if (simplify != null && simplify.IsGone(face))
+                    if (defeature != null && defeature.IsGone(face))
                     {
                         foreach (int facet in facets)
                             if (facet >= 0 && facet < facetCount) covered[facet] = true;
@@ -254,12 +254,12 @@ namespace Peak.Cadder.Sw
                     // fill was refused: a face that kept its rim while the
                     // feature behind it went would leave the body open.
                     IList<PlaneRefill.Hole> rims = null;
-                    if (simplify != null)
+                    if (defeature != null)
                     {
-                        int at = simplify.FillAt(face);
+                        int at = defeature.FillAt(face);
                         if (at >= 0)
                         {
-                            rims = simplify.FillHoles[at];
+                            rims = defeature.FillHoles[at];
                             var fill = PlaneRefill.Build(face, tess, rims, log);
                             if (fill != null)
                             {
@@ -276,8 +276,8 @@ namespace Peak.Cadder.Sw
                         }
                         else
                         {
-                            int lid = simplify.CapAt(face);
-                            if (lid >= 0) rims = simplify.CapHoles[lid];
+                            int lid = defeature.CapAt(face);
+                            if (lid >= 0) rims = defeature.CapHoles[lid];
                         }
                     }
 
@@ -328,13 +328,13 @@ namespace Peak.Cadder.Sw
             SurfaceUv.Apply(mesh, baseVertex, vertexCount, firstTriangle,
                             numbered, state.FaceOf, log);
 
-            if (simplify != null && (dropped > 0 || refilled > 0 || capped > 0))
+            if (defeature != null && (dropped > 0 || refilled > 0 || capped > 0))
             {
                 int before = vertexCount;
                 int after = Compact(mesh, baseVertex, vertexCount, firstTriangle);
                 if (log != null)
-                    log("small features: " + simplify.Removed + " removed, "
-                        + simplify.Declined + " left alone; " + dropped
+                    log("small features: " + defeature.Removed + " removed, "
+                        + defeature.Declined + " left alone; " + dropped
                         + " face(s) dropped, " + refilled + " refilled"
                         + (capped > 0 ? ", " + capped + " capped" : "")
                         + (refused > 0 ? ", " + refused + " kept their triangles "

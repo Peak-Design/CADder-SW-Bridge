@@ -103,7 +103,7 @@ namespace Peak.Cadder.Tests
         public void RoundTripsThroughItsFile()
         {
             string path = Path.Combine(Path.GetTempPath(),
-                "swtb-settings-" + System.Guid.NewGuid().ToString("N") + ".json");
+                "cadder-settings-" + System.Guid.NewGuid().ToString("N") + ".json");
             try
             {
                 var settings = new AppSettings
@@ -141,13 +141,13 @@ namespace Peak.Cadder.Tests
         public void MissingOrBrokenFileYieldsDefaults()
         {
             var missing = AppSettings.Load(null,
-                Path.Combine(Path.GetTempPath(), "swtb-none-"
+                Path.Combine(Path.GetTempPath(), "cadder-none-"
                     + System.Guid.NewGuid().ToString("N") + ".json"));
             Assert.Equal(214, missing.Ap);
             Assert.Equal("EMPTIES", missing.Hierarchy);
 
             string broken = Path.Combine(Path.GetTempPath(),
-                "swtb-broken-" + System.Guid.NewGuid().ToString("N") + ".json");
+                "cadder-broken-" + System.Guid.NewGuid().ToString("N") + ".json");
             try
             {
                 File.WriteAllText(broken, "{not json at all");

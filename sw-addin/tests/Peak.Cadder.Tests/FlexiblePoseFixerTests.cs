@@ -116,7 +116,7 @@ namespace Peak.Cadder.Tests
                 "END-ISO-10303-21;",
             };
             string path = Path.Combine(Path.GetTempPath(),
-                "swtb-flexfix-" + Guid.NewGuid().ToString("N") + ".step");
+                "cadder-flexfix-" + Guid.NewGuid().ToString("N") + ".step");
             File.WriteAllText(path, string.Join("\r\n", lines));
             _tempFiles.Add(path);
             return path;

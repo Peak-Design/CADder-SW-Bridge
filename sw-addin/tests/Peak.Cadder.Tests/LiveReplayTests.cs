@@ -61,7 +61,7 @@ namespace Peak.Cadder.Tests
             _out.WriteLine(LogReplay.Report(graph, outcome));
             try
             {
-                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
                 if (!string.IsNullOrEmpty(dir))
                     ManifestWriter.WriteFile(
                         LogReplay.ToManifest(graph, outcome, "landing_gear.step"),
@@ -173,7 +173,7 @@ namespace Peak.Cadder.Tests
 
             try
             {
-                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
                 if (!string.IsNullOrEmpty(dir))
                     ManifestWriter.WriteFile(
                         ManifestReplay.ToManifest(inputs, loops, "wrench.step"),
@@ -439,7 +439,7 @@ namespace Peak.Cadder.Tests
             foreach (var note in outcome.Loops.Notes) _out.WriteLine("NOTE " + note);
             try
             {
-                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
                 if (!string.IsNullOrEmpty(dir))
                     ManifestWriter.WriteFile(
                         LogReplay.ToManifest(graph, outcome, fixture + ".step"),
@@ -541,7 +541,7 @@ namespace Peak.Cadder.Tests
                                                                     v => v.ToString("0.####"))));
             try
             {
-                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
                 if (!string.IsNullOrEmpty(dir))
                     ManifestWriter.WriteFile(
                         ManifestReplay.ToManifest(inputs, loops, "plunger.step"),
@@ -682,7 +682,7 @@ namespace Peak.Cadder.Tests
             _out.WriteLine(report);
             try
             {
-                var dir = Environment.GetEnvironmentVariable("SWTB_REPLAY_OUT");
+                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
                 if (!string.IsNullOrEmpty(dir))
                 {
                     string stem = "tongrig";

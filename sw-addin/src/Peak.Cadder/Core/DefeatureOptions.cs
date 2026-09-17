@@ -7,14 +7,14 @@ namespace Peak.Cadder.Core
     /// <summary>
     /// What to leave out of ONE component's geometry.
     ///
-    /// Which parts travel simplified is the consumer's decision, not the CAD
+    /// Which parts travel defeatured is the consumer's decision, not the CAD
     /// application's. A bolt hole in a bracket that nobody looks at can go,
     /// and the same hole in the part on the cover of the manual cannot, and
     /// only the person building the scene knows which is which. So this
     /// arrives with the request, one entry per component, and the add-in
     /// holds no setting of its own (Oscar, 2026-09-17).
     /// </summary>
-    public sealed class SimplifySpec
+    public sealed class DefeatureSpec
     {
         /// <summary>How wide a feature may be and still be left out, in
         /// metres. Zero or less leaves everything in.</summary>
@@ -33,7 +33,7 @@ namespace Peak.Cadder.Core
         ///
         /// Two occurrences of one document share one mesh, which is most of
         /// why the native path is fast. Two occurrences with DIFFERENT
-        /// simplify settings are no longer the same geometry, so the sharing
+        /// defeature settings are no longer the same geometry, so the sharing
         /// key has to carry this.
         /// </summary>
         public string Key
@@ -48,26 +48,26 @@ namespace Peak.Cadder.Core
     }
 
     /// <summary>
-    /// The simplify specs of a whole request, by component id.
+    /// The defeature specs of a whole request, by component id.
     ///
     /// A component the request does not name travels as it is. That is the
     /// safe way round: a scene that says nothing gets the geometry it has
     /// always got.
     /// </summary>
-    public sealed class SimplifyOptions
+    public sealed class DefeatureOptions
     {
-        private readonly Dictionary<string, SimplifySpec> _byComponent =
-            new Dictionary<string, SimplifySpec>(StringComparer.Ordinal);
-        private SimplifySpec _first;
+        private readonly Dictionary<string, DefeatureSpec> _byComponent =
+            new Dictionary<string, DefeatureSpec>(StringComparer.Ordinal);
+        private DefeatureSpec _first;
 
-        public static readonly SimplifyOptions None = new SimplifyOptions();
+        public static readonly DefeatureOptions None = new DefeatureOptions();
 
-        /// <summary>Whether any component at all is to be simplified.</summary>
+        /// <summary>Whether any component at all is to be defeatured.</summary>
         public bool Any { get { return _byComponent.Count > 0; } }
 
         public int Count { get { return _byComponent.Count; } }
 
-        public void Set(string componentId, SimplifySpec spec)
+        public void Set(string componentId, DefeatureSpec spec)
         {
             if (string.IsNullOrEmpty(componentId) || spec == null || !spec.Any) return;
             _byComponent[componentId] = spec;
@@ -81,10 +81,10 @@ namespace Peak.Cadder.Core
         /// a request about a part document is answered by the one spec it
         /// sent.
         /// </summary>
-        public SimplifySpec For(string componentId)
+        public DefeatureSpec For(string componentId)
         {
             if (string.IsNullOrEmpty(componentId)) return _first;
-            SimplifySpec spec;
+            DefeatureSpec spec;
             return _byComponent.TryGetValue(componentId, out spec) ? spec : null;
         }
 
@@ -95,14 +95,14 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>
-        /// Reads the "simplify" array of a bridge request: one entry per
+        /// Reads the "defeature" array of a bridge request: one entry per
         /// component, each naming the component, the size and whether curved
         /// faces are included.
         /// </summary>
-        public static SimplifyOptions From(Dictionary<string, object> request)
+        public static DefeatureOptions From(Dictionary<string, object> request)
         {
-            var options = new SimplifyOptions();
-            var rows = MiniJson.Arr(request, "simplify");
+            var options = new DefeatureOptions();
+            var rows = MiniJson.Arr(request, "defeature");
             if (rows == null) return options;
             foreach (var row in rows)
             {
@@ -110,7 +110,7 @@ namespace Peak.Cadder.Core
                 if (entry == null) continue;
                 double size = MiniJson.Num(entry, "size_m", 0.0);
                 if (!(size > 0.0)) continue;
-                var spec = new SimplifySpec
+                var spec = new DefeatureSpec
                 {
                     Size = size,
                     Curved = MiniJson.Flag(entry, "curved", false),
