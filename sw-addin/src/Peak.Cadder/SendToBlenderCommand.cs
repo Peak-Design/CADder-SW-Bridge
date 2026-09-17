@@ -164,7 +164,8 @@ namespace Peak.Cadder
                 // ── 3. Launch + send, on a worker under the progress bar ────
                 var payload = BuildPayload(
                     settings, native ? null : stepPath, native ? meshPath : null,
-                    manifestPath, update, rigMode);
+                    manifestPath, update, rigMode,
+                    settings.MatchView ? ViewReader.Read(model) : null);
                 string doing = update
                     ? "Bringing " + baseName + " up to date in Blender…"
                     : target == null
@@ -242,7 +243,8 @@ namespace Peak.Cadder
 
         internal static Dictionary<string, object> BuildPayload(
             AppSettings settings, string stepPath, string meshPath,
-            string manifestPath, bool update = false, string rigMode = null)
+            string manifestPath, bool update = false, string rigMode = null,
+            Dictionary<string, object> view = null)
         {
             bool rig = manifestPath != null;
             var payload = new Dictionary<string, object>
@@ -288,6 +290,10 @@ namespace Peak.Cadder
                 },
             };
             if (!string.IsNullOrEmpty(rigMode)) payload["rig_mode"] = rigMode;
+            // Where SolidWorks is looking from. Blender turns its viewport
+            // to the same angle when this is here, and leaves it alone when
+            // it is not, so the setting travels as its presence.
+            if (view != null) payload["view"] = view;
             return payload;
         }
 

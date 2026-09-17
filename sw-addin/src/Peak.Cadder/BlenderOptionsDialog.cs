@@ -40,6 +40,7 @@ namespace Peak.Cadder
         private readonly CheckBox _separateSolids;
         private readonly CheckBox _trisToQuads;
         private readonly CheckBox _unwrapCompound;
+        private readonly CheckBox _matchView;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
         private readonly CheckBox _labOps;
@@ -135,6 +136,11 @@ namespace Peak.Cadder
                 + "a sphere, a torus, a blend corner or a spline surface. A "
                 + "plane, a cylinder and a cone keep the exact coordinates of "
                 + "their own surface either way");
+            _matchView = Check(
+                "Match the Blender view to this one", settings.MatchView,
+                "Turn the Blender viewport to the angle this SolidWorks view "
+                + "is at once the parts arrive, and frame the model. Off, "
+                + "Blender keeps the view it has");
             _buildRig = Check(
                 "Build the rig", settings.BuildRig,
                 "Read the mates of an assembly and build an armature in "
@@ -167,6 +173,7 @@ namespace Peak.Cadder
             import.Controls.Add(_decals);
             import.Controls.Add(_textureMapping);
             import.Controls.Add(_unwrapCompound);
+            import.Controls.Add(_matchView);
             _relationStep = Combo(new[]
             {
                 new Item { Label = "2 degrees (fine, slower export)", Value = "2" },
@@ -398,6 +405,7 @@ namespace Peak.Cadder
             settings.SeparateSolids = _separateSolids.Checked;
             settings.TrisToQuads = _trisToQuads.Checked;
             settings.UnwrapCompound = _unwrapCompound.Checked;
+            settings.MatchView = _matchView.Checked;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;
             settings.LabOps = _labOps.Checked;

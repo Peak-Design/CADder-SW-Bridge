@@ -568,7 +568,9 @@ namespace Peak.Cadder.Bridge
             string meshPath = paths.ContainsKey("mesh") ? (string)paths["mesh"] : null;
             string manifestPath = paths.ContainsKey("manifest") ? (string)paths["manifest"] : null;
             var payload = SendToBlenderCommand.BuildPayload(
-                settings, native ? null : stepPath, native ? meshPath : null, manifestPath);
+                settings, native ? null : stepPath, native ? meshPath : null,
+                manifestPath, view: settings.MatchView
+                    ? ViewReader.Read(model) : null);
             int timeoutMs = (int)(MiniJson.Num(request, "timeout_s", 600) * 1000);
             var resp = BlenderBridge.PostImport(target, payload, timeoutMs, AddIn.Log);
             var reply = new Dictionary<string, object>

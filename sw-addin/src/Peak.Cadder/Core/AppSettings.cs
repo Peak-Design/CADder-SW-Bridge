@@ -48,6 +48,10 @@ namespace Peak.Cadder.Core
         /// surface either way. The unwrap is Blender's, and this is what
         /// asks for it.</summary>
         public bool UnwrapCompound = true;
+        /// <summary>Whether Blender turns its viewport to the angle this
+        /// SolidWorks view is at once the parts arrive. Off by default: a
+        /// send should not move a view somebody is working in.</summary>
+        public bool MatchView = false;
 
         // ── The ribbon ──────────────────────────────────────────────────────
         /// <summary>When the add-in file this ribbon was built from was
@@ -160,6 +164,7 @@ namespace Peak.Cadder.Core
                 settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
                 settings.TrisToQuads = MiniJson.Flag(obj, "tris_to_quads", settings.TrisToQuads);
                 settings.UnwrapCompound = MiniJson.Flag(obj, "unwrap_compound", settings.UnwrapCompound);
+                settings.MatchView = MiniJson.Flag(obj, "match_view", settings.MatchView);
                 settings.CommandUiBuild = MiniJson.Str(obj, "command_ui_build", settings.CommandUiBuild);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
@@ -201,6 +206,7 @@ namespace Peak.Cadder.Core
                     { "separate_solids", SeparateSolids },
                     { "tris_to_quads", TrisToQuads },
                     { "unwrap_compound", UnwrapCompound },
+                    { "match_view", MatchView },
                     { "command_ui_build", CommandUiBuild },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },
