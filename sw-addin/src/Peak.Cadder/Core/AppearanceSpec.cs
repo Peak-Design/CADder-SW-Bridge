@@ -415,6 +415,12 @@ namespace Peak.Cadder.Core
                 if (close < 0) continue;
                 string key = line.Substring(1, close - 1);
                 string value = line.Substring(close + 1).Trim();
+                // One dialect of the file separates its settings with
+                // commas, and the comma is not part of the value. It left
+                // every number reading "0 ," and every empty texture path
+                // reading "\"\" ," (Conveyor12k-A00, Oscar, 2026-09-17).
+                if (value.EndsWith(",", StringComparison.Ordinal))
+                    value = value.Substring(0, value.Length - 1).TrimEnd();
                 if (value.Length >= 2 && value[0] == '"' && value[value.Length - 1] == '"')
                     value = value.Substring(1, value.Length - 2);
                 d[key] = value;

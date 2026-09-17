@@ -44,6 +44,32 @@ namespace Peak.Cadder.Tests
             Assert.Null(P2mFile.Colour(d, "col2"));
         }
 
+        /// <summary>A library file whose settings are separated by commas.
+        /// Copied from the appearance of Conveyor12k-A00 (Oscar,
+        /// 2026-09-17).</summary>
+        private const string WithCommas =
+            "\"diffuse_factor\" 0.5 ,\r\n\"specular_color\" 1 1 1 ,\r\n"
+            + "\"roughness\" 0.2997 ,\r\n\"mtl_ior\" 1 ,\r\n"
+            + "\"luminousIntensity\" 0 ,\r\n\"bumpTexture\" \"\" ,\r\n"
+            + "\"blurryReflections\" on ,\r\n";
+
+        [Fact]
+        public void TheSeparatorIsNotPartOfTheValue()
+        {
+            // Every number read "0 ," and every empty path read the two
+            // quotes with the comma still on them. Nothing here noticed,
+            // because Number takes the first word, and Blender stopped the
+            // whole import on it.
+            var d = P2mFile.Parse(WithCommas);
+            Assert.Equal("0", d["luminousIntensity"]);
+            Assert.Equal("", d["bumpTexture"]);
+            Assert.Equal("on", d["blurryReflections"]);
+            Assert.Equal("1 1 1", d["specular_color"]);
+            Assert.Equal(0.2997, P2mFile.Number(d, "roughness", -1), 6);
+            Assert.Equal(new[] { 1.0, 1.0, 1.0 },
+                         P2mFile.Colour(d, "specular_color"));
+        }
+
         [Fact]
         public void TheCategoryAndDataFolderComeFromTheLibraryPath()
         {
