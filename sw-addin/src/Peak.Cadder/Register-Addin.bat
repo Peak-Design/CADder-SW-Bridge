@@ -3,11 +3,20 @@ REM Register (or unregister) the CADder Bridge add-in with every installed
 REM SolidWorks version. Needs administrator rights: the add-in registry keys
 REM live under HKLM\SOFTWARE\SolidWorks\<version>\Addins.
 REM
-REM   Register-Addin.bat            register
+REM   Register-Addin.bat            register the Release build
+REM   Register-Addin.bat Debug      register the Debug build, which is the
+REM                                 only one that carries the test harness
 REM   Register-Addin.bat /u         unregister
 
 setlocal
-set DLL=%~dp0bin\Release\Peak.Cadder.dll
+set CONFIG=Release
+set ACTION=register
+for %%A in (%*) do (
+    if /I "%%~A"=="Debug" set CONFIG=Debug
+    if /I "%%~A"=="Release" set CONFIG=Release
+    if /I "%%~A"=="/u" set ACTION=unregister
+)
+set DLL=%~dp0bin\%CONFIG%\Peak.Cadder.dll
 set REGASM=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe
 
 REM Self-elevate if not already running as administrator.
@@ -20,7 +29,7 @@ if %errorLevel% neq 0 (
 
 if not exist "%DLL%" (
     echo ERROR: %DLL% not found. Build it first:
-    echo     dotnet build -c Release
+    echo     dotnet build -c %CONFIG%
     pause
     exit /b 1
 )
@@ -35,7 +44,7 @@ for /f "tokens=*" %%V in ('reg query "HKLM\SOFTWARE\SolidWorks" 2^>nul ^| findst
     reg delete "%%V\Addins\%CLSID%" /f >nul 2>&1
 )
 
-if /I "%~1"=="/u" (
+if /I "%ACTION%"=="unregister" (
     echo Unregistering %DLL%
     "%REGASM%" "%DLL%" /unregister
 ) else (

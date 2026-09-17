@@ -20,7 +20,8 @@ namespace Peak.Cadder.Bridge
     /// asks for the lab operations as well: open and close documents,
     /// export, send, read the mates, suppress a mate, set a dimension,
     /// rebuild, take a screenshot, quit. Those change the open model, so
-    /// they run only while AppSettings.LabOps is on, and NOTHING here ever
+    /// they run only in a Debug build with AppSettings.LabOps on, and
+    /// NOTHING here ever
     /// saves a document: a lab session leaves every file as it found it.
     /// A request that cannot be honoured comes back as ok:false rather than
     /// changing anything.
@@ -77,8 +78,10 @@ namespace Peak.Cadder.Bridge
             Dictionary<string, object> request, Func<Dictionary<string, object>> run)
         {
             var settings = AppSettings.Load(AddIn.Log);
-            if (!settings.LabOps)
-                return Fail("lab operations are off (lab_ops in the add-in settings)");
+            if (!settings.LabOpsAllowed)
+                return Fail(AppSettings.LabBuild
+                    ? "the test harness is off (lab_ops in the add-in settings)"
+                    : "this build has no test harness");
             return run();
         }
 
@@ -97,7 +100,7 @@ namespace Peak.Cadder.Bridge
                 { "title", model == null ? null : SafeTitle(model) },
                 { "type", model == null ? null : DocType(model) },
                 { "pid", System.Diagnostics.Process.GetCurrentProcess().Id },
-                { "lab_ops", settings.LabOps },
+                { "lab_ops", settings.LabOpsAllowed },
                 { "quality_preset", settings.QualityPreset },
                 { "hierarchy", settings.Hierarchy },
                 { "log_path", AddIn.LogPath },

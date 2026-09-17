@@ -6,6 +6,10 @@ Cadder_<size>.png, one strip per size with the command icons side by
 side in the order AddIn.cs registers them, and CadderMain_<size>.png
 for the group. SolidWorks asks for 20, 32, 40, 64, 96 and 128 px.
 
+The same logo also becomes installer/CADder-Bridge.ico, which is the icon
+of the setup program and the icon Windows shows in the list of installed
+applications.
+
 Needs Pillow.
 
     python tools\\Make-Icons.py
@@ -19,7 +23,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 MASTERS = os.path.join(REPO, "icons")
 ICONS = os.path.normpath(os.path.join(HERE, "..", "src", "Peak.Cadder", "icons"))
+ICO = os.path.normpath(os.path.join(HERE, "..", "installer", "CADder-Bridge.ico"))
 SIZES = (20, 32, 40, 64, 96, 128)
+# What Windows picks from for a shortcut, a title bar and the list of
+# installed applications. The master is 128 px, so nothing above it.
+ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128)
 MASTER_PX = 128
 
 # The order of AddCommandItem2 calls in AddIn.cs. The image index each
@@ -55,6 +63,8 @@ def main():
         strip.save(os.path.join(ICONS, "Cadder_%d.png" % size))
         scaled(masters[GROUP], size).save(os.path.join(ICONS, "CadderMain_%d.png" % size))
         print("%3d px: strip %dx%d, group %dx%d" % (size, strip.width, strip.height, size, size))
+    masters[GROUP].save(ICO, sizes=[(s, s) for s in ICO_SIZES])
+    print("ico: %s (%s px)" % (ICO, ", ".join(str(s) for s in ICO_SIZES)))
 
 
 if __name__ == "__main__":

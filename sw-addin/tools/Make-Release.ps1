@@ -110,10 +110,22 @@ Compress-Archive -Path "$stage\*" -DestinationPath $zip
 Write-Host "zip: $zip"
 
 # ── Installer ──────────────────────────────────────────────────────────
-$iscc = @(
+# Inno Setup installs for the machine or for one user, and winget picks the
+# second, so look in both places and in the key the installer writes.
+$isccCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+)
+foreach ($key in @(
+    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1",
+    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1")) {
+    $where = (Get-ItemProperty $key -ErrorAction SilentlyContinue).InstallLocation
+    if ($where) { $isccCandidates += (Join-Path $where "ISCC.exe") }
+}
+$isccCandidates += (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+$iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
 if ($iscc) {
     & $iscc "/DVersion=$version" (Join-Path $root "installer\CADder-Bridge.iss")

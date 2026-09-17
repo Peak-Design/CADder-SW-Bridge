@@ -19,6 +19,11 @@ You need SolidWorks 2022 or newer and Blender 5.1 with CADder.
 3. In Blender, open **Edit > Preferences > Add-ons > CADder** and tick
    **CAD Link (experimental)**.
 
+To remove it, use **Settings > Apps > Installed apps > CADder Bridge**, or
+the entry in Control Panel. The uninstaller takes the registration out
+again, so SolidWorks stops listing the add-in. Close SolidWorks first:
+both setup and uninstall refuse to run while it holds the DLL open.
+
 Without the installer: build the Release DLL and run
 `src\Peak.Cadder\Register-Addin.bat`. The script asks for
 administrator rights, because the add-in keys live under HKLM.

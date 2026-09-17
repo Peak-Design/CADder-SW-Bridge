@@ -25,6 +25,8 @@ AppName={#AppName}
 AppVersion={#Version}
 AppPublisher={#Publisher}
 AppPublisherURL=https://github.com/Peak-Design/CADder-SW-Bridge
+AppSupportURL=https://github.com/Peak-Design/CADder-SW-Bridge/issues
+AppUpdatesURL=https://github.com/Peak-Design/CADder-SW-Bridge/releases
 DefaultDirName={commonpf}\{#Publisher}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -36,7 +38,14 @@ PrivilegesRequired=admin
 Compression=lzma2
 SolidCompression=yes
 LicenseFile=..\LICENSE
-UninstallDisplayIcon={app}\Peak.Cadder.dll
+; The icon of the setup program, and the icon Windows shows beside the
+; entry in Installed apps.
+SetupIconFile=CADder-Bridge.ico
+UninstallDisplayIcon={app}\CADder-Bridge.ico
+UninstallDisplayName={#AppName}
+VersionInfoVersion={#Version}
+VersionInfoCompany={#Publisher}
+VersionInfoProductName={#AppName}
 WizardStyle=modern
 
 [Files]
@@ -44,12 +53,7 @@ Source: "{#Source}\Peak.Cadder.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\icons\*.png"; DestDir: "{app}\icons"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
-
-[Run]
-; /codebase records the DLL path in the COM registration, which is what
-; lets SolidWorks find an assembly that is not in the GAC.
-Filename: "{#RegAsm}"; Parameters: """{app}\Peak.Cadder.dll"" /codebase"; \
-  StatusMsg: "Registering the add-in with SolidWorks..."; Flags: runhidden waituntilterminated
+Source: "CADder-Bridge.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [UninstallRun]
 Filename: "{#RegAsm}"; Parameters: """{app}\Peak.Cadder.dll"" /unregister"; \
@@ -77,7 +81,35 @@ begin
   begin
     MsgBox('Close SolidWorks before you install CADder Bridge.', mbError, MB_OK);
     Result := False;
+    Exit;
   end;
+  // RegAsm comes with the .NET Framework. Windows 10 and 11 have it, but
+  // say so plainly when a machine does not, because the add-in cannot
+  // register without it.
+  if not FileExists(ExpandConstant('{#RegAsm}')) then
+  begin
+    MsgBox('Microsoft .NET Framework 4.8 is necessary for CADder Bridge.' + #13#10
+      + 'Install it, then start this setup again.', mbError, MB_OK);
+    Result := False;
+  end;
+end;
+
+// The registration is what puts the add-in on the SolidWorks ribbon.
+// /codebase records the DLL path in the COM registration, which is what
+// lets SolidWorks find an assembly that is not in the GAC. This runs here
+// rather than in [Run] so that a failure is reported: an installed add-in
+// that SolidWorks cannot see is the worst of the two outcomes.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep <> ssPostInstall then Exit;
+  if (not Exec(ExpandConstant('{#RegAsm}'),
+      '"' + ExpandConstant('{app}\Peak.Cadder.dll') + '" /codebase',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
+    MsgBox('CADder Bridge is installed, but it could not be registered with'
+      + #13#10 + 'SolidWorks. Start the setup again as an administrator.',
+      mbError, MB_OK);
 end;
 
 function InitializeUninstall(): Boolean;
