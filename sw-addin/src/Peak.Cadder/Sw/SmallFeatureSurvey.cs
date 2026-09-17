@@ -72,6 +72,10 @@ namespace Peak.Cadder.Sw
             /// <summary>Faces that would have been refilled and could not
             /// be. They keep the triangles they had, holes and all.</summary>
             public int FillRefused;
+            /// <summary>Curved faces that keep their own triangles and gain a
+            /// lid over the rim, and what those lids cost.</summary>
+            public int CappedFaces;
+            public int CapFacets;
             /// <summary>The worst a fill's area missed the area it replaced
             /// less the holes left out, as a fraction of the face. Zero bar
             /// rounding is the only right answer, and it is checked on every
@@ -100,7 +104,8 @@ namespace Peak.Cadder.Sw
                 {
                     int saved = 0;
                     foreach (var f in Features) if (f.Declined == null) saved += f.Facets;
-                    return Facets - saved - FilledFacetsBefore + FilledFacetsAfter;
+                    return Facets - saved - FilledFacetsBefore + FilledFacetsAfter
+                        + CapFacets;
                 }
             }
         }
@@ -116,6 +121,11 @@ namespace Peak.Cadder.Sw
             public List<IFace2> Gone = new List<IFace2>();
             public List<IFace2> Fill = new List<IFace2>();
             public List<List<PlaneRefill.Hole>> FillHoles =
+                new List<List<PlaneRefill.Hole>>();
+            /// <summary>Curved faces that owned a loop. These keep their own
+            /// triangles and have the rim capped: see SurfaceCap.</summary>
+            public List<IFace2> Cap = new List<IFace2>();
+            public List<List<PlaneRefill.Hole>> CapHoles =
                 new List<List<PlaneRefill.Hole>>();
             public List<Feature> Features = new List<Feature>();
             public int Faces;
@@ -134,12 +144,22 @@ namespace Peak.Cadder.Sw
             public int Declined { get { return Features.Count - Removed; } }
 
             /// <summary>Whether the plan asks for anything at all.</summary>
-            public bool Any { get { return Gone.Count > 0 || Fill.Count > 0; } }
+            public bool Any
+            {
+                get { return Gone.Count > 0 || Fill.Count > 0 || Cap.Count > 0; }
+            }
 
             public int FillAt(IFace2 face)
             {
                 for (int i = 0; i < Fill.Count; i++)
                     if (Same(Fill[i], face)) return i;
+                return -1;
+            }
+
+            public int CapAt(IFace2 face)
+            {
+                for (int i = 0; i < Cap.Count; i++)
+                    if (Same(Cap[i], face)) return i;
                 return -1;
             }
 
@@ -150,8 +170,14 @@ namespace Peak.Cadder.Sw
         /// Works out what a body could be sent without. maxExtent is the size
         /// under which an inner loop counts as small, in metres. Reads the
         /// body's topology only: no tessellation, and nothing is changed.
+        ///
+        /// curved also marks a loop on a face that is not flat, which is how
+        /// a hole drilled into a boss or a shaft is reached. The owner face
+        /// then keeps its own triangles and the rim is capped, because a
+        /// curved face rebuilt from its outline would come back flat.
         /// </summary>
-        public static Plan Choose(IBody2 body, double maxExtent, Action<string> log)
+        public static Plan Choose(
+            IBody2 body, double maxExtent, Action<string> log, bool curved = false)
         {
             var plan = new Plan();
             if (body == null) return plan;
@@ -172,8 +198,9 @@ namespace Peak.Cadder.Sw
                 var face = o as IFace2;
                 if (face == null) continue;
                 plan.Faces++;
-                if (!IsPlane(face)) continue;
-                plan.PlanarFaces++;
+                bool plane = IsPlane(face);
+                if (plane) plan.PlanarFaces++;
+                if (!plane && !curved) continue;
                 foreach (var loop in LoopsOf(face))
                 {
                     bool outer;
@@ -210,7 +237,13 @@ namespace Peak.Cadder.Sw
                 foreach (string b in bounds) if (!claimed.Contains(b)) claimed.Add(b);
                 foreach (var f in region) if (!Contains(plan.Gone, f)) plan.Gone.Add(f);
                 foreach (var owner in OwnersOf(owners, bounds))
-                    if (!Contains(plan.Fill, owner)) plan.Fill.Add(owner);
+                {
+                    // A flat owner is rebuilt from its own boundary, which is
+                    // exact and leaves the face simpler as well. A curved one
+                    // keeps its triangles and has the rim capped.
+                    var into = IsPlane(owner) ? plan.Fill : plan.Cap;
+                    if (!Contains(into, owner)) into.Add(owner);
+                }
             }
 
             // A face INSIDE a region is not filled, it is gone. Counting it
@@ -222,9 +255,13 @@ namespace Peak.Cadder.Sw
             // counterbore go rather than half of it.
             for (int i = plan.Fill.Count - 1; i >= 0; i--)
                 if (Contains(plan.Gone, plan.Fill[i])) plan.Fill.RemoveAt(i);
+            for (int i = plan.Cap.Count - 1; i >= 0; i--)
+                if (Contains(plan.Gone, plan.Cap[i])) plan.Cap.RemoveAt(i);
 
             foreach (var face in plan.Fill)
                 plan.FillHoles.Add(GoneFrom(face, claimed));
+            foreach (var face in plan.Cap)
+                plan.CapHoles.Add(GoneFrom(face, claimed));
             return plan;
         }
 
@@ -235,7 +272,7 @@ namespace Peak.Cadder.Sw
         /// </summary>
         public static Result Survey(
             IBody2 body, double maxExtent, ITessellation tess, Action<string> log,
-            double tolerance = 0.0)
+            double tolerance = 0.0, bool curved = false)
         {
             var result = new Result();
             if (body == null) return result;
@@ -245,7 +282,7 @@ namespace Peak.Cadder.Sw
             catch { return result; }
             if (faces == null) return result;
 
-            var plan = Choose(body, maxExtent, log);
+            var plan = Choose(body, maxExtent, log, curved);
             result.Faces = plan.Faces;
             result.PlanarFaces = plan.PlanarFaces;
             result.Facets = FacetsOfBody(tess, faces);
@@ -301,6 +338,15 @@ namespace Peak.Cadder.Sw
                         report.Before, report.After, report.Dropped, report.Loops,
                         before, refill.Count / 3);
                 }
+            }
+
+            // A curved owner keeps every triangle it had and gains a lid, so
+            // its cost is what the lid costs and nothing else.
+            for (int i = 0; i < plan.Cap.Count; i++)
+            {
+                result.CappedFaces++;
+                var lid = SurfaceCap.Build(plan.Cap[i], tess, plan.CapHoles[i], log);
+                if (lid != null) result.CapFacets += lid.Count / 3;
             }
             return result;
         }

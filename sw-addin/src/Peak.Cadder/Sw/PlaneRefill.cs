@@ -61,7 +61,7 @@ namespace Peak.Cadder.Sw
         {
             if (face == null || tess == null) return null;
 
-            var tris = Triangles(tess, face);
+            var tris = FaceTriangles(tess, face);
             if (tris == null || tris.Count < 3) return null;
 
             // Flat coordinates: the parameters of a plane ARE distances
@@ -157,7 +157,7 @@ namespace Peak.Cadder.Sw
         }
 
         /// <summary>A face's facets as vertex triples.</summary>
-        private static List<int> Triangles(ITessellation tess, IFace2 face)
+        internal static List<int> FaceTriangles(ITessellation tess, IFace2 face)
         {
             int[] facets = null;
             try { facets = tess.GetFaceFacets(face) as int[]; }
@@ -197,7 +197,7 @@ namespace Peak.Cadder.Sw
         /// and following those edges end to end gives the outline and every
         /// hole in it.
         /// </summary>
-        private static List<List<int>> Boundary(List<int> tris)
+        internal static List<List<int>> Boundary(List<int> tris)
         {
             var walked = new HashSet<long>();
             for (int i = 0; i < tris.Count; i += 3)
@@ -255,7 +255,7 @@ namespace Peak.Cadder.Sw
         }
 
         /// <summary>Whether a boundary loop is one of the holes that go.</summary>
-        private static bool IsGone(
+        internal static bool IsGone(
             ITessellation tess, List<int> loop, IList<Hole> gone)
         {
             if (gone == null || gone.Count == 0) return false;

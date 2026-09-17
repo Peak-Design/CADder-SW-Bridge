@@ -285,6 +285,7 @@ namespace Peak.Cadder.Bridge
             var model = ModelFor(app, request);
             if (model == null) return Fail("no document is open in SolidWorks");
             double maxExtent = MiniJson.Num(request, "max_extent_m", 0.012);
+            bool curved = MiniJson.Flag(request, "curved", false);
             var settings = AppSettings.Load(AddIn.Log);
             double quality = MiniJson.Num(
                 request, "quality",
@@ -302,7 +303,7 @@ namespace Peak.Cadder.Bridge
                     double tolerance = BodyTessellator.ToleranceFor(quality, diagonal);
                     var tess = TessellationOf(body, tolerance, needParams: true);
                     var survey = SmallFeatureSurvey.Survey(
-                        body, maxExtent, tess, AddIn.Log, tolerance);
+                        body, maxExtent, tess, AddIn.Log, tolerance, curved);
                     var declined = new Dictionary<string, object>();
                     var sizes = new List<object>();
                     foreach (var f in survey.Features)
@@ -326,6 +327,8 @@ namespace Peak.Cadder.Bridge
                         { "fill_before", survey.FilledFacetsBefore },
                         { "fill_after", survey.FilledFacetsAfter },
                         { "fill_refused", survey.FillRefused },
+                        { "capped_faces", survey.CappedFaces },
+                        { "cap_facets", survey.CapFacets },
                         { "worst_area_slip", survey.WorstAreaSlip },
                         { "worst_area_where", survey.WorstAreaWhere },
                         { "removed_sizes_m", sizes },
@@ -484,7 +487,9 @@ namespace Peak.Cadder.Bridge
                 var tess = body.GetTessellation(null) as ITessellation;
                 if (tess == null) return null;
                 tess.NeedFaceFacetMap = true;
-                tess.NeedVertexNormal = false;
+                // A curved face settles the winding of its triangles from
+                // the normals, so a survey without them cannot find its rims.
+                tess.NeedVertexNormal = true;
                 tess.NeedVertexParams = needParams;
                 tess.ImprovedQuality = true;
                 // The export's own setting: facets either side of an edge
@@ -850,7 +855,7 @@ namespace Peak.Cadder.Bridge
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
                         settings.SeparateSolids, keep, bar,
-                        AppearanceOptions.From(settings), settings.SmallFeatureCut);
+                        AppearanceOptions.From(settings));
                     result["mesh"] = meshPath;
                 }
             }
@@ -1383,6 +1388,10 @@ namespace Peak.Cadder.Bridge
             bool separateSolids = MiniJson.Flag(
                 request, "separate_solids", settings.SeparateSolids);
             var appearance = AppearanceOptions.From(settings);
+            // Which parts travel simplified is the consumer's decision and
+            // arrives with the request, one entry per component. The add-in
+            // holds no setting of its own.
+            var simplify = SimplifyOptions.From(request);
             var assembly = model as IAssemblyDoc;
             MeshScene scene;
             ComponentSelection selection = null;
@@ -1396,8 +1405,7 @@ namespace Peak.Cadder.Bridge
                 selection = Selection(request, persistent);
                 scene = NativeSceneBuilder.Build(
                     walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
-                    separateSolids, appearance: appearance,
-                    smallFeatures: AppSettings.Load(AddIn.Log).SmallFeatureCut);
+                    separateSolids, appearance: appearance, simplify: simplify);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }
@@ -1407,8 +1415,7 @@ namespace Peak.Cadder.Bridge
                 // else simply does not apply to it.
                 scene = NativeExport.Build(
                     app, model, quality, AddIn.Log, separateSolids,
-                    appearance: appearance,
-                    smallFeatures: AppSettings.Load(AddIn.Log).SmallFeatureCut);
+                    appearance: appearance, simplify: simplify);
             }
             if (scene.Definitions.Count == 0) return Fail("nothing to tessellate");
 
@@ -1421,7 +1428,9 @@ namespace Peak.Cadder.Bridge
             int triangles = 0;
             foreach (var d in scene.Definitions) triangles += d.TriangleCount;
             AddIn.Log("sw bridge: retessellated " + scene.Instances.Count
-                + " instance(s) at quality "
+                + " instance(s)"
+                + (simplify.Any ? ", " + simplify.Count + " simplified," : "")
+                + " at quality "
                 + quality.ToString("G3", CultureInfo.InvariantCulture)
                 + " -> " + triangles + " triangle(s)");
 

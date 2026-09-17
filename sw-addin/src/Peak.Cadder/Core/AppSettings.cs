@@ -37,26 +37,6 @@ namespace Peak.Cadder.Core
         /// applies no rotation and keeps the manifest frame.</summary>
         public string UpAxis = "YPOS";
         public bool SeparateSolids = false;        // a multibody part per body
-        /// <summary>Leave small features out of the geometry: bolt holes and
-        /// the like, which cost far more triangles than the shape they are
-        /// in. Nothing in the part document is touched. A feature is left
-        /// alone unless the whole of it can be accounted for, so the result
-        /// is "simplified" or "as it was", never "repaired".</summary>
-        public bool RemoveSmallFeatures = false;
-        /// <summary>How wide a feature may be and still be left out, in
-        /// metres. Measured across the loop it makes in the face it breaks
-        /// into, so it covers round holes, slots and small cutouts alike.
-        /// The corpus median at this size is a 5.8 mm hole.</summary>
-        public double SmallFeatureSize = 0.012;
-
-        /// <summary>The size to pass the tessellator: the setting when the
-        /// switch is on, and zero, which means leave everything, when it is
-        /// off. One place decides it, so the ribbon and the bridge cannot
-        /// disagree.</summary>
-        public double SmallFeatureCut
-        {
-            get { return RemoveSmallFeatures ? Math.Max(0.0, SmallFeatureSize) : 0.0; }
-        }
         /// <summary>Free edges as POLY curves. The STEP route only: a
         /// direct send carries triangles, which have no free edges.
         /// </summary>
@@ -164,10 +144,6 @@ namespace Peak.Cadder.Core
                 settings.OpenFolder = MiniJson.Flag(obj, "open_folder", settings.OpenFolder);
                 settings.Hierarchy = MiniJson.Str(obj, "hierarchy", settings.Hierarchy);
                 settings.QualityPreset = MiniJson.Str(obj, "quality_preset", settings.QualityPreset);
-                settings.RemoveSmallFeatures = MiniJson.Flag(
-                    obj, "remove_small_features", settings.RemoveSmallFeatures);
-                settings.SmallFeatureSize = MiniJson.Num(
-                    obj, "small_feature_size_m", settings.SmallFeatureSize);
                 settings.UpAxis = MiniJson.Str(obj, "up_axis", settings.UpAxis);
                 settings.BuildRig = MiniJson.Flag(obj, "build_rig", settings.BuildRig);
                 settings.AutoLaunchBlender = MiniJson.Flag(obj, "auto_launch_blender", settings.AutoLaunchBlender);
@@ -209,8 +185,6 @@ namespace Peak.Cadder.Core
                     { "open_folder", OpenFolder },
                     { "hierarchy", Hierarchy },
                     { "quality_preset", QualityPreset },
-                    { "remove_small_features", RemoveSmallFeatures },
-                    { "small_feature_size_m", SmallFeatureSize },
                     { "up_axis", UpAxis },
                     { "build_rig", BuildRig },
                     { "auto_launch_blender", AutoLaunchBlender },

@@ -178,7 +178,7 @@ namespace Peak.Cadder.Sw
                                          BaseVertex = baseVertex, VertexCount = vertexCount };
             var covered = new bool[facetCount];
             int firstTriangle = mesh.Triangles.Count;
-            int dropped = 0, refilled = 0, refused = 0;
+            int dropped = 0, refilled = 0, refused = 0, capped = 0;
 
             object[] faces = null;
             try { faces = body.GetFaces() as object[]; } catch { }
@@ -235,6 +235,19 @@ namespace Peak.Cadder.Sw
                         if (skipRejected && material < 0) continue;
                         AddFacet(state, facet, material);
                     }
+
+                    // A curved face keeps every triangle it had, because its
+                    // triangles are what give it its shape, and gains a lid
+                    // over the rim the feature left behind.
+                    if (simplify == null) continue;
+                    int lidAt = simplify.CapAt(face);
+                    if (lidAt < 0) continue;
+                    var lid = SurfaceCap.Build(
+                        face, tess, simplify.CapHoles[lidAt], log);
+                    if (lid == null) continue;
+                    for (int t = 0; t + 2 < lid.Count; t += 3)
+                        AddTriangle(state, lid[t], lid[t + 1], lid[t + 2], material);
+                    capped++;
                 }
             }
 
@@ -259,7 +272,7 @@ namespace Peak.Cadder.Sw
                 log("tessellation: " + state.Stitched + " facet(s) kept, "
                     + state.Skipped + " skipped");
 
-            if (simplify != null && (dropped > 0 || refilled > 0))
+            if (simplify != null && (dropped > 0 || refilled > 0 || capped > 0))
             {
                 int before = vertexCount;
                 int after = Compact(mesh, baseVertex, vertexCount, firstTriangle);
@@ -267,6 +280,7 @@ namespace Peak.Cadder.Sw
                     log("small features: " + simplify.Removed + " removed, "
                         + simplify.Declined + " left alone; " + dropped
                         + " face(s) dropped, " + refilled + " refilled"
+                        + (capped > 0 ? ", " + capped + " capped" : "")
                         + (refused > 0 ? ", " + refused + " kept their triangles "
                            + "because the fill refused them" : "")
                         + "; " + before + " vertices to " + after);

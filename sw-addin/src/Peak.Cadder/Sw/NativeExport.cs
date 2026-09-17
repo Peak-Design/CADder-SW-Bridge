@@ -24,10 +24,10 @@ namespace Peak.Cadder.Sw
             ISldWorks app, IModelDoc2 model, string path, double quality,
             Action<string> log, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
-            AppearanceOptions appearance = null, double smallFeatures = 0.0)
+            AppearanceOptions appearance = null, SimplifyOptions simplify = null)
         {
             var scene = Build(app, model, quality, log, separateSolids, keepPaths,
-                progress, appearance, smallFeatures);
+                progress, appearance, simplify);
             MeshWriter.Write(path, scene);
             return scene;
         }
@@ -36,7 +36,7 @@ namespace Peak.Cadder.Sw
             ISldWorks app, IModelDoc2 model, double quality, Action<string> log,
             bool separateSolids = false, HashSet<string> keepPaths = null,
             ExportProgress progress = null, AppearanceOptions appearance = null,
-            double smallFeatures = 0.0)
+            SimplifyOptions simplify = null)
         {
             var assembly = model as IAssemblyDoc;
             if (assembly != null)
@@ -47,34 +47,38 @@ namespace Peak.Cadder.Sw
                         + " component(s)", 0, 100, walked.Count);
                 return NativeSceneBuilder.Build(
                     walked, quality, log, null, separateSolids, keepPaths, progress,
-                    appearance, smallFeatures);
+                    appearance, simplify);
             }
 
             // A PART has no components to walk, so it is its own single
             // instance at the origin: the same shape of scene, one entry
             // long, which keeps the consumer from needing a second case.
             return BuildSinglePart(
-                model, quality, log, separateSolids, appearance, smallFeatures);
+                model, quality, log, separateSolids, appearance, simplify);
         }
 
-        /// <summary>The plan for what to leave out, or null when the
-        /// setting is off. Worked out per body, from its topology alone.</summary>
+        /// <summary>The plan for what to leave out of one body, or null
+        /// when this component travels as it is. Worked out from the body's
+        /// topology alone.</summary>
         internal static SmallFeatureSurvey.Plan Simplify(
-            IBody2 body, double smallFeatures, Action<string> log)
+            IBody2 body, SimplifySpec spec, Action<string> log)
         {
-            if (!(smallFeatures > 0.0)) return null;
-            var plan = SmallFeatureSurvey.Choose(body, smallFeatures, log);
+            if (spec == null || !spec.Any) return null;
+            var plan = SmallFeatureSurvey.Choose(body, spec.Size, log, spec.Curved);
             return plan != null && plan.Any ? plan : null;
         }
 
         private static MeshScene BuildSinglePart(
             IModelDoc2 model, double quality, Action<string> log,
             bool separateSolids = false, AppearanceOptions options = null,
-            double smallFeatures = 0.0)
+            SimplifyOptions simplify = null)
         {
             var scene = new MeshScene();
             var part = model as IPartDoc;
             if (part == null) return scene;
+            // A part document is one component and carries no component id,
+            // so the one spec the request sent is the one it gets.
+            var spec = simplify == null ? null : simplify.For(null);
 
             string title = SafeTitle(model);
             var materials = new AppearanceTable(scene, log, options);
@@ -122,7 +126,7 @@ namespace Peak.Cadder.Sw
                 tolerance = Math.Max(tolerance, tol);
                 BodyTessellator.Append(body, def, tol,
                     (face, b) => materials.Resolve(face, b, appearance, null), log,
-                    Simplify(body, smallFeatures, log));
+                    Simplify(body, spec, log));
             }
             // A part with one body keeps the plain name whichever way.
             if (separateSolids && defs.Count == 1) defs[0].Name = title;

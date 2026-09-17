@@ -51,7 +51,7 @@ namespace Peak.Cadder.Sw
             List<WalkedComponent> walked, double quality, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
-            AppearanceOptions appearance = null, double smallFeatures = 0.0)
+            AppearanceOptions appearance = null, SimplifyOptions simplify = null)
         {
             progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
@@ -91,7 +91,14 @@ namespace Peak.Cadder.Sw
                 {
                     // The occurrence's assembly-level appearance is part of
                     // what the triangles carry, so it is part of the key.
-                    string key = DefinitionKey(leaf.Comp) + materials.OccurrenceKey(leaf.Comp);
+                    // Two occurrences of one document share one mesh, which
+                    // is most of why this path is fast. Two occurrences the
+                    // consumer wants simplified DIFFERENTLY are no longer the
+                    // same geometry, so the spec is part of the key.
+                    var spec = simplify == null ? null : simplify.For(w.Id);
+                    string key = DefinitionKey(leaf.Comp)
+                        + materials.OccurrenceKey(leaf.Comp)
+                        + (spec == null ? "" : spec.Key);
                     List<MeshDefinition> defs;
                     if (!definitions.TryGetValue(key, out defs))
                     {
@@ -99,7 +106,7 @@ namespace Peak.Cadder.Sw
                         defs = new List<MeshDefinition>();
                         double tolerance = BuildDefinitions(
                             leaf, defs, quality, materials, log, separateSolids,
-                            ref nextId, smallFeatures);
+                            ref nextId, spec);
                         double seconds = (DateTime.UtcNow - started).TotalSeconds;
                         defs.RemoveAll(d => d.TriangleCount == 0);
                         if (defs.Count == 0)
@@ -312,7 +319,7 @@ namespace Peak.Cadder.Sw
         private static double BuildDefinitions(
             Leaf leaf, List<MeshDefinition> defs, double quality,
             AppearanceTable materials, Action<string> log, bool separateSolids,
-            ref int nextId, double smallFeatures)
+            ref int nextId, SimplifySpec spec)
         {
             double tolerance = 0.0;
             string baseName = leaf.Name ?? "part";
@@ -360,7 +367,7 @@ namespace Peak.Cadder.Sw
                 BodyTessellator.Append(
                     body, def, tol,
                     (face, b) => materials.Resolve(face, b, appearance, null),
-                    log, NativeExport.Simplify(body, smallFeatures, log));
+                    log, NativeExport.Simplify(body, spec, log));
             }
             // A part with one body keeps the plain name whichever way.
             if (separateSolids && defs.Count == 1) defs[0].Name = baseName;
