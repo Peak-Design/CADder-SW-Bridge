@@ -324,9 +324,13 @@ namespace Peak.Cadder.Sw
 
             // Last, because it reads the triangles: every one of them, the
             // fills and the caps included, so a face rebuilt by this add-in
-            // gets the same UVs as one SolidWorks drew.
-            SurfaceUv.Apply(mesh, baseVertex, vertexCount, firstTriangle,
-                            numbered, state.FaceOf, log);
+            // gets the same UVs as one SolidWorks drew. It can ADD points,
+            // where a closed face had to be cut open along its seam, so the
+            // count it hands back is the one the body now has.
+            vertexCount = SurfaceUv.Apply(mesh, baseVertex, vertexCount,
+                                          firstTriangle, numbered,
+                                          ref state.FaceOf, log);
+            state.VertexCount = vertexCount;
 
             if (defeature != null && (dropped > 0 || refilled > 0 || capped > 0))
             {
