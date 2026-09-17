@@ -38,6 +38,7 @@ namespace Peak.Cadder
         private readonly CheckBox _onlySelected;
         private readonly CheckBox _importCurves;
         private readonly CheckBox _separateSolids;
+        private readonly CheckBox _trisToQuads;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
         private readonly CheckBox _labOps;
@@ -104,6 +105,12 @@ namespace Peak.Cadder
                 "One object per solid body", settings.SeparateSolids,
                 "Split a multibody part into one Blender object per body. "
                 + "Off, the part arrives as one object");
+            _trisToQuads = Check(
+                "Triangles to quads", settings.TrisToQuads,
+                "Pair the triangles back into quads in Blender. A flat or a "
+                + "lightly curved face is cut into long thin pairs that go "
+                + "back together cleanly. Nothing is joined across a "
+                + "material, a UV island, a seam or a sharp edge");
             _onlySelected = Check(
                 "Only the selected components", settings.OnlySelected,
                 "Send the components that are selected in the assembly, and "
@@ -146,6 +153,7 @@ namespace Peak.Cadder
             import.Controls.Add(Row("Up axis:", _upAxis,
                 "Name the SolidWorks axis that points up. It becomes the Z "
                 + "axis of Blender"));
+            import.Controls.Add(_trisToQuads);
             import.Controls.Add(_separateSolids);
             import.Controls.Add(_onlySelected);
             import.Controls.Add(_appearances);
@@ -380,6 +388,7 @@ namespace Peak.Cadder
             settings.OnlySelected = _onlySelected.Checked;
             settings.ImportCurves = _importCurves.Checked;
             settings.SeparateSolids = _separateSolids.Checked;
+            settings.TrisToQuads = _trisToQuads.Checked;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;
             settings.LabOps = _labOps.Checked;

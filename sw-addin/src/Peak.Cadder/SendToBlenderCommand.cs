@@ -282,6 +282,7 @@ namespace Peak.Cadder
                         { "fw_as", "YPOS" },
                         { "import_curves", settings.ImportCurves },
                         { "separate_solids", settings.SeparateSolids },
+                        { "tris_to_quads", settings.TrisToQuads },
                     }
                 },
             };

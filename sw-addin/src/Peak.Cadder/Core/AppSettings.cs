@@ -37,6 +37,11 @@ namespace Peak.Cadder.Core
         /// applies no rotation and keeps the manifest frame.</summary>
         public string UpAxis = "YPOS";
         public bool SeparateSolids = false;        // a multibody part per body
+        /// <summary>Whether Blender pairs the tessellation triangles back
+        /// into quads. The work is Blender's, and this is what tells it to
+        /// do it, so a send and a rebuild in Blender give the same mesh.
+        /// </summary>
+        public bool TrisToQuads = true;
         /// <summary>Free edges as POLY curves. The STEP route only: a
         /// direct send carries triangles, which have no free edges.
         /// </summary>
@@ -138,6 +143,7 @@ namespace Peak.Cadder.Core
                 settings.ExportTextureMapping = MiniJson.Flag(
                     obj, "export_texture_mapping", settings.ExportTextureMapping);
                 settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
+                settings.TrisToQuads = MiniJson.Flag(obj, "tris_to_quads", settings.TrisToQuads);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
                 settings.RelationStepDeg = MiniJson.Int(obj, "relation_step_deg", settings.RelationStepDeg);
@@ -176,6 +182,7 @@ namespace Peak.Cadder.Core
                     { "only_selected", OnlySelected },
                     { "import_curves", ImportCurves },
                     { "separate_solids", SeparateSolids },
+                    { "tris_to_quads", TrisToQuads },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },
                     { "export_texture_mapping", ExportTextureMapping },
