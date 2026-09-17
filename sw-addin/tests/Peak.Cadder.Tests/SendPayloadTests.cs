@@ -30,5 +30,17 @@ namespace Peak.Cadder.Tests
             var settings = new AppSettings { TrisToQuads = false };
             Assert.Equal(false, Options(settings)["tris_to_quads"]);
         }
+
+        [Fact]
+        public void CompoundSurfacesAreUnwrappedByDefault()
+        {
+            // A sphere, a torus and a spline have no flat chart to send,
+            // so what Blender does with them is asked for here.
+            Assert.Equal(true, Options(new AppSettings())["uv_unwrap_compound"]);
+            Assert.Equal(false, Options(new AppSettings
+            {
+                UnwrapCompound = false,
+            })["uv_unwrap_compound"]);
+        }
     }
 }

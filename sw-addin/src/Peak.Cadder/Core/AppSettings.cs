@@ -42,6 +42,12 @@ namespace Peak.Cadder.Core
         /// do it, so a send and a rebuild in Blender give the same mesh.
         /// </summary>
         public bool TrisToQuads = true;
+        /// <summary>Whether Blender unwraps the faces that no one scale can
+        /// flatten: a sphere, a torus, a blend corner or a spline surface.
+        /// A plane, a cylinder and a cone keep the exact chart of their own
+        /// surface either way. The unwrap is Blender's, and this is what
+        /// asks for it.</summary>
+        public bool UnwrapCompound = true;
 
         // ── The ribbon ──────────────────────────────────────────────────────
         /// <summary>When the add-in file this ribbon was built from was
@@ -153,6 +159,7 @@ namespace Peak.Cadder.Core
                     obj, "export_texture_mapping", settings.ExportTextureMapping);
                 settings.SeparateSolids = MiniJson.Flag(obj, "separate_solids", settings.SeparateSolids);
                 settings.TrisToQuads = MiniJson.Flag(obj, "tris_to_quads", settings.TrisToQuads);
+                settings.UnwrapCompound = MiniJson.Flag(obj, "unwrap_compound", settings.UnwrapCompound);
                 settings.CommandUiBuild = MiniJson.Str(obj, "command_ui_build", settings.CommandUiBuild);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
@@ -193,6 +200,7 @@ namespace Peak.Cadder.Core
                     { "import_curves", ImportCurves },
                     { "separate_solids", SeparateSolids },
                     { "tris_to_quads", TrisToQuads },
+                    { "unwrap_compound", UnwrapCompound },
                     { "command_ui_build", CommandUiBuild },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },

@@ -283,6 +283,7 @@ namespace Peak.Cadder
                         { "import_curves", settings.ImportCurves },
                         { "separate_solids", settings.SeparateSolids },
                         { "tris_to_quads", settings.TrisToQuads },
+                        { "uv_unwrap_compound", settings.UnwrapCompound },
                     }
                 },
             };
