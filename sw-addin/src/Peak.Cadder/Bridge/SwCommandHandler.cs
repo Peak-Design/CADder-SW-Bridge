@@ -1419,9 +1419,17 @@ namespace Peak.Cadder.Bridge
                     if (w.Graph != null)
                         persistent[w.Id] = ComponentIdentity.PersistIdBase64(model, w.Comp);
                 selection = Selection(request, persistent);
+                // The consumer may name the PLACEMENTS it wants as well as
+                // the components. A component id is the rig body's, which
+                // for a rigid subassembly is every part of it, so the paths
+                // are what keep "this part again" to this part.
+                var paths = Strings(request, "paths");
+                var keepPaths = paths.Count == 0 ? null
+                    : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
                 scene = NativeSceneBuilder.Build(
                     walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
-                    separateSolids, appearance: appearance, defeature: defeature);
+                    separateSolids, keepPaths: keepPaths,
+                    appearance: appearance, defeature: defeature);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }

@@ -75,7 +75,17 @@ namespace Peak.Cadder.Sw
                 if (w.Graph != null && w.Graph.Solving != null)
                     Remember(nodes, w.Graph.Path, w.DocName, w.Id, TransformOf(w));
                 if (only != null && !only.Contains(w.Id)) continue;
-                if (keepPaths != null && (w.Graph == null || !keepPaths.Contains(w.Graph.Path)))
+                // A path names one PLACEMENT. It can be this component's
+                // own, and then everything under it travels, or it can be a
+                // part inside a rigid subassembly, and then only that part
+                // does. Every part of such a subassembly carries the
+                // SUBASSEMBLY's component id, so the id alone cannot say
+                // which: asking for one part re-tessellated the 78 parts of
+                // the branch it sits on (Conveyor12k-A00, Oscar, 2026-09-17).
+                bool wholeBranch = keepPaths == null
+                    || (w.Graph != null && keepPaths.Contains(w.Graph.Path));
+                if (!wholeBranch && (w.Graph == null
+                        || !Beneath(keepPaths, w.Graph.Path)))
                     continue;
                 // A FLEXIBLE subassembly's children are walked in their own
                 // right and become their own instances; the node itself is
@@ -89,6 +99,7 @@ namespace Peak.Cadder.Sw
 
                 foreach (var leaf in Leaves(w, nodes, log))
                 {
+                    if (!wholeBranch && !keepPaths.Contains(leaf.Path)) continue;
                     // The occurrence's assembly-level appearance is part of
                     // what the triangles carry, so it is part of the key.
                     // Two occurrences of one document share one mesh, which
@@ -176,6 +187,18 @@ namespace Peak.Cadder.Sw
 
         /// <summary>One part occurrence: the live component, what to call it,
         /// where it sits in the tree, and where it sits in the world.</summary>
+        /// <summary>Whether any wanted path sits under this one.</summary>
+        private static bool Beneath(HashSet<string> paths, string branch)
+        {
+            if (paths == null || string.IsNullOrEmpty(branch)) return false;
+            string prefix = branch + "/";
+            foreach (var path in paths)
+                if (path != null
+                        && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
         private sealed class Leaf
         {
             public IComponent2 Comp;
