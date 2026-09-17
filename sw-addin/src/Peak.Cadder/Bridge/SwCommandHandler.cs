@@ -300,7 +300,7 @@ namespace Peak.Cadder.Bridge
                     bodyIndex++;
                     double diagonal = BodyDiagonal(body);
                     double tolerance = BodyTessellator.ToleranceFor(quality, diagonal);
-                    var tess = TessellationOf(body, tolerance);
+                    var tess = TessellationOf(body, tolerance, needParams: true);
                     var survey = SmallFeatureSurvey.Survey(
                         body, maxExtent, tess, AddIn.Log, tolerance);
                     var declined = new Dictionary<string, object>();
@@ -323,8 +323,11 @@ namespace Peak.Cadder.Bridge
                         { "declined", survey.Declined },
                         { "declined_why", declined },
                         { "filled_faces", survey.FilledFaces },
-                        { "fill_measured", survey.FilledFacetsBefore },
-                        { "fill_modelled", survey.FilledFacetsModelled },
+                        { "fill_before", survey.FilledFacetsBefore },
+                        { "fill_after", survey.FilledFacetsAfter },
+                        { "fill_refused", survey.FillRefused },
+                        { "worst_area_slip", survey.WorstAreaSlip },
+                        { "worst_area_where", survey.WorstAreaWhere },
                         { "removed_sizes_m", sizes },
                     });
                 }

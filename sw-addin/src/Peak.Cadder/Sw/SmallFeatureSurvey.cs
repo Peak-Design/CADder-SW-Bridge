@@ -66,14 +66,16 @@ namespace Peak.Cadder.Sw
             public int Facets;               // the body's triangles as it is
             public int FilledFaces;          // planar faces needing a new fill
             public int FilledFacetsBefore;   // what those faces cost now
-            public int FilledFacetsAfter;    // what a polygon fill would cost
-            /// <summary>What the point model says those same faces cost as
-            /// they are, holes and all. Against FilledFacetsBefore, which is
-            /// measured, it says whether the model can be trusted at all.
-            /// The two should agree closely: a planar face needs no interior
-            /// points, so the tessellator is triangulating the same polygon
-            /// this model counts.</summary>
-            public int FilledFacetsModelled;
+            public int FilledFacetsAfter;    // what the fill really costs
+            /// <summary>Faces that would have been refilled and could not
+            /// be. They keep the triangles they had, holes and all.</summary>
+            public int FillRefused;
+            /// <summary>The worst a fill's area missed the area it replaced
+            /// less the holes left out, as a fraction of the face. Zero bar
+            /// rounding is the only right answer, and it is checked on every
+            /// face of every part rather than on a fixture.</summary>
+            public double WorstAreaSlip;
+            public string WorstAreaWhere = "";
             public List<Feature> Features = new List<Feature>();
 
             public int Removed
@@ -187,53 +189,49 @@ namespace Peak.Cadder.Sw
 
             // ── What the faces that lose their holes cost, before and after ─
             //
-            // A planar face needs no interior points, so the tessellator is
-            // triangulating the same polygon this code can count, and a
-            // polygon of P points with H holes is P + 2H - 2 triangles. That
-            // reads backwards: the face's MEASURED triangle count and its
-            // hole count give P as the tessellator actually built it, with no
-            // model in the way.
+            // Not modelled: BUILT. The fill is made for real from the face's
+            // own tessellated boundary and its triangles are counted, so the
+            // saving reported is the saving there would be. Counting instead
+            // of modelling also puts every face of the corpus through the
+            // fill, which is a harder test of it than any fixture.
             //
-            // The model is then only asked which SHARE of those points
-            // belongs to the holes that go. Counting a circle's chords
-            // outright was wrong by 1.6x on this corpus and by 5.8x on one
-            // part, because how finely SolidWorks walks a circle is its own
-            // business. The share is far steadier than the scale: every
-            // circle on a face is counted by the same rule, so the error
-            // divides out.
+            // A face the fill refuses keeps every triangle it had. That is
+            // not a failure to report as a number missed: it is the whole
+            // contract, simplified or left alone.
             foreach (var face in fillFaces)
             {
                 int before = FacetsOf(tess, new List<IFace2> { face });
-                int loops = 0, holesLost = 0;
-                double modelAll = 0.0, modelLost = 0.0;
-                foreach (var loop in LoopsOf(face))
-                {
-                    bool outer = false;
-                    try { outer = loop.IsOuter(); }
-                    catch { }
-                    if (!outer) loops++;
-                    double extent;
-                    string key = LoopKey(loop, out extent);
-                    double points = 0.0;
-                    foreach (var edge in EdgesOf(loop))
-                        points += FillPoints(edge, tolerance);
-                    modelAll += points;
-                    if (key != null && claimed.Contains(key))
-                    {
-                        modelLost += points;
-                        if (!outer) holesLost++;
-                    }
-                }
-                // P as the tessellator built it, from its own triangle count.
-                double pointsBuilt = Math.Max(3.0, before + 2 - 2.0 * loops);
-                double share = modelAll > 0.0 ? modelLost / modelAll : 0.0;
-                int lost = (int)Math.Round(pointsBuilt * share);
                 result.FilledFaces++;
                 result.FilledFacetsBefore += before;
-                result.FilledFacetsAfter +=
-                    Math.Max(1, before - lost - 2 * holesLost);
-                result.FilledFacetsModelled += (int)Math.Round(
-                    modelAll + 2.0 * loops - 2.0);
+                var report = new PlaneRefill.Report();
+                var refill = PlaneRefill.Build(
+                    face, tess, GoneFrom(face, claimed), log, report);
+                if (refill == null)
+                {
+                    result.FillRefused++;
+                    result.FilledFacetsAfter += before;
+                    continue;
+                }
+                result.FilledFacetsAfter += refill.Count / 3;
+                // PLUS, not minus. A face's own triangles cover the face
+                // WITHOUT its holes, so a hole left out is area the fill
+                // gains. Written the other way round it accused every
+                // correct fill on the corpus of being wrong by exactly
+                // twice the hole.
+                double want = Math.Abs(report.Before) + Math.Abs(report.Dropped);
+                double slip = Math.Abs(Math.Abs(report.After) - want);
+                if (Math.Abs(report.Before) > 0.0)
+                    slip /= Math.Abs(report.Before);
+                if (slip > result.WorstAreaSlip)
+                {
+                    result.WorstAreaSlip = slip;
+                    result.WorstAreaWhere = string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "before {0:G6} after {1:G6} dropped {2:G6} loops {3} "
+                        + "facets {4} -> {5}",
+                        report.Before, report.After, report.Dropped, report.Loops,
+                        before, refill.Count / 3);
+                }
             }
             return result;
         }
@@ -567,6 +565,47 @@ namespace Peak.Cadder.Sw
         /// triangulates to n + 2h - 2 triangles, and the holes that stay
         /// are the ones this survey did not claim.
         /// </summary>
+        /// <summary>The holes of this face that a region has claimed, as
+        /// the fill wants them: where they are and how wide.</summary>
+        private static List<PlaneRefill.Hole> GoneFrom(
+            IFace2 face, List<string> claimed)
+        {
+            var holes = new List<PlaneRefill.Hole>();
+            foreach (var loop in LoopsOf(face))
+            {
+                double extent;
+                string key = LoopKey(loop, out extent);
+                if (key == null || !claimed.Contains(key)) continue;
+                var centre = LoopCentre(loop);
+                if (centre == null) continue;
+                holes.Add(new PlaneRefill.Hole { Centre = centre, Extent = extent });
+            }
+            return holes;
+        }
+
+        private static double[] LoopCentre(ILoop2 loop)
+        {
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            bool any = false;
+            foreach (var edge in EdgesOf(loop))
+                foreach (var p in SamplePoints(edge))
+                {
+                    any = true;
+                    if (p[0] < minX) minX = p[0];
+                    if (p[1] < minY) minY = p[1];
+                    if (p[2] < minZ) minZ = p[2];
+                    if (p[0] > maxX) maxX = p[0];
+                    if (p[1] > maxY) maxY = p[1];
+                    if (p[2] > maxZ) maxZ = p[2];
+                }
+            if (!any) return null;
+            return new[]
+            {
+                (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5,
+            };
+        }
+
         /// <summary>What a face's whole polygon costs by the point model,
         /// holes and all when claimed is null.</summary>
         private static int FillCost(
