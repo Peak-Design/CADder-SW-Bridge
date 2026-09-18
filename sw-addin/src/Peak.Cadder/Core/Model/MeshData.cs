@@ -36,6 +36,13 @@ namespace Peak.Cadder.Core.Model
         /// place all four collapse to one value.</summary>
         public List<int> TriangleMaterials = new List<int>();
 
+        /// <summary>The first vertex of each body, in the order the bodies
+        /// were appended. A body's vertices are one run, so these starts are
+        /// all a consumer needs to tell the bodies apart. It needs that to
+        /// join each face's copy of a shared point into one point without
+        /// also joining two bodies that only touch.</summary>
+        public List<int> BodyStarts = new List<int>();
+
         public int VertexCount { get { return Positions.Count / 3; } }
         public int TriangleCount { get { return Triangles.Count / 3; } }
     }

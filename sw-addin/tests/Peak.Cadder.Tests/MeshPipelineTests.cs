@@ -111,6 +111,10 @@ namespace Peak.Cadder.Tests
             def.Uvs.AddRange(new[] { 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0 });
             def.Triangles.AddRange(new[] { 0, 1, 2, 1, 3, 2 });
             def.TriangleMaterials.AddRange(new[] { 1, 0 });
+            // Two bodies, so the file carries the section that says where
+            // each starts. Only the numbers travel: nothing here checks that
+            // the triangles keep to their own body.
+            def.BodyStarts.AddRange(new[] { 0, 2 });
             scene.Definitions.Add(def);
             scene.Instances.Add(new MeshInstance
             {
@@ -197,6 +201,39 @@ namespace Peak.Cadder.Tests
                 MeshWriter.Write(ms, scene);
                 var flags = (MeshWriter.SceneFlags)BitConverter.ToUInt32(ms.ToArray(), 8);
                 Assert.False(flags.HasFlag(MeshWriter.SceneFlags.Normals));
+            }
+        }
+
+        [Fact]
+        public void EndsWithTheNodeTableWhenEveryPartIsOneBody()
+        {
+            // No section at all for the usual case, so the file is exactly
+            // what the version 3 writer made.
+            var scene = Sample();
+            scene.Definitions[0].BodyStarts.Clear();
+            scene.Definitions[0].BodyStarts.Add(0);
+            using (var plain = new MemoryStream())
+            using (var sectioned = new MemoryStream())
+            {
+                MeshWriter.Write(plain, scene);
+                MeshWriter.Write(sectioned, Sample());
+                Assert.Equal(plain.Length + 4 + 4 + 4 + 2 * 4, sectioned.Length);
+            }
+        }
+
+        [Fact]
+        public void WritesWhereEachBodyStartsAfterTheNodes()
+        {
+            using (var ms = new MemoryStream())
+            {
+                MeshWriter.Write(ms, Sample());
+                var bytes = ms.ToArray();
+                int at = bytes.Length - (4 + 4 + 4 + 2 * 4);
+                Assert.Equal("BODY", System.Text.Encoding.ASCII.GetString(bytes, at, 4));
+                Assert.Equal(12u, BitConverter.ToUInt32(bytes, at + 4));   // length
+                Assert.Equal(2u, BitConverter.ToUInt32(bytes, at + 8));    // count
+                Assert.Equal(0, BitConverter.ToInt32(bytes, at + 12));
+                Assert.Equal(2, BitConverter.ToInt32(bytes, at + 16));
             }
         }
 

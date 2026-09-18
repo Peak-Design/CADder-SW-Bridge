@@ -38,6 +38,9 @@ namespace Peak.Cadder.Core
         /// consumer could only read the tree out of the rig manifest, so a
         /// send with no rig arrived flat, and a part inside a rigid
         /// subassembly had no place in the tree at all.
+        ///
+        /// Sections (2026-09-18) follow the node table without a new version
+        /// number, see WriteBodies.
         /// </summary>
         public const uint Version = 3;
 
@@ -133,7 +136,42 @@ namespace Peak.Cadder.Core
                 WriteString(w, node.ComponentId);
                 WriteTransform(w, node.Transform);
             }
+
+            WriteBodies(w, scene);
             w.Flush();
+        }
+
+        /// <summary>The tag of the section that says where each body of a
+        /// definition starts.</summary>
+        public static readonly byte[] BodiesTag = Encoding.ASCII.GetBytes("BODY");
+
+        /// <summary>
+        /// Sections after the node table: a 4-byte tag, a uint32 byte length,
+        /// then the data. A version 3 reader stops after the nodes and never
+        /// sees them, so a section adds to the format without a new version,
+        /// and a CADder that has not been updated still reads the file.
+        ///
+        /// BODY: for each definition in file order, a uint32 count and that
+        /// many int32 first-vertex indices. It is left out when every
+        /// definition is one body, which is the usual case.
+        /// </summary>
+        private static void WriteBodies(BinaryWriter w, MeshScene scene)
+        {
+            bool several = false;
+            foreach (var d in scene.Definitions)
+                if (d.BodyStarts.Count > 1) several = true;
+            if (!several) return;
+
+            uint length = 0;
+            foreach (var d in scene.Definitions)
+                length += 4 + 4 * (uint)d.BodyStarts.Count;
+            w.Write(BodiesTag);
+            w.Write(length);
+            foreach (var d in scene.Definitions)
+            {
+                w.Write((uint)d.BodyStarts.Count);
+                foreach (var start in d.BodyStarts) w.Write(start);
+            }
         }
 
         /// <summary>Transforms stay DOUBLE: a rotation folded into float32

@@ -54,6 +54,9 @@ namespace Peak.Cadder.Sw
             if (body == null || mesh == null) return false;
             int vertexMark = mesh.VertexCount;
             int triangleMark = mesh.Triangles.Count;
+            // Every road below appends this body's vertices from here, and a
+            // road that fails puts the mesh back to here first.
+            mesh.BodyStarts.Add(vertexMark);
             if (AppendTessellation(body, mesh, tolerance, materialOf, log,
                                    defeature: defeature))
             {
