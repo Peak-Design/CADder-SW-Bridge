@@ -140,5 +140,5 @@ if ($iscc) {
 if ($Tag) {
     git -C $repo tag "sw-v$version"
     if ($LASTEXITCODE -ne 0) { Fail "git tag failed" }
-    Write-Host "tagged sw-v$version. Push with: git push --tags"
+    Write-Host "tagged sw-v$version. Push with: git push origin sw-v$version"
 }
