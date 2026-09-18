@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/cadder-bridge.png" alt="CADder Bridge" width="128">
+  <img src="docs/images/cadder-bridge.png" alt="CADder Bridge" >
 </p>
 
-<h1 align="center">CADder SolidWorks - Blender Bridge</h1>
+<h1 align="center">CADder - SolidWorks Blender Bridge</h1>
 
 <p align="center">
   <strong>Send a SolidWorks assembly to Blender with one button: the geometry, the appearances and a rig that moves.</strong><br>
@@ -48,7 +48,7 @@ use **Settings > Apps > Installed apps**.
 ## Use
 
 <p align="center">
-  <img src="docs/images/ribbon.png" alt="The CADder Bridge tab on the SolidWorks ribbon" width="80%">
+  <img src="docs/images/ribbon.png" alt="The CADder Bridge tab on the SolidWorks ribbon">
 </p>
 
 | Button | What it does |
