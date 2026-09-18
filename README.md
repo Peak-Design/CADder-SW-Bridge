@@ -1,93 +1,113 @@
-# CADder Bridge
+<p align="center">
+  <img src="docs/images/cadder-bridge.png" alt="CADder Bridge" width="128">
+</p>
 
-**Export a SolidWorks assembly as a rigged, posable model in Blender.**
+<h1 align="center">CADder Bridge</h1>
 
-The tool is two programs joined by one file:
+<p align="center">
+  <strong>Send a SolidWorks assembly to Blender with one button: the geometry, the appearances and a rig that moves.</strong><br>
+  <a href="https://github.com/Peak-Design/CADder-SW-Bridge/releases/latest">Download</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#use">Use</a> ·
+  <a href="https://github.com/Peak-Design/CADder">CADder for Blender</a>
+</p>
 
-1. **`sw-addin/`. Peak.Cadder** (C#, SolidWorks add-in, MIT). Reads the
-   mates of the open assembly, merges components with no relative freedom into
-   rigid groups, classifies the residual freedom between groups as joints, and
-   writes a STEP file with a rig manifest (`<name>.rig.json`) beside it.
-2. **The `rig/` subpackage of
-   [CADder](https://github.com/Peak-Design/CADder)** (Python,
-   Blender 5.1+, GPL-3.0-or-later). Reads the manifest, builds an armature:
-   one bone per rigid group, constraints from the joint limits, and parents
-   the imported STEP geometry to the bones. It lives in the importer's repo
-   ([PLAN.md](PLAN.md) D10); this repo holds the SolidWorks half and the
-   contract.
+> [!IMPORTANT]
+> CADder Bridge is the SolidWorks half of a pair. The Blender half is
+> **[CADder](https://github.com/Peak-Design/CADder)**, and you need both.
 
-The manifest is the contract between them.
-[`schema/rig-manifest.schema.json`](schema/rig-manifest.schema.json) fixes its
-shape and [`schema/SCHEMA.md`](schema/SCHEMA.md) fixes its meaning: metres and
-radians, the assembly's global right-handed Z-up frame, limits as absolute
-mate values plus `value_at_rest` (consumers pose in deltas from the rest
-pose), kinematic loops pre-cut by the exporter. Either half can be replaced by
-any program that honours the contract.
+<!--
+  VIDEO: to put the export video here, open this file for editing on
+  github.com and drag the .mp4 into the editor. GitHub uploads it and
+  writes a https://github.com/user-attachments/assets/... line. Put that
+  line in place of the image below, on a line of its own, and GitHub shows
+  a player. Keep the file small: GitHub caps uploaded videos.
+-->
+![SolidWorks assemblies sent to Blender](docs/images/bridge-video.png)
 
-## Scope: what you see is what you get
+## What it sends
 
-The exporter analyses the mates of the open top-level assembly, plus the
-internal mates of subassemblies set to solve as **Flexible** (recursively). A
-rigid subassembly is one leaf body, whatever moves inside it. What moves in
-SolidWorks is what gets a bone; nothing else does.
+- **The assembly as you see it.** Parts keep their names and the tree
+  keeps its shape. A part used a hundred times is one mesh in Blender.
+- **Appearances and decals**, as Blender materials.
+- **A rig built from the mates.** Joints, limits drawn to the real values,
+  and gears, screws, cams and symmetry that drive each other.
+- **Updates, not re-imports.** Refresh Model brings the Blender scene up
+  to date and keeps your materials, modifiers and animation.
 
-## Status
+## Install
 
-**M1 in progress.** Nothing is released yet. The milestones and their
-acceptance criteria are in [PLAN.md](PLAN.md); the corpus of test assemblies
-that backs them is specified in [test-assemblies/](test-assemblies/).
+You need Windows 10 or 11 (64-bit), SolidWorks 2022 or newer, and
+Blender 5.1 with [CADder](https://github.com/Peak-Design/CADder).
 
-## Repository layout
+1. In Blender, install CADder and tick **SolidWorks Bridge** in its
+   preferences.
+2. Close SolidWorks. Run `CADder-Bridge-<version>-setup.exe` from
+   [Releases](https://github.com/Peak-Design/CADder-SW-Bridge/releases/latest).
+3. Start SolidWorks. The **CADder Bridge** tab is on the ribbon.
+
+The installer is not signed yet, so Windows may show **Windows protected
+your PC**. Click **More info**, then **Run anyway**. To remove the add-in,
+use **Settings > Apps > Installed apps**.
+
+## Use
+
+<p align="center">
+  <img src="docs/images/ribbon.png" alt="The CADder Bridge tab on the SolidWorks ribbon" width="80%">
+</p>
+
+| Button | What it does |
+|---|---|
+| **Send to Blender** | Sends the open assembly. Starts Blender if it is not running. |
+| **Export Options** | What a send carries: mesh quality, appearances, the rig, and what Blender does when it arrives. |
+| **Refresh Model** | Brings the Blender scene up to date with this assembly, part by part. |
+
+Blender can ask for a part again, finer or coarser, with **Rebuild from
+CAD** in the CADder tab.
+
+## For the best rig
+
+What moves in SolidWorks is what moves in Blender, so the rig is only as
+good as the assembly under it.
+
+- **Fully define the assembly.** Anything loose in SolidWorks is loose in
+  Blender.
+- **Fix mate errors, and leave nothing over defined.** The add-in reads
+  what SolidWorks has solved.
+- **Lock your fasteners.** A bolt on a concentric mate can spin, so it
+  gets a bone of its own.
+- **Make flexible what should move.** A rigid subassembly is one body. A
+  flexible one is solved inside.
+
+The rig is a very good starting point, not your design intent. An
+excavator arm arrives as three joints because the mates say so. Add an IK
+constraint yourself if you want one handle on the bucket.
+
+This is a first release, tested against a set of assemblies built for the
+purpose. If it gets yours wrong,
+[open an issue](https://github.com/Peak-Design/CADder-SW-Bridge/issues) and
+attach the file if you can. That is how it gets better.
+
+## For developers
 
 | Path | Contents |
 |---|---|
-| `schema/` | The manifest contract: JSON Schema, semantics, golden examples |
-| `sw-addin/` | SolidWorks add-in (C#, net48, MIT) |
-| `sw-addin/vendor/sw2urdf/` | Reference copies of the vendored SW2URDF files (MIT, not compiled) |
-| `test-assemblies/` | Build recipes for the test corpus: the `.SLDASM` files stay out of the repo |
-| `.github/workflows/` | Schema/example validation; the SolidWorks half builds locally only |
+| [`sw-addin/`](sw-addin/) | The SolidWorks add-in (C#, .NET Framework 4.8). Build, test and install notes in [its README](sw-addin/README.md). |
+| [`schema/`](schema/) | The rig manifest: the contract between the two halves. [SCHEMA.md](schema/SCHEMA.md) says what it means. |
+| [`test-assemblies/`](test-assemblies/) | Recipes for the test corpus. The SolidWorks files stay out of the repository. |
 
-## Quick start. SolidWorks add-in
-
-Users: run the installer from the Releases page, then start SolidWorks. The
-details are in [sw-addin/README.md](sw-addin/README.md).
-
-Developers need SolidWorks 2022 or newer (for the interop assemblies) and
-the .NET SDK. The build fails with a clear message when it cannot find the
-interops. Point it at them with `-p:SolidWorksApiDir=...`.
-
-```
-dotnet build sw-addin/src/Peak.Cadder/Peak.Cadder.csproj -c Release
-sw-addin/src/Peak.Cadder/Register-Addin.bat
-```
-
-Registration writes to HKLM, so the script asks for administrator rights.
-Start SolidWorks and tick **CADder Bridge** in *Tools → Add-Ins* if it is not
-already ticked. The export command writes `<assembly>.step` and
-`<assembly>.rig.json` side by side.
-
-## Quick start. Blender side
-
-Install (or update) **CADder** and tick **SolidWorks Bridge** in its
-add-on preferences. The **CADder** tab appears in the 3D View sidebar. **Send to Blender** in SolidWorks then imports and rigs the
-assembly in one step. The manual route: point the tab's Manifest field at
-a `.rig.json` with the STEP file beside it, exactly as the exporter wrote
-the pair, and press the Rig buttons in order.
+The Blender half is the `rig/` package of
+[CADder](https://github.com/Peak-Design/CADder). The halves share no code,
+only the manifest, so either can be replaced by any program that follows
+the contract. Releases: [RELEASING.md](RELEASING.md).
 
 ## Licences
 
-The two halves are licensed separately, and the split is deliberate:
+- The add-in is **MIT** ([sw-addin/LICENSE](sw-addin/LICENSE)). The
+  SolidWorks interop assemblies belong to Dassault Systèmes and are not
+  covered, see [THIRD-PARTY-NOTICES.md](sw-addin/THIRD-PARTY-NOTICES.md).
+- CADder, the Blender half, is **GPL-3.0-or-later**, as Blender add-ons
+  must be.
 
-- `sw-addin/` is **MIT** ([sw-addin/LICENSE](sw-addin/LICENSE)). The MIT
-  licence does not cover the SolidWorks interop assemblies, which are the
-  property of Dassault Systèmes, see
-  [sw-addin/THIRD-PARTY-NOTICES.md](sw-addin/THIRD-PARTY-NOTICES.md).
-- The Blender half is **GPL-3.0-or-later**, as Blender add-ons that use
-  `bpy` must be; it lives in the CADder repo and carries that repo's
-  licence.
-
-The JSON manifest is the firewall between the two domains. The halves share no
-code and communicate only through a documented file format, so the GPL side
-never links the MIT side and the MIT side carries no GPL code. Keep it that
-way: code moves across the boundary in neither direction, only the contract in
-`schema/` does.
+The manifest keeps the two apart: code crosses the boundary in neither
+direction, only the contract in `schema/` does.
