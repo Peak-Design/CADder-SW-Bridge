@@ -13,7 +13,8 @@ One step from a clean tree to a release folder:
   6. tags sw-v<version> (with -Tag)
 
 Nothing is pushed. Push the tag yourself after you have installed from the
-built installer and exported a corpus assembly, as RELEASING.md asks.
+built installer and exported a corpus assembly, as the release checklist in
+.claude\RELEASING.md asks.
 
 .PARAMETER Tag
 Create the git tag after a successful build.
@@ -69,7 +70,7 @@ if ($Tag -and (git -C $repo tag --list "sw-v$version")) {
 $check = Join-Path $root "tools\Check-Copy.py"
 if (Test-Path $check) {
     python $check $repo
-    if ($LASTEXITCODE -ne 0) { Fail "the copy check found em dashes" }
+    if ($LASTEXITCODE -ne 0) { Fail "the copy check found em dashes or client names" }
 }
 
 # ── Build and test ─────────────────────────────────────────────────────

@@ -94,12 +94,11 @@ attach the file if you can. That is how it gets better.
 |---|---|
 | [`sw-addin/`](sw-addin/) | The SolidWorks add-in (C#, .NET Framework 4.8). Build, test and install notes in [its README](sw-addin/README.md). |
 | [`schema/`](schema/) | The rig manifest: the contract between the two halves. [SCHEMA.md](schema/SCHEMA.md) says what it means. |
-| [`test-assemblies/`](test-assemblies/) | Recipes for the test corpus. The SolidWorks files stay out of the repository. |
 
 The Blender half is the `rig/` package of
 [CADder](https://github.com/Peak-Design/CADder). The halves share no code,
 only the manifest, so either can be replaced by any program that follows
-the contract. Releases: [RELEASING.md](RELEASING.md).
+the contract.
 
 ## Licences
 

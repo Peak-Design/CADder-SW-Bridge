@@ -30,7 +30,7 @@ namespace Peak.Cadder.Tests
         {
             var dir = new DirectoryInfo(Path.GetDirectoryName(here));
             while (dir != null
-                   && !File.Exists(Path.Combine(dir.FullName, "CHANGELOG.md")))
+                   && !Directory.Exists(Path.Combine(dir.FullName, "schema")))
                 dir = dir.Parent;
             Assert.True(dir != null, "no repository root above " + here);
             return dir.FullName;

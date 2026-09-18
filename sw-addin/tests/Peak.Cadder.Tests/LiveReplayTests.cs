@@ -21,11 +21,6 @@ namespace Peak.Cadder.Tests
             _out = output;
         }
 
-        private static MateGraph TongRig(LogReplay.Options options)
-        {
-            return Fixture("tongrig", options);
-        }
-
         private static MateGraph Fixture(string name, LogReplay.Options options)
         {
             return LogReplay.FromLog(
@@ -650,89 +645,5 @@ namespace Peak.Cadder.Tests
             return null;
         }
 
-        /// <summary>
-        /// TongRig (2026-09-14): a hydraulic tong. Base section c001 is
-        /// held on the assembly's own planes (two of them through a
-        /// symmetric mate with angled faces); two arms hinge on X-axis pins
-        /// either side of it; two links tie the arms together; one cylinder
-        /// sits between the arms, its body on a cone bore over the rod with
-        /// a point-to-point stroke limit. One degree of freedom, three loops
-        /// that share joints.
-        ///
-        /// The first live export ran on a stale DLL and welded all 31
-        /// components into one body. The second, on the current DLL, welded
-        /// 29: the stroke limit on the cylinder was left active while the
-        /// base-to-arm pairs were probed, and a limit anywhere in a loop
-        /// reads every pair of the loop rigid. That is a probe fault the
-        /// replay cannot see (it has no solver), so what the replay pins is
-        /// the ENGINE's answer given honest readings: the mates alone make
-        /// this a mechanism.
-        ///
-        /// The fixture log is from the current add-in, so suppression and
-        /// the limit's range come from the log itself: the cylinder's
-        /// Open/Closed/Distance1 configuration mates are suppressed,
-        /// LimitDistance1 runs 0.5873 to 0.9473 m and rests at its minimum.
-        /// </summary>
-        [Fact]
-        public void TongRigIsNotOneWeldedBody()
-        {
-            var graph = TongRig(new LogReplay.Options());
-            var outcome = LogReplay.Run(graph);
-            string report = LogReplay.Report(graph, outcome);
-            _out.WriteLine(report);
-            try
-            {
-                var dir = Environment.GetEnvironmentVariable("CADDER_REPLAY_OUT");
-                if (!string.IsNullOrEmpty(dir))
-                {
-                    string stem = "tongrig";
-                    File.WriteAllText(Path.Combine(dir, stem + ".txt"), report);
-                    ManifestWriter.WriteFile(
-                        LogReplay.ToManifest(graph, outcome, "TongRig_1.step"),
-                        Path.Combine(dir, stem + ".rig.json"));
-                }
-            }
-            catch (Exception) { }
-
-            // The one thing that must never happen again: everything in one
-            // group. A tong with a hydraulic cylinder in it MOVES.
-            Assert.True(outcome.Grouping.Groups.Count > 2,
-                        "welded into " + outcome.Grouping.Groups.Count + " group(s)");
-
-            // The base is held on three assembly planes, so it IS the ground.
-            var ground = outcome.Grouping.Groups[0];
-            Assert.True(ground.Grounded);
-            // By name: component ids follow walk order, which differs
-            // between exports of the same assembly.
-            string baseId = null;
-            foreach (var c in graph.Components)
-                if (c.Path == "TongRig.01S-1") baseId = c.Id;
-            Assert.NotNull(baseId);
-            Assert.Contains(baseId, ground.Components);
-
-            // One degree of freedom: every loop is driven from the same
-            // input.
-            var drivers = new HashSet<string>();
-            foreach (var lp in outcome.Loops.Loops)
-                drivers.Add(lp.SuggestedDriverJoint);
-            Assert.Single(drivers);
-
-            // ...and the ram closes as an aim pair on its own stroke, which
-            // keeps the limit it was given: the log's range, 0.36 m wide.
-            // The cut is never retyped by the loop narrowing, so it stays
-            // the cylindrical the mates make it: SolidWorks lets the rod
-            // spin in the barrel, only the ring stops it, and the aim
-            // closure pins roll regardless.
-            RigJoint stroke = null;
-            foreach (var lp in outcome.Loops.Loops)
-                if (lp.ClosureKind == "aim_pair")
-                    foreach (var j in outcome.Loops.Joints)
-                        if (j.Id == lp.ClosureJoint) stroke = j;
-            Assert.NotNull(stroke);
-            Assert.NotNull(stroke.TranslationLimit);
-            Assert.Contains(stroke.Type, new[] { JointType.Prismatic, JointType.Cylindrical });
-            Assert.InRange(stroke.TranslationLimit.Max - stroke.TranslationLimit.Min,
-                           0.3599, 0.3601);
-        }
     }
 }

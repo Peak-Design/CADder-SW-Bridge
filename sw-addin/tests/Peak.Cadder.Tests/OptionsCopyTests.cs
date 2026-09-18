@@ -112,7 +112,7 @@ namespace Peak.Cadder.Tests
         private static string RepositoryRoot([CallerFilePath] string here = null)
         {
             var dir = new DirectoryInfo(Path.GetDirectoryName(here));
-            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "CHANGELOG.md")))
+            while (dir != null && !Directory.Exists(Path.Combine(dir.FullName, "schema")))
                 dir = dir.Parent;
             Assert.True(dir != null, "no repository root above " + here);
             return dir.FullName;

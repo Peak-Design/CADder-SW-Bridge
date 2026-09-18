@@ -90,8 +90,8 @@ without the ribbon. Requests that change the open model (open, close,
 suppress, set a dimension, rebuild, quit) need a **Debug build**: a
 Release build has no switch for them and refuses them. In a Debug build
 they also run only while **Test harness** is ticked in Export Options,
-which is off by default. Nothing saves a document. See
-[tools/README-swlab.md](tools/README-swlab.md).
+which is off by default. Nothing saves a document. The harness itself is
+`tools\swlab.py`.
 
 ## Licence
 

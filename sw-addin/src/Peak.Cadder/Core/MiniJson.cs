@@ -7,8 +7,8 @@ namespace Peak.Cadder.Core
 {
     /// <summary>
     /// Minimal JSON reader/writer for the bridge protocol and the settings
-    /// file. House style bans Newtonsoft/System.Text.Json on net48 (see
-    /// PLAN.md), and ManifestWriter only writes: the bridge must also READ
+    /// file. House style bans Newtonsoft/System.Text.Json on net48, and
+    /// ManifestWriter only writes: the bridge must also READ
     /// what Blender answers. Objects are Dictionary&lt;string, object&gt;,
     /// arrays List&lt;object&gt;, numbers double, plus string/bool/null.
     /// Invariant culture throughout: a comma decimal separator in a payload

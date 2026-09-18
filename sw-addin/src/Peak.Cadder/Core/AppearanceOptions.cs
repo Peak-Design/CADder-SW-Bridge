@@ -18,7 +18,7 @@ namespace Peak.Cadder.Core
     ///   * Texture mapping. Off, a texture still travels, without the
     ///     projection that places it. Blender then boxes it at the
     ///     texture's own size. The mapping is the part most likely to be
-    ///     wrong (see the spherical mapping in TODO.md), so it can be
+    ///     wrong (the spherical mapping is not yet proven), so it can be
     ///     turned off without losing the image. On, it travels only for an
     ///     appearance that HAS a texture or a bump map: nothing else is
     ///     placed by it.
