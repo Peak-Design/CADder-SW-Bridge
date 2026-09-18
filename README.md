@@ -9,7 +9,8 @@
   <a href="https://github.com/Peak-Design/CADder-SW-Bridge/releases/latest">Download</a> ·
   <a href="#install">Install</a> ·
   <a href="#use">Use</a> ·
-  <a href="https://github.com/Peak-Design/CADder">CADder for Blender</a>
+  <a href="https://github.com/Peak-Design/CADder">CADder for Blender</a> ·
+  <a href="https://ko-fi.com/oskarasspalvys">Tip jar</a>
 </p>
 
 > [!IMPORTANT]
@@ -105,3 +106,10 @@ the contract.
 
 The manifest keeps the two apart: code crosses the boundary in neither
 direction, only the contract in `schema/` does.
+
+## Credits
+
+Made by **Peak Design** (Oskaras Spalvys). If CADder Bridge saves you
+time, a tip helps keep it going:
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/oskarasspalvys)
