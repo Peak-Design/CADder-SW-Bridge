@@ -302,8 +302,7 @@ namespace Peak.Cadder.Bridge
                 foreach (var body in SolidBodiesOf(kv.Value))
                 {
                     bodyIndex++;
-                    double diagonal = BodyDiagonal(body);
-                    double tolerance = BodyTessellator.ToleranceFor(quality, diagonal);
+                    double tolerance = BodyTessellator.FinenessFor(quality).Chord;
                     var tess = TessellationOf(body, tolerance, needParams: true);
                     var survey = SmallFeatureSurvey.Survey(
                         body, maxExtent, tess, AddIn.Log, tolerance, curved);
@@ -389,7 +388,7 @@ namespace Peak.Cadder.Bridge
                 {
                     bodyIndex++;
                     var tess = TessellationOf(
-                        body, BodyTessellator.ToleranceFor(quality, BodyDiagonal(body)),
+                        body, BodyTessellator.FinenessFor(quality).Chord,
                         needParams: true);
                     var check = PlaneUvCheck.Check(body, tess, AddIn.Log);
                     if (check.Vertices == 0) continue;
@@ -481,17 +480,6 @@ namespace Peak.Cadder.Bridge
                 var body = o as IBody2;
                 if (body != null) yield return body;
             }
-        }
-
-        private static double BodyDiagonal(IBody2 body)
-        {
-            double[] box = null;
-            try { box = body.GetBodyBox() as double[]; }
-            catch { }
-            if (box == null || box.Length < 6) return 0.1;
-            double dx = box[3] - box[0], dy = box[4] - box[1], dz = box[5] - box[2];
-            double d = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-            return d > 0 ? d : 0.1;
         }
 
         private static ITessellation TessellationOf(

@@ -25,20 +25,48 @@ namespace Peak.Cadder.Sw
     /// </summary>
     public static class BodyTessellator
     {
-        /// <summary>
-        /// Chord tolerance for a body, from a 0..1 quality dial. Relative to
-        /// the body's own size because an absolute tolerance either wastes
-        /// triangles on a washer or ruins a chassis. SolidWorks' own image
-        /// quality is relative for the same reason.
-        /// </summary>
-        public static double ToleranceFor(double quality, double diagonal)
+        /// <summary>How fine a body is cut: the largest distance between
+        /// the mesh and the true surface, and the largest angle one facet
+        /// may turn through.</summary>
+        public struct Fineness
         {
-            double q = Math.Max(0.0, Math.Min(1.0, quality));
-            if (diagonal <= 0.0 || double.IsNaN(diagonal)) diagonal = 0.1;
-            // 1/100th of the diagonal at the coarse end down to 1/50000th at
-            // the fine end, geometrically.
-            double fraction = 0.01 * Math.Pow(0.002, q);
-            return Math.Max(diagonal * fraction, 1e-6);
+            public double Chord;    // metres
+            public double Angle;    // radians
+        }
+
+        /// <summary>The angle for contact geometry and anything else that
+        /// asks for a chord only.</summary>
+        public const double DefaultAngle = 0.35;
+
+        // The dial at each named quality, and what it cuts to. The four
+        // names are the STEP import's presets (import_ui.QUALITY_PRESETS in
+        // CADder), so Draft over the bridge and Draft from a STEP file give
+        // the same mesh. The chord is a length, as it is there, and not a
+        // share of the body: that is what makes the two routes agree. The
+        // angle keeps a small hole round when the chord alone would leave
+        // it square. The coarse end goes past Draft, to the Detail 100 of
+        // the STEP import's simple mode and further.
+        private static readonly double[] Dials = { 0.0, 0.15, 0.45, 0.75, 1.0 };
+        private static readonly double[] Chords = { 0.005, 0.002, 0.0008, 0.0002, 0.00005 };
+        private static readonly double[] Angles = { 0.8, 0.6, 0.5, 0.25, 0.1 };
+
+        /// <summary>
+        /// The chord and angle for a 0..1 quality dial: 0 is the coarsest,
+        /// 0.15 Draft, 0.45 Balanced, 0.75 Fine and 1 Ultra. Between two
+        /// names the chord and the angle change by the same ratio for each
+        /// step of the dial.
+        /// </summary>
+        public static Fineness FinenessFor(double quality)
+        {
+            double q = double.IsNaN(quality) ? 0.45 : Math.Max(0.0, Math.Min(1.0, quality));
+            int i = 0;
+            while (i < Dials.Length - 2 && q > Dials[i + 1]) i++;
+            double t = (q - Dials[i]) / (Dials[i + 1] - Dials[i]);
+            return new Fineness
+            {
+                Chord = Chords[i] * Math.Pow(Chords[i + 1] / Chords[i], t),
+                Angle = Angles[i] * Math.Pow(Angles[i + 1] / Angles[i], t),
+            };
         }
 
         /// <summary>
@@ -47,17 +75,19 @@ namespace Peak.Cadder.Sw
         /// body must not cost the assembly.
         /// </summary>
         public static bool Append(
-            IBody2 body, MeshDefinition mesh, double tolerance,
+            IBody2 body, MeshDefinition mesh, Fineness fineness,
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
             SmallFeatureSurvey.Plan defeature = null)
         {
+            double tolerance = fineness.Chord;
+            double angle = fineness.Angle;
             if (body == null || mesh == null) return false;
             int vertexMark = mesh.VertexCount;
             int triangleMark = mesh.Triangles.Count;
             // Every road below appends this body's vertices from here, and a
             // road that fails puts the mesh back to here first.
             mesh.BodyStarts.Add(vertexMark);
-            if (AppendTessellation(body, mesh, tolerance, materialOf, log,
+            if (AppendTessellation(body, mesh, tolerance, angle, materialOf, log,
                                    defeature: defeature))
             {
                 int amiss = defeature == null
@@ -77,7 +107,7 @@ namespace Peak.Cadder.Sw
                     log("small features: this body would not close ("
                         + amiss + " edge(s) wrong), so it is sent as it is");
                 Truncate(mesh, vertexMark, triangleMark);
-                if (AppendTessellation(body, mesh, tolerance, materialOf, log))
+                if (AppendTessellation(body, mesh, tolerance, angle, materialOf, log))
                     return true;
                 Truncate(mesh, vertexMark, triangleMark);
             }
@@ -101,13 +131,13 @@ namespace Peak.Cadder.Sw
         {
             if (body == null || mesh == null || keep == null) return 0;
             int before = mesh.Triangles.Count / 3;
-            AppendTessellation(body, mesh, tolerance,
+            AppendTessellation(body, mesh, tolerance, DefaultAngle,
                 (face, b) => face != null && keep(face) ? 0 : -1, log, skipRejected: true);
             return mesh.Triangles.Count / 3 - before;
         }
 
         private static bool AppendTessellation(
-            IBody2 body, MeshDefinition mesh, double tolerance,
+            IBody2 body, MeshDefinition mesh, double tolerance, double angle,
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
             bool skipRejected = false, SmallFeatureSurvey.Plan defeature = null)
         {
@@ -133,9 +163,9 @@ namespace Peak.Cadder.Sw
                 // agrees with exactly.
                 tess.MatchType = (int)swTesselationMatchType_e.swTesselationMatchFacetTopology;
                 tess.SurfacePlaneTolerance = tolerance;
-                tess.SurfacePlaneAngleTolerance = 0.35;   // ~20 degrees
+                tess.SurfacePlaneAngleTolerance = angle;
                 tess.CurveChordTolerance = tolerance;
-                tess.CurveChordAngleTolerance = 0.35;
+                tess.CurveChordAngleTolerance = angle;
                 if (!tess.Tessellate()) return false;
             }
             catch (Exception ex)

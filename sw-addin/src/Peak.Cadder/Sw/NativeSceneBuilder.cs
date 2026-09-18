@@ -384,11 +384,10 @@ namespace Peak.Cadder.Sw
                     }
                     def = shared;
                 }
-                double diagonal = DiagonalOf(body);
-                double tol = BodyTessellator.ToleranceFor(quality, diagonal);
-                tolerance = Math.Max(tolerance, tol);
+                var fineness = BodyTessellator.FinenessFor(quality);
+                tolerance = Math.Max(tolerance, fineness.Chord);
                 BodyTessellator.Append(
-                    body, def, tol,
+                    body, def, fineness,
                     (face, b) => materials.Resolve(face, b, appearance, null),
                     log, NativeExport.Defeature(body, spec, log));
             }
@@ -494,22 +493,6 @@ namespace Peak.Cadder.Sw
             if (!string.IsNullOrEmpty(path))
                 return System.IO.Path.GetFileNameWithoutExtension(path);
             return AssemblyWalker.LastSegmentWithoutInstance(SafeName2(comp));
-        }
-
-        private static double DiagonalOf(IBody2 body)
-        {
-            try
-            {
-                var box = body.GetBodyBox() as double[];
-                if (box != null && box.Length >= 6)
-                {
-                    double dx = box[3] - box[0], dy = box[4] - box[1], dz = box[5] - box[2];
-                    double d = Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                    if (d > 1e-9) return d;
-                }
-            }
-            catch { }
-            return 0.1;
         }
     }
 }

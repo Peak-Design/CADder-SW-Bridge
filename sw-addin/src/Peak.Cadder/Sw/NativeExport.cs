@@ -122,9 +122,9 @@ namespace Peak.Cadder.Sw
                     }
                     def = shared;
                 }
-                double tol = BodyTessellator.ToleranceFor(quality, 0.1);
-                tolerance = Math.Max(tolerance, tol);
-                BodyTessellator.Append(body, def, tol,
+                var fineness = BodyTessellator.FinenessFor(quality);
+                tolerance = Math.Max(tolerance, fineness.Chord);
+                BodyTessellator.Append(body, def, fineness,
                     (face, b) => materials.Resolve(face, b, appearance, null), log,
                     Defeature(body, spec, log));
             }
