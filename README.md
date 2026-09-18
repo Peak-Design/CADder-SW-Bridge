@@ -2,7 +2,7 @@
   <img src="docs/images/cadder-bridge.png" alt="CADder Bridge" width="128">
 </p>
 
-<h1 align="center">CADder Bridge</h1>
+<h1 align="center">CADder SolidWorks - Blender Bridge</h1>
 
 <p align="center">
   <strong>Send a SolidWorks assembly to Blender with one button: the geometry, the appearances and a rig that moves.</strong><br>
