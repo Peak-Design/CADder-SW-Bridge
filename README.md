@@ -16,14 +16,7 @@
 > CADder Bridge is the SolidWorks half of a pair. The Blender half is
 > **[CADder](https://github.com/Peak-Design/CADder)**, and you need both.
 
-<!--
-  VIDEO: to put the export video here, open this file for editing on
-  github.com and drag the .mp4 into the editor. GitHub uploads it and
-  writes a https://github.com/user-attachments/assets/... line. Put that
-  line in place of the image below, on a line of its own, and GitHub shows
-  a player. Keep the file small: GitHub caps uploaded videos.
--->
-![SolidWorks assemblies sent to Blender](docs/images/bridge-video.png)
+https://github.com/user-attachments/assets/a1e8aa92-4808-44e7-b1fa-f01936616c86
 
 ## What it sends
 
