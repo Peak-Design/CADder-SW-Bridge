@@ -27,6 +27,10 @@ namespace Peak.Cadder
 
         private readonly ComboBox _hierarchy;
         private readonly ComboBox _quality;
+        private readonly NumericUpDown _distance;
+        private readonly NumericUpDown _angle;
+        private readonly CheckBox _relative;
+        private readonly NumericUpDown _relativeDistance;
         private readonly ComboBox _upAxis;
         private readonly CheckBox _buildRig;
         private readonly CheckBox _appearances;
@@ -94,6 +98,7 @@ namespace Peak.Cadder
                 new Item { Label = "Balanced (default)", Value = "BALANCED" },
                 new Item { Label = "Fine", Value = "FINE" },
                 new Item { Label = "Ultra", Value = "ULTRA" },
+                new Item { Label = "Custom", Value = "CUSTOM" },
             }, settings.QualityPreset);
             // The SolidWorks axis that points up. It becomes Blender's Z.
             _upAxis = Combo(new[]
@@ -162,9 +167,46 @@ namespace Peak.Cadder
 
             import.Controls.Add(Row("Hierarchy:", _hierarchy,
                 "Choose how the parts are arranged in the Blender outliner"));
+            // The same five settings, with the same numbers, as the STEP
+            // import and Mesh Quality in Blender.
+            _distance = Number(settings.QualityDistance * 1000.0, 0.002m, 100m, 3, 0.1m);
+            _angle = Number(settings.QualityAngle * 180.0 / Math.PI, 0.1m, 85m, 1, 1m);
+            _relative = Check(
+                "Relative tessellation", settings.QualityRelative,
+                "Cut each part to a share of its own size instead of a "
+                + "distance. Small parts keep their detail and large parts do "
+                + "not explode the triangle count");
+            _relativeDistance = Number(settings.QualityRelativeDistance, 0.00001m, 0.5m, 4, 0.001m);
             import.Controls.Add(Row("Mesh quality:", _quality,
-                "Set how finely the parts are cut into triangles. The same "
-                + "name means the same result as Update from CAD in Blender"));
+                "Set how finely the parts are cut into triangles. A name cuts "
+                + "the same way as that name in Blender, for a STEP import and "
+                + "for Rebuild from CAD"));
+            import.Controls.Add(Row("Distance (mm):", _distance,
+                "Set the largest distance between the mesh and the true "
+                + "surface, for Custom. A smaller distance gives more triangles"));
+            import.Controls.Add(Row("Angle (degrees):", _angle,
+                "Set the largest angle one facet may turn through, for Custom "
+                + "and for relative tessellation. A smaller angle gives more "
+                + "triangles"));
+            import.Controls.Add(_relative);
+            import.Controls.Add(Row("Relative distance:", _relativeDistance,
+                "Set the largest distance between the mesh and the true "
+                + "surface as a share of the size of each body, for relative "
+                + "tessellation"));
+            // A setting that does not apply stays in place, greyed out, so
+            // the dialog does not move.
+            EventHandler fineness = (s2, e2) =>
+            {
+                bool relative = _relative.Checked;
+                bool custom = Selected(_quality, "") == "CUSTOM";
+                _quality.Enabled = !relative;
+                _distance.Enabled = custom && !relative;
+                _angle.Enabled = custom || relative;
+                _relativeDistance.Enabled = relative;
+            };
+            _quality.SelectedIndexChanged += fineness;
+            _relative.CheckedChanged += fineness;
+            fineness(null, EventArgs.Empty);
             import.Controls.Add(Row("Up axis:", _upAxis,
                 "Name the SolidWorks axis that points up. It becomes the Z "
                 + "axis of Blender"));
@@ -397,6 +439,10 @@ namespace Peak.Cadder
         {
             settings.Hierarchy = Selected(_hierarchy, settings.Hierarchy);
             settings.QualityPreset = Selected(_quality, settings.QualityPreset);
+            settings.QualityDistance = (double)_distance.Value / 1000.0;
+            settings.QualityAngle = (double)_angle.Value * Math.PI / 180.0;
+            settings.QualityRelative = _relative.Checked;
+            settings.QualityRelativeDistance = (double)_relativeDistance.Value;
             settings.UpAxis = Selected(_upAxis, settings.UpAxis);
             settings.BuildRig = _buildRig.Checked;
             settings.ExportAppearances = _appearances.Checked;
@@ -483,18 +529,36 @@ namespace Peak.Cadder
             }
         }
 
-        private Control Row(string label, ComboBox combo, string tip)
+        private Control Row(string label, Control field, string tip)
         {
-            var row = Row(label, combo);
+            var row = Row(label, field);
             if (!string.IsNullOrEmpty(tip))
             {
-                _tips.SetToolTip(combo, tip);
+                _tips.SetToolTip(field, tip);
                 foreach (Control child in row.Controls) _tips.SetToolTip(child, tip);
             }
             return row;
         }
 
-        private static Control Row(string label, ComboBox combo)
+        private static NumericUpDown Number(
+            double value, decimal min, decimal max, int decimals, decimal step)
+        {
+            decimal v;
+            try { v = (decimal)value; }
+            catch (OverflowException) { v = min; }
+            return new NumericUpDown
+            {
+                Minimum = min,
+                Maximum = max,
+                DecimalPlaces = decimals,
+                Increment = step,
+                Value = Math.Max(min, Math.Min(max, v)),
+                Width = 120,
+                Margin = new Padding(0, 2, 0, 2),
+            };
+        }
+
+        private static Control Row(string label, Control combo)
         {
             var row = new FlowLayoutPanel
             {

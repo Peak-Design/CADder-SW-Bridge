@@ -32,6 +32,71 @@ namespace Peak.Cadder.Sw
         {
             public double Chord;    // metres
             public double Angle;    // radians
+
+            /// <summary>Cut each body to RelativeDistance of its own
+            /// diagonal instead of to Chord. SolidWorks takes one tolerance
+            /// for a whole body, so the body is what the share is of.</summary>
+            public bool Relative;
+            public double RelativeDistance;
+
+            /// <summary>For the log: "0.8 mm, 28.6 deg" or "0.5% of each
+            /// body, 28.6 deg".</summary>
+            public override string ToString()
+            {
+                string angle = (Angle * 180.0 / Math.PI).ToString(
+                    "0.#", CultureInfo.InvariantCulture) + " deg";
+                if (Relative)
+                    return (RelativeDistance * 100.0).ToString(
+                        "0.###", CultureInfo.InvariantCulture)
+                        + "% of each body, " + angle;
+                return (Chord * 1000.0).ToString("0.####", CultureInfo.InvariantCulture)
+                    + " mm, " + angle;
+            }
+
+            /// <summary>The chord this body is cut to.</summary>
+            public double ChordFor(IBody2 body)
+            {
+                if (!Relative) return Chord;
+                return Math.Max(RelativeDistance * BodyDiagonal(body), 1e-6);
+            }
+        }
+
+        /// <summary>Custom: a distance in metres and an angle in radians.
+        /// </summary>
+        public static Fineness Custom(double chord, double angle)
+        {
+            return new Fineness
+            {
+                Chord = Math.Max(chord, 1e-6),
+                Angle = Math.Max(angle, 0.002),
+            };
+        }
+
+        /// <summary>Relative Tessellation: a share of each body's diagonal,
+        /// and an angle in radians.</summary>
+        public static Fineness RelativeTo(double share, double angle)
+        {
+            double s = Math.Max(share, 1e-5);
+            return new Fineness
+            {
+                Chord = s * 0.1,
+                Angle = Math.Max(angle, 0.002),
+                Relative = true,
+                RelativeDistance = s,
+            };
+        }
+
+        /// <summary>The diagonal of a body's box, in metres. 0.1 m when the
+        /// body cannot say.</summary>
+        public static double BodyDiagonal(IBody2 body)
+        {
+            double[] box = null;
+            try { box = body == null ? null : body.GetBodyBox() as double[]; }
+            catch { }
+            if (box == null || box.Length < 6) return 0.1;
+            double dx = box[3] - box[0], dy = box[4] - box[1], dz = box[5] - box[2];
+            double d = Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            return d > 1e-9 ? d : 0.1;
         }
 
         /// <summary>The angle for contact geometry and anything else that
@@ -79,9 +144,9 @@ namespace Peak.Cadder.Sw
             Func<IFace2, IBody2, int> materialOf, Action<string> log,
             SmallFeatureSurvey.Plan defeature = null)
         {
-            double tolerance = fineness.Chord;
-            double angle = fineness.Angle;
             if (body == null || mesh == null) return false;
+            double tolerance = fineness.ChordFor(body);
+            double angle = fineness.Angle;
             int vertexMark = mesh.VertexCount;
             int triangleMark = mesh.Triangles.Count;
             // Every road below appends this body's vertices from here, and a

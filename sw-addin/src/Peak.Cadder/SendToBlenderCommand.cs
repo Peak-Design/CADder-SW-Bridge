@@ -108,7 +108,7 @@ namespace Peak.Cadder
                     }
                     bar.Window(78, 100);
                     NativeExport.Write(app, model, meshPath,
-                        QualityDial(settings.QualityPreset), AddIn.Log,
+                        FinenessOf(settings), AddIn.Log,
                         settings.SeparateSolids, keep, bar,
                         AppearanceOptions.From(settings));
                 }
@@ -230,6 +230,21 @@ namespace Peak.Cadder
         /// <summary>The quality preset as the 0..1 dial the tessellator
         /// takes. Named presets are what the options dialog already speaks;
         /// the dial is what a tolerance is computed from.</summary>
+        /// <summary>What the Export Options cut a send to: a quality name,
+        /// Custom, or Relative Tessellation. The same settings, with the
+        /// same meaning, as the STEP import in Blender.</summary>
+        internal static BodyTessellator.Fineness FinenessOf(AppSettings settings)
+        {
+            if (settings.QualityRelative)
+                return BodyTessellator.RelativeTo(
+                    settings.QualityRelativeDistance, settings.QualityAngle);
+            if (string.Equals(settings.QualityPreset, "CUSTOM",
+                              StringComparison.OrdinalIgnoreCase))
+                return BodyTessellator.Custom(
+                    settings.QualityDistance, settings.QualityAngle);
+            return BodyTessellator.FinenessFor(QualityDial(settings.QualityPreset));
+        }
+
         internal static double QualityDial(string preset)
         {
             switch ((preset ?? "").ToUpperInvariant())
@@ -280,6 +295,12 @@ namespace Peak.Cadder
                     {
                         { "hierarchy_types", settings.Hierarchy },
                         { "quality_preset", settings.QualityPreset },
+                        // Custom and Relative, for the STEP route: the
+                        // import dialog's own names for them.
+                        { "lin_deflection_len", settings.QualityDistance },
+                        { "ang_deflection_rot", settings.QualityAngle },
+                        { "tessellation_relative", settings.QualityRelative },
+                        { "lin_deflection_rel", settings.QualityRelativeDistance },
                         { "up_as", settings.UpAxis },
                         { "fw_as", "YPOS" },
                         { "import_curves", settings.ImportCurves },

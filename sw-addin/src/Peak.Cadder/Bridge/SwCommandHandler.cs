@@ -290,9 +290,7 @@ namespace Peak.Cadder.Bridge
             double maxExtent = MiniJson.Num(request, "max_extent_m", 0.012);
             bool curved = MiniJson.Flag(request, "curved", false);
             var settings = AppSettings.Load(AddIn.Log);
-            double quality = MiniJson.Num(
-                request, "quality",
-                SendToBlenderCommand.QualityDial(settings.QualityPreset));
+            var fineness = FinenessFrom(request, settings);
 
             var parts = new List<object>();
             foreach (var kv in PartsOf(model))
@@ -302,7 +300,7 @@ namespace Peak.Cadder.Bridge
                 foreach (var body in SolidBodiesOf(kv.Value))
                 {
                     bodyIndex++;
-                    double tolerance = BodyTessellator.FinenessFor(quality).Chord;
+                    double tolerance = fineness.ChordFor(body);
                     var tess = TessellationOf(body, tolerance, needParams: true);
                     var survey = SmallFeatureSurvey.Survey(
                         body, maxExtent, tess, AddIn.Log, tolerance, curved);
@@ -375,9 +373,7 @@ namespace Peak.Cadder.Bridge
             var model = ModelFor(app, request);
             if (model == null) return Fail("no document is open in SolidWorks");
             var settings = AppSettings.Load(AddIn.Log);
-            double quality = MiniJson.Num(
-                request, "quality",
-                SendToBlenderCommand.QualityDial(settings.QualityPreset));
+            var fineness = FinenessFrom(request, settings);
 
             var parts = new List<object>();
             foreach (var kv in PartsOf(model))
@@ -388,7 +384,7 @@ namespace Peak.Cadder.Bridge
                 {
                     bodyIndex++;
                     var tess = TessellationOf(
-                        body, BodyTessellator.FinenessFor(quality).Chord,
+                        body, fineness.ChordFor(body),
                         needParams: true);
                     var check = PlaneUvCheck.Check(body, tess, AddIn.Log);
                     if (check.Vertices == 0) continue;
@@ -852,13 +848,11 @@ namespace Peak.Cadder.Bridge
                 }
                 if (withMesh)
                 {
-                    double quality = request.ContainsKey("quality")
-                        ? MiniJson.Num(request, "quality", 0.45)
-                        : SendToBlenderCommand.QualityDial(settings.QualityPreset);
+                    var fineness = FinenessFrom(request, settings);
                     if (keep == null && onlySelected)
                         keep = Sw.Selection.KeepSet(model, AddIn.Log);
                     bar.Window(78, 100);
-                    NativeExport.Write(app, model, meshPath, quality, AddIn.Log,
+                    NativeExport.Write(app, model, meshPath, fineness, AddIn.Log,
                         settings.SeparateSolids, keep, bar,
                         AppearanceOptions.From(settings),
                         // A consumer asking for the whole assembly again says
@@ -1379,14 +1373,36 @@ namespace Peak.Cadder.Bridge
             return list;
         }
 
+        /// <summary>
+        /// What a request asks the parts to be cut to. Blender sends the
+        /// distance and the angle, or Relative Tessellation, from its Mesh
+        /// Quality settings. CADder 1.0.0 sends only the 0..1 dial, and a
+        /// request with neither takes the Export Options.
+        /// </summary>
+        internal static BodyTessellator.Fineness FinenessFrom(
+            Dictionary<string, object> request, AppSettings settings)
+        {
+            if (request != null && MiniJson.Flag(request, "relative", false))
+                return BodyTessellator.RelativeTo(
+                    MiniJson.Num(request, "relative_distance", settings.QualityRelativeDistance),
+                    MiniJson.Num(request, "angle_rad", settings.QualityAngle));
+            if (request != null && request.ContainsKey("chord_m"))
+                return BodyTessellator.Custom(
+                    MiniJson.Num(request, "chord_m", settings.QualityDistance),
+                    MiniJson.Num(request, "angle_rad", settings.QualityAngle));
+            if (request != null && request.ContainsKey("quality"))
+                return BodyTessellator.FinenessFor(MiniJson.Num(request, "quality", 0.45));
+            return SendToBlenderCommand.FinenessOf(settings);
+        }
+
         private static Dictionary<string, object> Retessellate(
             ISldWorks app, Dictionary<string, object> request)
         {
             var model = app == null ? null : app.ActiveDoc as IModelDoc2;
             if (model == null) return Fail("no document is open in SolidWorks");
 
-            double quality = MiniJson.Num(request, "quality", 0.75);
             var settings = AppSettings.Load(AddIn.Log);
+            var fineness = FinenessFrom(request, settings);
             // The geometry has to come back in the SAME pieces it went out
             // in. Asking for a body-split part again without this returned
             // the whole part as one definition, and the consumer then put
@@ -1420,7 +1436,7 @@ namespace Peak.Cadder.Bridge
                 var keepPaths = paths.Count == 0 ? null
                     : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
                 scene = NativeSceneBuilder.Build(
-                    walked, quality, AddIn.Log, selection.Everything ? null : selection.Ids,
+                    walked, fineness, AddIn.Log, selection.Everything ? null : selection.Ids,
                     separateSolids, keepPaths: keepPaths,
                     appearance: appearance, defeature: defeature);
                 if (!selection.Everything && scene.Instances.Count == 0)
@@ -1431,7 +1447,7 @@ namespace Peak.Cadder.Bridge
                 // A part document is one component; a filter naming anything
                 // else simply does not apply to it.
                 scene = NativeExport.Build(
-                    app, model, quality, AddIn.Log, separateSolids,
+                    app, model, fineness, AddIn.Log, separateSolids,
                     appearance: appearance, defeature: defeature);
             }
             if (scene.Definitions.Count == 0) return Fail("nothing to tessellate");
@@ -1447,8 +1463,7 @@ namespace Peak.Cadder.Bridge
             AddIn.Log("sw bridge: retessellated " + scene.Instances.Count
                 + " instance(s)"
                 + (defeature.Any ? ", " + defeature.Count + " defeatured," : "")
-                + " at quality "
-                + quality.ToString("G3", CultureInfo.InvariantCulture)
+                + " at " + fineness
                 + " -> " + triangles + " triangle(s)");
 
             return new Dictionary<string, object>

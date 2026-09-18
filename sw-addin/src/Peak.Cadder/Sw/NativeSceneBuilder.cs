@@ -48,7 +48,7 @@ namespace Peak.Cadder.Sw
         /// tessellated the whole assembly whatever it said (2026-09-16).
         /// </summary>
         public static MeshScene Build(
-            List<WalkedComponent> walked, double quality, Action<string> log,
+            List<WalkedComponent> walked, BodyTessellator.Fineness fineness, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
             AppearanceOptions appearance = null, DefeatureOptions defeature = null)
@@ -116,7 +116,7 @@ namespace Peak.Cadder.Sw
                         var started = DateTime.UtcNow;
                         defs = new List<MeshDefinition>();
                         double tolerance = BuildDefinitions(
-                            leaf, defs, quality, materials, log, separateSolids,
+                            leaf, defs, fineness, materials, log, separateSolids,
                             ref nextId, spec);
                         double seconds = (DateTime.UtcNow - started).TotalSeconds;
                         defs.RemoveAll(d => d.TriangleCount == 0);
@@ -340,7 +340,7 @@ namespace Peak.Cadder.Sw
         /// importer's "separate solids": a multibody part as one object per
         /// body). Returns the tolerance used.</summary>
         private static double BuildDefinitions(
-            Leaf leaf, List<MeshDefinition> defs, double quality,
+            Leaf leaf, List<MeshDefinition> defs, BodyTessellator.Fineness fineness,
             AppearanceTable materials, Action<string> log, bool separateSolids,
             ref int nextId, DefeatureSpec spec)
         {
@@ -384,8 +384,7 @@ namespace Peak.Cadder.Sw
                     }
                     def = shared;
                 }
-                var fineness = BodyTessellator.FinenessFor(quality);
-                tolerance = Math.Max(tolerance, fineness.Chord);
+                tolerance = Math.Max(tolerance, fineness.ChordFor(body));
                 BodyTessellator.Append(
                     body, def, fineness,
                     (face, b) => materials.Resolve(face, b, appearance, null),

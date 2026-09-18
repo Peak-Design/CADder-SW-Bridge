@@ -30,7 +30,18 @@ namespace Peak.Cadder.Core
 
         // ── Blender import (forwarded over the bridge) ──────────────────────
         public string Hierarchy = "EMPTIES";       // FLAT|TREE|EMPTIES|COLLECTION_INSTANCES
-        public string QualityPreset = "BALANCED";  // DRAFT|BALANCED|FINE|ULTRA
+        public string QualityPreset = "BALANCED";  // DRAFT|BALANCED|FINE|ULTRA|CUSTOM
+        /// <summary>What Custom cuts to: the largest distance between the
+        /// mesh and the true surface, in metres, and the largest angle one
+        /// facet may turn through, in radians. The same two settings as the
+        /// STEP import's Custom.</summary>
+        public double QualityDistance = 0.0008;
+        public double QualityAngle = 0.5;
+        /// <summary>Cut each body to a share of its own size instead of a
+        /// distance, with QualityAngle. The STEP import's Relative
+        /// Tessellation, which measures each edge instead.</summary>
+        public bool QualityRelative = false;
+        public double QualityRelativeDistance = 0.005;
         /// <summary>The SolidWorks axis that becomes Blender's Z (the
         /// STEP importer's up_as spelling). SolidWorks models are Y up
         /// by convention, so YPOS turns them upright in Blender; ZPOS
@@ -191,6 +202,10 @@ namespace Peak.Cadder.Core
                 settings.OpenFolder = MiniJson.Flag(obj, "open_folder", settings.OpenFolder);
                 settings.Hierarchy = MiniJson.Str(obj, "hierarchy", settings.Hierarchy);
                 settings.QualityPreset = MiniJson.Str(obj, "quality_preset", settings.QualityPreset);
+                settings.QualityDistance = MiniJson.Num(obj, "quality_distance_m", settings.QualityDistance);
+                settings.QualityAngle = MiniJson.Num(obj, "quality_angle_rad", settings.QualityAngle);
+                settings.QualityRelative = MiniJson.Flag(obj, "quality_relative", settings.QualityRelative);
+                settings.QualityRelativeDistance = MiniJson.Num(obj, "quality_relative_distance", settings.QualityRelativeDistance);
                 settings.UpAxis = MiniJson.Str(obj, "up_axis", settings.UpAxis);
                 settings.BuildRig = MiniJson.Flag(obj, "build_rig", settings.BuildRig);
                 settings.AutoLaunchBlender = MiniJson.Flag(obj, "auto_launch_blender", settings.AutoLaunchBlender);
@@ -236,6 +251,10 @@ namespace Peak.Cadder.Core
                     { "open_folder", OpenFolder },
                     { "hierarchy", Hierarchy },
                     { "quality_preset", QualityPreset },
+                    { "quality_distance_m", QualityDistance },
+                    { "quality_angle_rad", QualityAngle },
+                    { "quality_relative", QualityRelative },
+                    { "quality_relative_distance", QualityRelativeDistance },
                     { "up_axis", UpAxis },
                     { "build_rig", BuildRig },
                     { "auto_launch_blender", AutoLaunchBlender },

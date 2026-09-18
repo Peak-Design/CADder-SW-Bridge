@@ -21,19 +21,19 @@ namespace Peak.Cadder.Sw
         /// file back.
         /// </summary>
         public static MeshScene Write(
-            ISldWorks app, IModelDoc2 model, string path, double quality,
+            ISldWorks app, IModelDoc2 model, string path, BodyTessellator.Fineness fineness,
             Action<string> log, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
             AppearanceOptions appearance = null, DefeatureOptions defeature = null)
         {
-            var scene = Build(app, model, quality, log, separateSolids, keepPaths,
+            var scene = Build(app, model, fineness, log, separateSolids, keepPaths,
                 progress, appearance, defeature);
             MeshWriter.Write(path, scene);
             return scene;
         }
 
         public static MeshScene Build(
-            ISldWorks app, IModelDoc2 model, double quality, Action<string> log,
+            ISldWorks app, IModelDoc2 model, BodyTessellator.Fineness fineness, Action<string> log,
             bool separateSolids = false, HashSet<string> keepPaths = null,
             ExportProgress progress = null, AppearanceOptions appearance = null,
             DefeatureOptions defeature = null)
@@ -46,7 +46,7 @@ namespace Peak.Cadder.Sw
                     progress.Stage("Building the geometry of " + walked.Count
                         + " component(s)", 0, 100, walked.Count);
                 return NativeSceneBuilder.Build(
-                    walked, quality, log, null, separateSolids, keepPaths, progress,
+                    walked, fineness, log, null, separateSolids, keepPaths, progress,
                     appearance, defeature);
             }
 
@@ -54,7 +54,7 @@ namespace Peak.Cadder.Sw
             // instance at the origin: the same shape of scene, one entry
             // long, which keeps the consumer from needing a second case.
             return BuildSinglePart(
-                model, quality, log, separateSolids, appearance, defeature);
+                model, fineness, log, separateSolids, appearance, defeature);
         }
 
         /// <summary>The plan for what to leave out of one body, or null
@@ -69,7 +69,7 @@ namespace Peak.Cadder.Sw
         }
 
         private static MeshScene BuildSinglePart(
-            IModelDoc2 model, double quality, Action<string> log,
+            IModelDoc2 model, BodyTessellator.Fineness fineness, Action<string> log,
             bool separateSolids = false, AppearanceOptions options = null,
             DefeatureOptions defeature = null)
         {
@@ -122,8 +122,7 @@ namespace Peak.Cadder.Sw
                     }
                     def = shared;
                 }
-                var fineness = BodyTessellator.FinenessFor(quality);
-                tolerance = Math.Max(tolerance, fineness.Chord);
+                tolerance = Math.Max(tolerance, fineness.ChordFor(body));
                 BodyTessellator.Append(body, def, fineness,
                     (face, b) => materials.Resolve(face, b, appearance, null), log,
                     Defeature(body, spec, log));
