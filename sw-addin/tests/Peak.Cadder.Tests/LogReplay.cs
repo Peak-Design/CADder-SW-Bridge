@@ -231,6 +231,8 @@ namespace Peak.Cadder.Tests
                 GraphMate mate;
                 if (byName.TryGetValue(name, out mate)) mate.LockRotation = true;
             }
+            // MateReader runs this after reading, so the replay does too.
+            EntityRepair.Apply(graph, null);
             return graph;
         }
 
@@ -287,6 +289,11 @@ namespace Peak.Cadder.Tests
                                 // The rack side of a rack-pinion mate carries
                                 // the edge the rack runs along. MateReader.
                                 || mateType.IndexOf("RACKPINION", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (p.Length >= 6)
+            {
+                var raw = new[] { p[3], p[4], p[5] };
+                if (MathOps.Norm(raw) > MathOps.Epsilon) e.RawDirection = raw;
+            }
             if ((directional || aboutDirections) && p.Length >= 6)
             {
                 var dir = new[] { p[3], p[4], p[5] };

@@ -179,6 +179,12 @@ namespace Peak.Cadder.Core.Model
         public string EntityTypeName;
         public double[] Point;            // a point on the entity, global, metres
         public double[] Direction;        // unit axis/normal, global; null for point/sphere
+        /// <summary>The direction slots exactly as SolidWorks filled them,
+        /// global, whatever the kind. Direction above keeps only the kinds
+        /// whose slots define a vector, because for most others they are
+        /// filler. EntityRepair reads this where the solved assembly shows
+        /// that SolidWorks typed a line as a point.</summary>
+        public double[] RawDirection;
         public double Radius;             // cylinders/spheres; 0 otherwise
 
         /// <summary>Conical faces only, radians, from the face surface's

@@ -71,6 +71,9 @@ namespace Peak.Cadder.Sw
                 if (w.Graph.Solving != "flexible" || w.Graph.Suppressed) continue;
                 ReadSubDocumentMates(w, byPath, graph, seen, log);
             }
+            // What the solved assembly says an entity must be, where
+            // SolidWorks typed it as something it cannot be.
+            EntityRepair.Apply(graph, log);
             return graph;
         }
 
@@ -983,6 +986,12 @@ namespace Peak.Cadder.Sw
                     // rack has a coupling and no slide to apply it to.
                     if (gm.TypeValue == (int)swMateType_e.swMateRACKPINION)
                         directional = true;
+                    if (p.Length >= 6)
+                    {
+                        var raw = new[] { p[3], p[4], p[5] };
+                        if (MathOps.Norm(raw) > MathOps.Epsilon)
+                            ge.RawDirection = SwFrames.LiftDirection(lift, raw);
+                    }
                     if (directional && p.Length >= 6)
                     {
                         var dir = new[] { p[3], p[4], p[5] };
