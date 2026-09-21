@@ -539,6 +539,93 @@ namespace Peak.Cadder.Tests
             Assert.Empty(result.MergedAwayDofs);
         }
 
+        /// <summary>
+        /// A plate whose tab is centred between faces on two OTHER plates.
+        /// The width touches three components, so it used to be dropped and
+        /// the plate slid in its groove. Once the two outer plates are one
+        /// body, it is a width between two bodies (live CutterRig,
+        /// 2026-09-21).
+        /// </summary>
+        [Fact]
+        public void AWidthBetweenTwoPlatesHoldsATabOnceThePlatesAreOneBody()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "left plate", isFixed: true),
+                    Comp("c002", "right plate", isFixed: true),
+                    Comp("c003", "tab"),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c003", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c003", Y, P(0, 0, 0)),
+                Mate("Width1", "swMateWIDTH",
+                    PlaneEnt("c001", X, P(-0.05, 0, 0)),
+                    PlaneEnt("c002", X, P(0.05, 0, 0)),
+                    PlaneEnt("c003", X, P(-0.02, 0, 0)),
+                    PlaneEnt("c003", X, P(0.02, 0, 0))));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Single(result.Groups);
+            Assert.Empty(result.UnreadMultiMates);
+        }
+
+        /// <summary>A Free width lets the tab sit anywhere between the faces,
+        /// so it holds no position across them.</summary>
+        [Fact]
+        public void AFreeWidthLeavesTheTabItsSlide()
+        {
+            var width = Mate("Width1", "swMateWIDTH",
+                PlaneEnt("c001", X, P(-0.05, 0, 0)),
+                PlaneEnt("c002", X, P(0.05, 0, 0)),
+                PlaneEnt("c003", X, P(-0.02, 0, 0)),
+                PlaneEnt("c003", X, P(0.02, 0, 0)));
+            width.WidthFree = true;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "left plate", isFixed: true),
+                    Comp("c002", "right plate", isFixed: true),
+                    Comp("c003", "tab"),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c003", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c003", Y, P(0, 0, 0)),
+                width);
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(2, result.Groups.Count);
+            Assert.Single(result.Edges);
+            Assert.Contains(width, result.Edges[0].Mates);
+        }
+
+        /// <summary>A width face and a tab face on each of two bodies ties
+        /// nothing between them, so the width is not read as one between
+        /// those two bodies, and the rig is told it could not use it.</summary>
+        [Fact]
+        public void AWidthSplitAcrossItsRolesIsNotReadAsAPairMate()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "carriage"),
+                    Comp("c003", "bracket", isFixed: true),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c002", Y, P(0, 0, 0)),
+                Mate("Width1", "swMateWIDTH",
+                    PlaneEnt("c001", X, P(-0.05, 0, 0)),
+                    PlaneEnt("c002", X, P(0.05, 0, 0)),
+                    PlaneEnt("c003", X, P(-0.02, 0, 0)),
+                    PlaneEnt("c002", X, P(0.02, 0, 0))));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(2, result.Groups.Count);
+            Assert.Equal(new[] { "Width1" }, result.UnreadMultiMates);
+        }
+
         /// <summary>A mate onto assembly-owned geometry still grounds on the
         /// phantom assembly body, with nothing fixed by hand.</summary>
         [Fact]

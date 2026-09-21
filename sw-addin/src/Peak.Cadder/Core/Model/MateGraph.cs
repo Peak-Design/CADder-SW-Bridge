@@ -163,6 +163,13 @@ namespace Peak.Cadder.Core.Model
         /// free, the freer and therefore safe reading.</summary>
         public int SlotConstraint = -1;
 
+        /// <summary>A width mate set to Free (IWidthMateFeatureData.
+        /// ConstraintType = swMateWidth_Free): the tab stays between the
+        /// width faces but may sit anywhere between them, so the mate holds
+        /// no position across them. Centred, Dimension and Percent all
+        /// hold one.</summary>
+        public bool WidthFree;
+
         /// <summary>Path mates: the path sampled into a polyline, global
         /// metres. SolidWorks has no feature data interface for path mates,
         /// so MateReader digs the curve out of the mate entities' underlying

@@ -760,6 +760,9 @@ namespace Peak.Cadder
             foreach (string path in grouping.MergedAwayDofs)
                 AddIn.Log("  WARNING SolidWorks says this can move, but it is "
                     + "welded to the ground: " + path);
+            foreach (string mate in grouping.UnreadMultiMates)
+                AddIn.Log("  WARNING mate " + mate + " ties three or more moving "
+                    + "bodies together, and the rig cannot use it");
 
             // BuildResult unions every fixed component into one root, so this
             // cannot fire: it is here because the alternative failure is

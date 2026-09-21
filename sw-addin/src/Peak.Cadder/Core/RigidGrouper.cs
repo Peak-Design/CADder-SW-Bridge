@@ -35,6 +35,11 @@ namespace Peak.Cadder.Core
         /// <summary>Components welded to the ground because SolidWorks says
         /// they cannot move (GraphComponent.StatusFree).</summary>
         public List<string> StatusWelds = new List<string>();
+
+        /// <summary>Mates that touch three or more components and did not
+        /// come down to two rigid groups, so the rig cannot use them.
+        /// </summary>
+        public List<string> UnreadMultiMates = new List<string>();
     }
 
     /// <summary>
@@ -108,11 +113,17 @@ namespace Peak.Cadder.Core
             }
 
             var pairMates = new Dictionary<long, List<GraphMate>>();
+            var multiMates = new List<MultiMate>();
             foreach (var mate in graph.Mates)
             {
                 if (mate.Suppressed) continue;
                 int a, b;
-                if (!TrySpan(mate, indexById, assemblyProxy, out a, out b)) continue;
+                if (!TrySpan(mate, indexById, assemblyProxy, out a, out b))
+                {
+                    var multi = MultiSpan(mate, indexById, assemblyProxy);
+                    if (multi != null) multiMates.Add(multi);
+                    continue;
+                }
                 long key = PairKey(a, b);
                 List<GraphMate> list;
                 if (!pairMates.TryGetValue(key, out list))
@@ -240,6 +251,22 @@ namespace Peak.Cadder.Core
                     }
                     list.AddRange(pairMates[key]);
                 }
+                // A mate on three or more components joins in as soon as
+                // they fall into two groups: a tab centred between faces on
+                // two plates welded together is a width between two bodies.
+                foreach (var multi in multiMates)
+                {
+                    int ra, rb;
+                    if (!TwoBodies(multi, i => Find(parent, i), out ra, out rb)) continue;
+                    long rootKey = PairKey(Math.Min(ra, rb), Math.Max(ra, rb));
+                    List<GraphMate> list;
+                    if (!byRootPair.TryGetValue(rootKey, out list))
+                    {
+                        list = new List<GraphMate>();
+                        byRootPair[rootKey] = list;
+                    }
+                    list.Add(multi.Mate);
+                }
                 var rootKeys = new List<long>(byRootPair.Keys);
                 rootKeys.Sort();
                 foreach (long rootKey in rootKeys)
@@ -253,7 +280,7 @@ namespace Peak.Cadder.Core
                 }
             }
 
-            var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds);
+            var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds, multiMates);
             result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
             result.StatusWelds = statusWelded;
             return result;
@@ -376,7 +403,7 @@ namespace Peak.Cadder.Core
         private static RigidGroupingResult BuildResult(
             List<GraphComponent> comps, int[] parent,
             Dictionary<long, List<GraphMate>> pairMates, List<long> keys,
-            bool flexibleGrounds)
+            bool flexibleGrounds, List<MultiMate> multiMates)
         {
             var membersByRoot = new Dictionary<int, List<int>>();
             var rootOrder = new List<int>();
@@ -484,6 +511,32 @@ namespace Peak.Cadder.Core
                 }
                 edge.Mates.AddRange(pairMates[key]);
             }
+            foreach (var multi in multiMates)
+            {
+                int ga, gb;
+                if (!TwoBodies(multi, i => groupIndexByRoot[Find(parent, i)], out ga, out gb))
+                {
+                    // Consumed by a merge (every part in one group) or still
+                    // spread over three bodies: only the second is lost.
+                    var groupsTouched = new HashSet<int>();
+                    foreach (int i in multi.Components)
+                        groupsTouched.Add(groupIndexByRoot[Find(parent, i)]);
+                    if (groupsTouched.Count > 1)
+                        result.UnreadMultiMates.Add(multi.Mate.FeatureName ?? "?");
+                    continue;
+                }
+                long groupKey = PairKey(Math.Min(ga, gb), Math.Max(ga, gb));
+                GroupEdge edge;
+                if (!edgeByKey.TryGetValue(groupKey, out edge))
+                {
+                    edge = new GroupEdge();
+                    edge.GroupA = result.Groups[Math.Min(ga, gb)].Id;
+                    edge.GroupB = result.Groups[Math.Max(ga, gb)].Id;
+                    edgeByKey[groupKey] = edge;
+                    edgeOrder.Add(groupKey);
+                }
+                edge.Mates.Add(multi.Mate);
+            }
             edgeOrder.Sort();
             foreach (long groupKey in edgeOrder)
                 result.Edges.Add(edgeByKey[groupKey]);
@@ -518,10 +571,9 @@ namespace Peak.Cadder.Core
         // ── Pair index plumbing ─────────────────────────────────────────────
 
         /// <summary>
-        /// Resolves which two components a mate spans. Mates touching one
-        /// component only, or three or more, take no part in grouping or
-        /// classification. MateReader does not produce them for the mate
-        /// types this pipeline handles.
+        /// Resolves which two components a mate spans. A mate touching one
+        /// component only takes no part. One touching three or more is
+        /// handled by MultiSpan, once its components fall into two groups.
         /// </summary>
         private static bool TrySpan(
             GraphMate mate, Dictionary<string, int> indexById, int assemblyProxy,
@@ -547,6 +599,83 @@ namespace Peak.Cadder.Core
             }
             if (a < 0 || b < 0) return false;
             if (a > b) { int t = a; a = b; b = t; }
+            return true;
+        }
+
+        /// <summary>A mate on three or more components: the component
+        /// index of each entity, in entity order.</summary>
+        private sealed class MultiMate
+        {
+            public GraphMate Mate;
+            public int[] EntityComponents;
+            public List<int> Components;
+        }
+
+        /// <summary>
+        /// A mate whose entities sit on three or more components, or null.
+        /// A mate with an entity on a suppressed component is inert, as for
+        /// a pair. A symmetric mate stays out: across three bodies it is a
+        /// coupling, which SymmetricCoupler reads, and never a pair mate.
+        /// </summary>
+        private static MultiMate MultiSpan(
+            GraphMate mate, Dictionary<string, int> indexById, int assemblyProxy)
+        {
+            if (MateFacts.Is(mate, "SYMMETRIC")) return null;
+            var entityComponents = new int[mate.Entities.Count];
+            var distinct = new List<int>();
+            for (int k = 0; k < mate.Entities.Count; k++)
+            {
+                var e = mate.Entities[k];
+                int idx;
+                if (e.ComponentId == null)
+                {
+                    if (assemblyProxy < 0) return null;
+                    idx = assemblyProxy;
+                }
+                else if (!indexById.TryGetValue(e.ComponentId, out idx))
+                {
+                    return null;    // entity on a suppressed component
+                }
+                entityComponents[k] = idx;
+                if (!distinct.Contains(idx)) distinct.Add(idx);
+            }
+            if (distinct.Count < 3) return null;
+            return new MultiMate
+            {
+                Mate = mate, EntityComponents = entityComponents, Components = distinct,
+            };
+        }
+
+        /// <summary>
+        /// Whether a mate on three or more components comes down to two
+        /// bodies, and which, given where each component now sits. A width
+        /// needs more than two bodies: its width faces (the first two
+        /// entities, as SolidWorks lists them) on one body and its tab on
+        /// the other. A width face and a tab face on each of two bodies ties
+        /// nothing between them, so that split is refused (live CutterRig,
+        /// 2026-09-21: every plate held in a groove between two other plates
+        /// slid, because such widths were dropped whole).
+        /// </summary>
+        private static bool TwoBodies(
+            MultiMate multi, Func<int, int> bodyOf, out int a, out int b)
+        {
+            a = -1; b = -1;
+            var bodies = new List<int>();
+            foreach (int i in multi.Components)
+            {
+                int body = bodyOf(i);
+                if (!bodies.Contains(body)) bodies.Add(body);
+            }
+            if (bodies.Count != 2) return false;
+            if (MateFacts.Is(multi.Mate, "WIDTH") && multi.EntityComponents.Length >= 3)
+            {
+                int width = bodyOf(multi.EntityComponents[0]);
+                if (bodyOf(multi.EntityComponents[1]) != width) return false;
+                for (int k = 2; k < multi.EntityComponents.Length; k++)
+                    if (bodyOf(multi.EntityComponents[k]) == width) return false;
+            }
+            a = bodies[0];
+            b = bodies[1];
             return true;
         }
 

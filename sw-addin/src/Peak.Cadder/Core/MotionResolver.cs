@@ -441,7 +441,10 @@ namespace Peak.Cadder.Core
             if (w == null && tab != null) w = MathOps.Normalized(tab.Direction);
             if (w == null) return false;
 
-            RestrictTransToPlane(s, w);
+            // A Free width lets the tab sit anywhere between the faces, so
+            // it holds no position across them. It still keeps the tab
+            // square to them.
+            if (!m.WidthFree) RestrictTransToPlane(s, w);
 
             var tabAxis = tab == null ? null : MathOps.Normalized(tab.Direction);
             if (tabAxis != null && !MateFacts.IsParallel(tabAxis, w))

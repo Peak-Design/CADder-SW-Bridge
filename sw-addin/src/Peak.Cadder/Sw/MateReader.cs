@@ -171,6 +171,7 @@ namespace Peak.Cadder.Sw
             ReadCoupling(feat, type, gm, log, unitMetres);
             ReadLockRotation(feat, type, gm, log);
             ReadSlotConstraint(feat, type, gm, log);
+            ReadWidthConstraint(feat, type, gm, log);
             ReadEntities(mate, feat, owner, byPath, gm, log);
             RetypeFaceEntities(feat, owner, byPath, gm, log);
             RecoverCurveEntities(mate, owner, byPath, gm, log);
@@ -296,6 +297,23 @@ namespace Peak.Cadder.Sw
         /// <summary>The slot mate's constraint option (free / centered /
         /// distance / percent): the free one slides, the rest pin the
         /// component along the slot and leave only the spin.</summary>
+        /// <summary>swMateWidthOptions_e.swMateWidth_Free.</summary>
+        private const int WidthFree = 1;
+
+        private static void ReadWidthConstraint(IFeature feat, int type, GraphMate gm, Action<string> log)
+        {
+            if (type != (int)swMateType_e.swMateWIDTH) return;
+            try
+            {
+                var data = SafeDefinition(feat) as IWidthMateFeatureData;
+                if (data == null) return;
+                gm.WidthFree = data.ConstraintType == WidthFree;
+                if (gm.WidthFree && log != null)
+                    log("width mate " + gm.FeatureName + ": free");
+            }
+            catch { }
+        }
+
         private static void ReadSlotConstraint(IFeature feat, int type, GraphMate gm, Action<string> log)
         {
             if (type != (int)swMateType_e.swMateSLOT) return;
