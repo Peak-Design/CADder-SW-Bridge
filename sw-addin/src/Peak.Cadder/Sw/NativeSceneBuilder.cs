@@ -96,6 +96,11 @@ namespace Peak.Cadder.Sw
                 // this level was not, so it paid full tessellation to arrive
                 // in Blender as something SolidWorks does not draw.
                 if (!IsVisible(w.Comp)) continue;
+                // Suppressed has no geometry to read. The walker keeps such
+                // a component for the manifest, and each one wrote its own
+                // "no geometry" line here: 69 of the 71 in one send (live
+                // CutterRig, 2026-09-21).
+                if (w.Graph != null && w.Graph.Suppressed) continue;
 
                 foreach (var leaf in Leaves(w, nodes, log))
                 {
@@ -124,6 +129,11 @@ namespace Peak.Cadder.Sw
                         {
                             if (log != null)
                                 log("native export: no geometry for " + key);
+                            // Remembered empty, so the next occurrence of
+                            // this document is not read again: a fitting
+                            // used four times was tried four times (live
+                            // CutterRig, 2026-09-21).
+                            definitions[key] = defs;
                             continue;
                         }
                         coarsest = Math.Max(coarsest, tolerance);
@@ -335,7 +345,8 @@ namespace Peak.Cadder.Sw
             return n;
         }
 
-        /// <summary>Tessellates every solid body of one part occurrence: into
+        /// <summary>Tessellates every solid body and every shown surface
+        /// body of one part occurrence (NativeExport.BodiesToSend): into
         /// one definition, or one per body with separateSolids (the STEP
         /// importer's "separate solids": a multibody part as one object per
         /// body). Returns the tolerance used.</summary>
@@ -351,16 +362,19 @@ namespace Peak.Cadder.Sw
             MeshDefinition shared = null;
             var appearance = materials.For(leaf.Comp);
 
-            object[] bodies = null;
-            try { bodies = leaf.Comp.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[]; }
+            object[] solids = null, sheets = null;
+            try { solids = leaf.Comp.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[]; }
             catch (Exception ex)
             {
                 if (log != null) log("native export: GetBodies3 failed: " + ex.Message);
             }
-            foreach (var o in bodies ?? new object[0])
+            try { sheets = leaf.Comp.GetBodies3((int)swBodyType_e.swSheetBody, out _) as object[]; }
+            catch (Exception ex)
             {
-                var body = o as IBody2;
-                if (body == null) continue;
+                if (log != null) log("native export: GetBodies3 failed for surfaces: " + ex.Message);
+            }
+            foreach (var body in NativeExport.BodiesToSend(solids, sheets))
+            {
                 count++;
                 MeshDefinition def;
                 if (separateSolids)
@@ -385,10 +399,12 @@ namespace Peak.Cadder.Sw
                     def = shared;
                 }
                 tolerance = Math.Max(tolerance, fineness.ChordFor(body));
-                BodyTessellator.Append(
-                    body, def, fineness,
-                    (face, b) => materials.Resolve(face, b, appearance, null),
-                    log, NativeExport.Defeature(body, spec, log));
+                if (!BodyTessellator.Append(
+                        body, def, fineness,
+                        (face, b) => materials.Resolve(face, b, appearance, null),
+                        log, NativeExport.Defeature(body, spec, log))
+                    && log != null)
+                    log(NativeExport.NoTriangles(baseName, count));
             }
             // A part with one body keeps the plain name whichever way.
             if (separateSolids && defs.Count == 1) defs[0].Name = baseName;

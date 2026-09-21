@@ -174,8 +174,12 @@ namespace Peak.Cadder.Sw
                 Truncate(mesh, vertexMark, triangleMark);
                 if (AppendTessellation(body, mesh, tolerance, angle, materialOf, log))
                     return true;
-                Truncate(mesh, vertexMark, triangleMark);
             }
+            // A tessellation can fail after its vertices are in, when a
+            // vertex read fails or no facet stitches. Those vertices belong
+            // to no triangle, so they go before the display mesh starts, or
+            // they travel as loose points.
+            Truncate(mesh, vertexMark, triangleMark);
             if (log != null)
                 log("tessellation refused this body at "
                     + tolerance.ToString("G4", CultureInfo.InvariantCulture)
