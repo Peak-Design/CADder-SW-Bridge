@@ -563,13 +563,16 @@ namespace Peak.Cadder.Core
         /// this part" use) the net effect is a plane coincidence with the
         /// mid-plane: one translation and two tilts die. Every recorded
         /// direction agrees on that normal once solved; when none is
-        /// recorded, two mirrored points define it. Mixed directions (line
-        /// pairs mirrored about an off-axis plane) have no rule yet and stay
-        /// unmodelled. A symmetric mate spanning THREE bodies is a motion
-        /// coupling this resolver cannot see at all. ExportCommand warns.
+        /// recorded, two mirrored points define it. Mirrored lines (cylinder
+        /// or datum axes) go to their own rule first, because their
+        /// directions are not normals. A symmetric mate spanning THREE
+        /// bodies is a motion coupling this resolver cannot see at all.
+        /// ExportCommand warns.
         /// </summary>
         private static void ApplySymmetric(MotionState s, GraphMate m)
         {
+            if (ApplyMirroredLines(s, m)) return;
+
             double[] n = null;
             bool mixed = false;
             foreach (var e in m.Entities)
@@ -620,6 +623,71 @@ namespace Peak.Cadder.Core
                 }
             }
             s.Unmodelled++;
+        }
+
+        /// <summary>
+        /// A symmetric mate between two LINES (cylinder axes or datum axes)
+        /// about a plane. A line's direction is an axis, not a normal, so the
+        /// plane rules would read it wrongly: two coaxial cylinders held
+        /// symmetric about a plane square to them would lose a slide along
+        /// the axis that exists. What the mirror constrains depends on which
+        /// body carries what.
+        /// - Both lines on one body: that body's own mirror plane of the two
+        ///   lines lies IN the mate's plane. That is a plane coincidence on
+        ///   its normal, exactly as for two mirrored faces.
+        /// - One line on the plane's body: the other line sits on the fixed
+        ///   mirror image of the first, a concentric in different clothes.
+        /// Lines that do not mirror, or that are one line (a whole family of
+        /// planes mirrors them), stay unmodelled rather than guessed. The
+        /// line test is the coupler's own, so the two never disagree on which
+        /// lines mirror. Returns false when the mate is not one plane and two
+        /// lines, which leaves it to the plane rules.
+        /// </summary>
+        private static bool ApplyMirroredLines(MotionState s, GraphMate m)
+        {
+            GraphMateEntity plane, la, lb;
+            if (!SymmetricCoupler.SplitLines(m.Entities, out plane, out la, out lb))
+                return false;
+            if (!SymmetricCoupler.LinesMirror(plane, la, lb))
+            {
+                s.Unmodelled++;
+                return true;
+            }
+
+            bool aOnPlane = SameBody(la, plane);
+            bool bOnPlane = SameBody(lb, plane);
+            if (!aOnPlane && !bOnPlane && SameBody(la, lb))
+            {
+                var da = MathOps.Normalized(la.Direction);
+                if (MateFacts.IsParallel(da, lb.Direction)
+                    && MateFacts.DistancePointToLine(lb.Point, da, la.Point)
+                       <= MateFacts.CollinearTol)
+                {
+                    s.Unmodelled++;
+                    return true;
+                }
+                ApplyPlane(s, MathOps.Normalized(plane.Direction));
+                return true;
+            }
+            if (aOnPlane != bOnPlane)
+            {
+                var line = aOnPlane ? lb : la;
+                var dir = MathOps.Normalized(line.Direction);
+                RestrictTransToLine(s, dir);
+                RestrictRotToLine(s, dir, line.Point);
+                return true;
+            }
+            s.Unmodelled++;
+            return true;
+        }
+
+        /// <summary>Two entities on one body: the same component, or both
+        /// on the assembly itself. A mate reaches the resolver only when it
+        /// spans two components, so the component tells the two bodies apart.
+        /// A mate on more components falls to unmodelled, not to a guess.</summary>
+        private static bool SameBody(GraphMateEntity a, GraphMateEntity b)
+        {
+            return string.Equals(a.ComponentId, b.ComponentId, StringComparison.Ordinal);
         }
 
         /// <summary>The one plane of a symmetric mate that reflects the

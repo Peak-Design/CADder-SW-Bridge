@@ -309,5 +309,216 @@ namespace Peak.Cadder.Tests
             Assert.Empty(warnings);
             Assert.Null(joints[0].Coupling);
         }
+
+        // ── Mirrored lines ──────────────────────────────────────────────────
+
+        /// <summary>The slide axis of each ram, as the two mounts carry it:
+        /// the second is the first mirrored about the X plane.</summary>
+        private static readonly double[] RamAxis =
+            MathOps.Normalized(new[] { 0.42281, 0.0, 0.90622 });
+        private static readonly double[] MirroredRamAxis =
+            MathOps.Normalized(new[] { -0.42281, 0.0, 0.90622 });
+
+        /// <summary>Two rod-end cylinders held symmetric about the
+        /// assembly's Right plane, with the entity shape of the live log:
+        /// the axes point opposite ways and carry SolidWorks' own noise,
+        /// and each point sits wherever SolidWorks named the cylinder, 35 mm
+        /// apart along the axes. `rodTwoX` moves the second cylinder.</summary>
+        private static MateGraph MirroredCylinders(double rodTwoX)
+        {
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "machine body", isFixed: true),
+                    Comp("c002", "rod one"),
+                    Comp("c003", "rod two"),
+                },
+                Mate("Symmetric54", "swMateSYMMETRIC",
+                    Cylinder("c002", new[] { -1.5245E-15, -1.0, 7.1129E-16 },
+                             P(0.32991, 0.053, 0.41988), 0.015),
+                    Cylinder("c003", new[] { 4.0211E-16, 1.0, -1.0388E-15 },
+                             P(rodTwoX, 0.018, 0.41988), 0.015),
+                    PlaneEnt(null, X, P(0, 0, 0))));
+        }
+
+        /// <summary>
+        /// Two cylinder axes are mirror images when the reflected point of
+        /// one lies ON the other line and the reflected direction is
+        /// parallel to the other's: the points need not match along the axis.
+        ///
+        /// Live CutterRig (2026-09-21): one symmetric mate holds the two
+        /// ram rod ends as mirror images, so the clamps they drive open and
+        /// close together. The coupler compared the axes as planes, the
+        /// points 35 mm apart along the axes failed that test, and the mate
+        /// was dropped with no coupling and no warning.
+        /// </summary>
+        [Fact]
+        public void MirroredCylinderAxesBecomeACoupling()
+        {
+            var joints = new List<RigJoint>
+            {
+                Mount("j001", JointType.Prismatic, "g001", RamAxis),
+                Mount("j002", JointType.Prismatic, "g002", MirroredRamAxis),
+            };
+
+            var warnings = SymmetricCoupler.Resolve(
+                MirroredCylinders(-0.32991), Grouping(), joints);
+
+            Assert.Empty(warnings);
+            Assert.Null(joints[0].Coupling);
+            var c = joints[1].Coupling;
+            Assert.NotNull(c);
+            Assert.Equal("linear_coupler", c.Kind);
+            Assert.Equal("j001", c.DriverJoint);
+            // The mounts are mirror images with the same sense, so one rod
+            // extends exactly as far as the other.
+            Assert.Equal(1.0, c.Ratio ?? 0.0, 9);
+            Assert.Contains(joints[1].SourceMates, s => s.SwFeature == "Symmetric54");
+        }
+
+        [Fact]
+        public void LinesThatAreNotMirrorImagesWarn()
+        {
+            var joints = new List<RigJoint>
+            {
+                Mount("j001", JointType.Prismatic, "g001", RamAxis),
+                Mount("j002", JointType.Prismatic, "g002", MirroredRamAxis),
+            };
+
+            // The second cylinder sits 30 mm off the mirror image of the first.
+            var warnings = SymmetricCoupler.Resolve(
+                MirroredCylinders(-0.29991), Grouping(), joints);
+
+            Assert.Null(joints[0].Coupling);
+            Assert.Null(joints[1].Coupling);
+            var w = Assert.Single(warnings);
+            Assert.Equal("SYMMETRIC_COUPLING", w.Code);
+            Assert.Contains("Symmetric54", w.Message);
+            Assert.Contains("not mirror images", w.Message);
+        }
+
+        /// <summary>Two mirrored LINES constrain four freedoms, not the six
+        /// a free mirror pair locks, so an unmounted pair keeps the warning
+        /// that points get.</summary>
+        [Fact]
+        public void UnmountedPairOfCylindersWarnsInsteadOfMirroring()
+        {
+            var joints = new List<RigJoint>();
+
+            var warnings = SymmetricCoupler.Resolve(
+                MirroredCylinders(-0.32991), Grouping(), joints);
+
+            Assert.Empty(joints);
+            var w = Assert.Single(warnings);
+            Assert.Equal("SYMMETRIC_COUPLING", w.Code);
+            Assert.Contains("cylinder", w.Message);
+        }
+
+        /// <summary>Three planes on three groups, none of which reflects the
+        /// other two onto each other: the mate cannot be read, and the user
+        /// is told so rather than left to find the bodies uncoupled.</summary>
+        [Fact]
+        public void ThreeBodyMateWithNoMirrorWarns()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "plate", isFixed: true),
+                    Comp("c002", "puck one"),
+                    Comp("c003", "puck two"),
+                },
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    PlaneEnt("c002", Y, P(0, 0.03, 0)),
+                    PlaneEnt("c003", Y, P(0, -0.05, 0)),
+                    PlaneEnt("c001", Y, P(0, 0, 0))));
+            var joints = new List<RigJoint>
+            {
+                Mount("j001", JointType.Prismatic, "g001", X),
+                Mount("j002", JointType.Prismatic, "g002", X),
+            };
+
+            var warnings = SymmetricCoupler.Resolve(graph, Grouping(), joints);
+
+            Assert.Null(joints[1].Coupling);
+            var w = Assert.Single(warnings);
+            Assert.Equal("SYMMETRIC_COUPLING", w.Code);
+            Assert.Contains("reflects the other two", w.Message);
+        }
+
+        // ── The same lines between TWO bodies, as the resolver reads them ───
+
+        /// <summary>Both cylinders on one body, mirrored about a plane of the
+        /// other: the body's own mirror plane of its two axes lies in that
+        /// plane. A plane coincidence on the mirror's normal, the same as
+        /// for two mirrored faces: the slide along X and the two tilts die.</summary>
+        [Fact]
+        public void TwoBodyMirroredCylindersArePlanarAboutTheMirror()
+        {
+            var mates = new List<GraphMate>
+            {
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    Cylinder("c002", Y, P(0.04, 0.02, 0.01)),
+                    Cylinder("c002", Y, P(-0.04, -0.03, 0.01)),
+                    PlaneEnt("c001", X, P(0, 0, 0))),
+            };
+
+            var state = MotionResolver.Resolve(mates);
+
+            Assert.Equal(0, state.Unmodelled);
+            Assert.Equal(2, state.TransDirs.Count);
+            foreach (var d in state.TransDirs)
+                Assert.True(System.Math.Abs(MathOps.Dot(MathOps.Normalized(d), X)) < 1e-9,
+                            "a slide along the mirror normal survived");
+            Assert.Equal(RotFreedom.AboutDirection, state.Rot);
+            Assert.True(System.Math.Abs(MathOps.Dot(state.RotDir, X)) > 1.0 - 1e-9);
+        }
+
+        /// <summary>Two coaxial cylinders square to the plane mirror onto
+        /// themselves wherever the body slides along that axis. Read as
+        /// normals, the axes killed that slide, which exists: now the mate
+        /// is left unmodelled rather than killing a freedom.</summary>
+        [Fact]
+        public void CoaxialCylindersSquareToTheMirrorKeepTheirSlide()
+        {
+            var mates = new List<GraphMate>
+            {
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    Cylinder("c002", X, P(0.03, 0.01, 0)),
+                    Cylinder("c002", X, P(-0.03, 0.01, 0)),
+                    PlaneEnt("c001", X, P(0, 0, 0))),
+            };
+
+            var state = MotionResolver.Resolve(mates);
+
+            Assert.Equal(1, state.Unmodelled);
+            Assert.Equal(3, state.TransDirs.Count);
+            Assert.Equal(RotFreedom.Full, state.Rot);
+        }
+
+        /// <summary>One cylinder on the plane's own body: the other body's
+        /// cylinder must sit on that cylinder's fixed mirror image. A
+        /// concentric in different clothes: a turn about and a slide along
+        /// the mirrored axis are all that remain.</summary>
+        [Fact]
+        public void CylinderMirroredFromThePlanesBodyIsALineCoincidence()
+        {
+            var mates = new List<GraphMate>
+            {
+                Mate("Symmetric1", "swMateSYMMETRIC",
+                    Cylinder("c001", Y, P(0.04, 0.02, 0.01)),
+                    Cylinder("c002", Y, P(-0.04, -0.03, 0.01)),
+                    PlaneEnt("c001", X, P(0, 0, 0))),
+            };
+
+            var state = MotionResolver.Resolve(mates);
+
+            Assert.Equal(0, state.Unmodelled);
+            var slide = Assert.Single(state.TransDirs);
+            Assert.True(System.Math.Abs(MathOps.Dot(MathOps.Normalized(slide), Y)) > 1.0 - 1e-9);
+            Assert.Equal(RotFreedom.AboutLine, state.Rot);
+            Assert.True(System.Math.Abs(MathOps.Dot(state.RotDir, Y)) > 1.0 - 1e-9);
+            Assert.True(MateFacts.DistancePointToLine(
+                P(-0.04, 0, 0.01), state.RotDir, state.RotPoint) < 1e-9);
+        }
     }
 }

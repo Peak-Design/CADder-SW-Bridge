@@ -36,8 +36,16 @@ namespace Peak.Cadder.Core
 
                 GraphMateEntity plane;
                 GraphMateEntity ea, eb;
-                if (!SplitEntities(m, grouping, groundGroup, out plane, out ea, out eb))
-                    continue;    // two-body symmetric: the resolver already models it
+                string unread;
+                if (!SplitEntities(m, grouping, groundGroup,
+                        out plane, out ea, out eb, out unread))
+                {
+                    // Two-body symmetric: the resolver already models it. A
+                    // mate on three groups whose mirror could not be read is
+                    // a relation the rig loses, so the user is told.
+                    if (unread != null) warnings.Add(CouplingWarning(m, unread));
+                    continue;
+                }
 
                 string ga = GroupOf(ea, grouping);
                 string gb = GroupOf(eb, grouping);
@@ -61,18 +69,20 @@ namespace Peak.Cadder.Core
                     new SourceMate { SwFeature = m.FeatureName, Type = m.TypeName },
                     MirrorScope.Plane, "the symmetric mate's plane", freePairRefusal);
 
-                if (reason != null)
-                {
-                    var w = new ManifestWarning();
-                    w.Code = "SYMMETRIC_COUPLING";
-                    w.Message = "Symmetric mate " + (m.FeatureName ?? "?") + " spans three "
-                        + "rigid groups (the mirror plane and two moving bodies), and the "
-                        + "mirror relation could not become a coupling: " + reason
-                        + ". The two bodies will pose independently in Blender.";
-                    warnings.Add(w);
-                }
+                if (reason != null) warnings.Add(CouplingWarning(m, reason));
             }
             return warnings;
+        }
+
+        private static ManifestWarning CouplingWarning(GraphMate m, string reason)
+        {
+            var w = new ManifestWarning();
+            w.Code = "SYMMETRIC_COUPLING";
+            w.Message = "Symmetric mate " + (m.FeatureName ?? "?") + " spans three "
+                + "rigid groups (the mirror plane and two moving bodies), and the "
+                + "mirror relation could not become a coupling: " + reason
+                + ". The two bodies will pose independently in Blender.";
+            return w;
         }
 
         /// <summary>
@@ -143,15 +153,6 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>
-        /// Sorts a symmetric mate's recorded entities into the mirror plane
-        /// and the two mirrored sides, and demands the THREE-body shape:
-        /// two mirrored entities on two distinct groups, the plane on a
-        /// third (an assembly-level plane counts as the grounded group).
-        /// When all three entities are planes with one shared normal, the
-        /// mirror is the one sitting midway between the other two: group
-        /// membership cannot tell them apart, geometry can.
-        /// </summary>
-        /// <summary>
         /// Whether reflecting plane `a` in plane `m` gives plane `b`.
         ///
         /// A plane is a unit normal and a signed offset along it, so that is
@@ -200,13 +201,112 @@ namespace Peak.Cadder.Core
             return new[] { p[0] - q[0], p[1] - q[1], p[2] - q[2] };
         }
 
-        private static bool SplitEntities(
-            GraphMate m, RigidGroupingResult grouping, string groundGroup,
+        /// <summary>
+        /// The two LINES of a symmetric mate, cylinder axes or datum axes,
+        /// and the plane they mirror about. SolidWorks demands a planar
+        /// mirror and two mirrored entities of one kind, so with one plane
+        /// and two lines the plane is the mirror. No geometry test picks it,
+        /// so none can pick a line by mistake.
+        /// </summary>
+        internal static bool SplitLines(
+            List<GraphMateEntity> directed,
             out GraphMateEntity plane, out GraphMateEntity ea, out GraphMateEntity eb)
         {
             plane = null;
             ea = null;
             eb = null;
+            foreach (var e in directed)
+            {
+                if (e.EntityTypeName == "plane")
+                {
+                    if (plane != null) return false;
+                    plane = e;
+                }
+                else if (e.EntityTypeName == "cylinder" || e.EntityTypeName == "axis")
+                {
+                    if (ea == null) ea = e;
+                    else if (eb == null) eb = e;
+                    else return false;
+                }
+                else return false;
+            }
+            return plane != null && ea != null && eb != null;
+        }
+
+        /// <summary>
+        /// Whether reflecting line `a` in plane `m` gives line `b`.
+        ///
+        /// A line is a direction and ANY point along it, so this is the
+        /// line's own test: the reflected direction is parallel to b's, and
+        /// the reflected point lies on b. Compared as planes, the points
+        /// would have to match along the axis too, and they are wherever
+        /// SolidWorks happened to name each cylinder. Live CutterRig
+        /// (2026-09-21): one symmetric mate holds the two ram rod-end
+        /// cylinders as mirror images about the assembly's Right plane.
+        /// Their points sat 35 mm apart along the axes, the plane test
+        /// failed, and the mate was dropped with no coupling and no warning,
+        /// so the two clamps posed independently.
+        /// </summary>
+        internal static bool LinesMirror(
+            GraphMateEntity m, GraphMateEntity a, GraphMateEntity b)
+        {
+            if (m.Point == null || m.Direction == null) return false;
+            if (a.Point == null || a.Direction == null) return false;
+            if (b.Point == null || b.Direction == null) return false;
+            if (MathOps.Norm(m.Direction) < 1e-9) return false;
+            if (MathOps.Norm(a.Direction) < 1e-9 || MathOps.Norm(b.Direction) < 1e-9)
+                return false;
+
+            var n = MathOps.Normalized(m.Direction);
+            var ra = Reflect(MathOps.Normalized(a.Direction), n);
+            var nb = MathOps.Normalized(b.Direction);
+            if (!MateFacts.IsParallel(ra, nb)) return false;
+
+            double away = MathOps.Dot(Minus(a.Point, m.Point), n);
+            var pa = new[] { a.Point[0] - 2.0 * away * n[0],
+                             a.Point[1] - 2.0 * away * n[1],
+                             a.Point[2] - 2.0 * away * n[2] };
+            return MateFacts.DistancePointToLine(pa, nb, b.Point)
+                   <= MateFacts.CollinearTol * Math.Max(1.0, MathOps.Norm(b.Point));
+        }
+
+        /// <summary>True when the mate's entities sit on three distinct
+        /// rigid groups (an assembly-level entity counts as the grounded
+        /// group). Only this coupler models that shape, so a mate of that
+        /// shape it cannot read is warned, never left to the resolver.</summary>
+        private static bool SpansThreeGroups(
+            GraphMate m, RigidGroupingResult grouping, string groundGroup)
+        {
+            var groups = new List<string>();
+            foreach (var e in m.Entities)
+            {
+                string g = e.ComponentId == null ? groundGroup : GroupOf(e, grouping);
+                if (g == null) return false;    // off the rig: the mate is inert
+                if (!groups.Contains(g)) groups.Add(g);
+            }
+            return groups.Count >= 3;
+        }
+
+        /// <summary>
+        /// Sorts a symmetric mate's recorded entities into the mirror plane
+        /// and the two mirrored sides, and demands the THREE-body shape:
+        /// two mirrored entities on two distinct groups, the plane on a
+        /// third (an assembly-level plane counts as the grounded group).
+        /// When all three entities are planes with one shared normal, the
+        /// mirror is the one sitting midway between the other two: group
+        /// membership cannot tell them apart, geometry can. When the mate
+        /// does span three groups but its entities cannot be sorted,
+        /// `unread` says why.
+        /// </summary>
+        private static bool SplitEntities(
+            GraphMate m, RigidGroupingResult grouping, string groundGroup,
+            out GraphMateEntity plane, out GraphMateEntity ea, out GraphMateEntity eb,
+            out string unread)
+        {
+            plane = null;
+            ea = null;
+            eb = null;
+            unread = null;
 
             var directed = new List<GraphMateEntity>();
             var points = new List<GraphMateEntity>();
@@ -221,6 +321,17 @@ namespace Peak.Cadder.Core
                 plane = directed[0];
                 ea = points[0];
                 eb = points[1];
+            }
+            else if (directed.Count == 3 && points.Count == 0
+                     && SplitLines(directed, out plane, out ea, out eb))
+            {
+                if (!LinesMirror(plane, ea, eb))
+                {
+                    if (SpansThreeGroups(m, grouping, groundGroup))
+                        unread = "its two " + MirroredKinds(m, plane)
+                            + " entities are not mirror images about its plane";
+                    return false;
+                }
             }
             else if (directed.Count == 3 && points.Count == 0)
             {
@@ -243,13 +354,22 @@ namespace Peak.Cadder.Core
                 for (int k = 0; k < 3 && mid < 0; k++)
                     if (Mirrors(directed[k], directed[(k + 1) % 3],
                                 directed[(k + 2) % 3])) mid = k;
-                if (mid < 0) return false;
+                if (mid < 0)
+                {
+                    if (SpansThreeGroups(m, grouping, groundGroup))
+                        unread = "none of its " + MirroredKinds(m, null)
+                            + " entities reflects the other two onto each other";
+                    return false;
+                }
                 plane = directed[mid];
                 ea = directed[(mid + 1) % 3];
                 eb = directed[(mid + 2) % 3];
             }
             else
             {
+                if (SpansThreeGroups(m, grouping, groundGroup))
+                    unread = "its " + MirroredKinds(m, null) + " entities are not "
+                        + "a mirror plane and two mirrored entities";
                 return false;
             }
 
@@ -287,7 +407,8 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>The mirrored entities' kinds, for the warning that says
-        /// why this symmetric mate was not modelled.</summary>
+        /// why this symmetric mate was not modelled. With no plane known,
+        /// every entity's kind.</summary>
         private static string MirroredKinds(GraphMate m, GraphMateEntity plane)
         {
             var kinds = new List<string>();
