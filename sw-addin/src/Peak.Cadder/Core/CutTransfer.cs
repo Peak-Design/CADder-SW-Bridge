@@ -565,6 +565,12 @@ namespace Peak.Cadder.Core
             var offsets = new List<KeyValuePair<RigJoint, double[]>>();
             foreach (var x in all)
             {
+                // A weld the classifier returned early carries no point, and
+                // a slide's twist needs none: AppendTwistsAt reads neither
+                // from a point, and Framed() keeps every type that does away
+                // from a null here. Live 825 (2026-09-21): a planar joined a
+                // ring through such a weld and the send failed on its origin.
+                if (x.Origin == null) { points[x.Id] = null; continue; }
                 double[] offset = null;
                 if (seed > 0)
                 {
@@ -711,7 +717,7 @@ namespace Peak.Cadder.Core
         /// </summary>
         private static double[] Where(RigJoint j, int seed)
         {
-            if (seed == 0) return j.Origin;
+            if (seed == 0 || j.Origin == null) return j.Origin;
             var o = new double[3];
             for (int i = 0; i < 3; i++)
             {

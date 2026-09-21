@@ -334,6 +334,19 @@ namespace Peak.Cadder.Core
 
         // ── Per-edge classification ─────────────────────────────────────────
 
+        /// <summary>Where a weld the classifier returns early sits: the child
+        /// group's own origin, as for a slide. Every point of a weld is fixed
+        /// in both bodies, so any point is right, but a joint with no point
+        /// at all is one the loop analysis cannot read (live 825,
+        /// 2026-09-21).</summary>
+        private static double[] WeldOrigin(
+            GroupEdge edge, Dictionary<string, double[]> groupAnchors)
+        {
+            double[] anchor;
+            return groupAnchors != null && groupAnchors.TryGetValue(edge.GroupB, out anchor)
+                ? MathOps.Threshold(anchor, 1e-11) : null;
+        }
+
         private static RigJoint ClassifyEdge(
             GroupEdge edge, RigidGroupingResult grouping,
             Dictionary<string, double[][]> groupBoxes,
@@ -404,6 +417,7 @@ namespace Peak.Cadder.Core
             {
                 if (!MateFacts.IsLock(m)) continue;
                 joint.Type = JointType.Fixed;
+                joint.Origin = WeldOrigin(edge, groupAnchors);
                 joint.Notes = "zero-DOF pair reached the classifier";
                 Warn(warnings, "UNCLASSIFIED_PAIR", joint,
                     "Locked pair was not merged by the rigid grouper; exported as a fixed joint.");
@@ -502,6 +516,7 @@ namespace Peak.Cadder.Core
                 // RigidGrouper runs the same resolver, so this cannot happen
                 // unless the two fall out of step; the honest output is a
                 // fixed joint plus a loud warning, not a crash.
+                joint.Origin = WeldOrigin(edge, groupAnchors);
                 Warn(warnings, "UNCLASSIFIED_PAIR", joint,
                     "Zero-DOF pair reached the classifier; RigidGrouper should have merged it. Exported as a fixed joint.");
                 return joint;

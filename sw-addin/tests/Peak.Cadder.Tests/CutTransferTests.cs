@@ -512,5 +512,42 @@ namespace Peak.Cadder.Tests
             Assert.Equal(JointType.Fixed, crank.Type);
             Assert.Contains("removes both freedoms", crank.Notes);
         }
+        /// <summary>
+        /// Live 825 (2026-09-21, Oscar): a weld the classifier returned
+        /// early had no origin. A plate re-mated to the lead screw put a
+        /// planar on a ring through that weld, the ring left the plate one
+        /// turn about the screw line, and reading every member's point to
+        /// find that line failed on the weld. Every send after the re-mate
+        /// stopped with "Object reference not set to an instance of an
+        /// object".
+        /// </summary>
+        [Theory]
+        [InlineData(JointType.Fixed)]
+        [InlineData(JointType.Prismatic)]
+        public void AMemberWithNoOriginDoesNotStopTheRingBeingRead(string pointless)
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),
+                Group("g002"),
+            };
+            var z = new double[] { 0, 0, 1 };
+            var line = new double[] { 0, 0.0905, 0 };
+            var weld = new RigJoint
+            {
+                Id = "j001", Type = pointless, ParentGroup = "g000", ChildGroup = "g001",
+                Axis = pointless == JointType.Prismatic ? z : null,
+            };
+            var screw = Joint("j002", JointType.Revolute, "g001", "g002", z, line);
+            var plate = Joint("j003", JointType.Planar, "g000", "g002", z,
+                              new double[] { 0.0141, 0.0011, -0.0135 });
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { weld, screw, plate });
+
+            Assert.Single(result.Loops);
+            Assert.Null(weld.Origin);
+        }
     }
 }
