@@ -126,6 +126,7 @@ namespace Peak.Cadder.Core
                     var planes = MateFacts.Planes(m);
                     var line = FirstLineEntity(m);
                     var point = FindTypedPointEntity(m);
+                    var seat = ConeSeatAxis(m);
                     if (planes.Count > 1)
                     {
                         foreach (var pl in planes) ApplyPlane(s, pl[0]);
@@ -170,6 +171,22 @@ namespace Peak.Cadder.Core
                         // concentric rule and killed four DOF that exist
                         // (live corpus 16 pt3, 2026-08-23).
                         if (!ApplyContactKill(s, m)) s.Unmodelled++;
+                    }
+                    else if (seat != null)
+                    {
+                        // A cone seated in a cone (or on a circular edge)
+                        // cannot slide along its axis: the faces lie on each
+                        // other, so the apexes meet. Only the spin is left.
+                        // A concentric between the same faces aligns the
+                        // axes and nothing more, so it keeps the slide (live
+                        // corpus 15 cone1, 2026-08-23). Countersunk bolts
+                        // are held this way. Read as a concentric, every
+                        // bolt with a locked concentric exported as a slide
+                        // along its own axis. SolidWorks read those bolts
+                        // rigid, and the one whose concentric was broken as
+                        // revolute (live CutterRig, 2026-09-21).
+                        ApplyLineCoincidence(s, m);
+                        RestrictTransToPlane(s, seat);
                     }
                     else if (HasLineEntity(m))
                     {
@@ -678,6 +695,53 @@ namespace Peak.Cadder.Core
                 return e;
             }
             return null;
+        }
+
+        /// <summary>Half-angles closer than this (radians) are one cone
+        /// angle. Two parts modelled apart agree to 1e-14 (live CutterRig,
+        /// 2026-09-21: 0.7853981633974485 against 0.78539816339745). No two
+        /// standard countersink angles are closer than 2 degrees of
+        /// half-angle.</summary>
+        private const double HalfAngleTol = 1e-3;
+
+        /// <summary>
+        /// The shared axis of a coincident that seats a cone face in another
+        /// cone face or on a circular edge, or null for any other pair. Both
+        /// pin the cone's height on its axis. Two cone faces with one
+        /// half-angle can only lie on each other with their apexes together.
+        /// A circle can only lie on a cone as one of its parallels, at the
+        /// height where the radii agree. SolidWorks requires equal
+        /// half-angles for cone-to-cone mates. A mismatch is a recording this
+        /// rule does not know, so it keeps the concentric reading. A
+        /// circular edge is an "edge" with a radius. Only the circle entity
+        /// kind gives an edge one: straight edges (read, recovered or
+        /// repaired) carry none. A conical face the retype missed looks the
+        /// same, with its half-angle in the radius slot, and it seats the
+        /// same way. The solved pair must also share one axis line, or it is
+        /// not the shape this describes.
+        /// </summary>
+        private static double[] ConeSeatAxis(GraphMate m)
+        {
+            if (m.Entities.Count != 2) return null;
+            var cone = m.Entities[0];
+            var other = m.Entities[1];
+            if (cone.EntityTypeName != "cone")
+            {
+                cone = m.Entities[1];
+                other = m.Entities[0];
+            }
+            if (cone.EntityTypeName != "cone" || cone.HalfAngle <= 0.0) return null;
+            if (cone.Direction == null || cone.Point == null
+                || other.Direction == null || other.Point == null) return null;
+            bool seats = other.EntityTypeName == "cone"
+                ? Math.Abs(cone.HalfAngle - other.HalfAngle) <= HalfAngleTol
+                : other.EntityTypeName == "edge" && other.Radius > 0.0;
+            if (!seats) return null;
+            var axis = MathOps.Normalized(cone.Direction);
+            if (!MateFacts.IsParallel(axis, other.Direction)) return null;
+            if (MateFacts.DistancePointToLine(other.Point, axis, cone.Point) > MateFacts.CollinearTol)
+                return null;
+            return axis;
         }
 
         /// <summary>An entity that is DEFINITELY a point: typed as one, with
