@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
@@ -226,6 +227,102 @@ namespace Peak.Cadder.Tests
             Assert.Equal(expectRest, joint.TranslationLimit.ValueAtRest, 12);
             // Resolved from geometry, so no "the sign is a guess" downgrade.
             Assert.Equal("high", joint.Confidence);
+        }
+
+        /// <summary>
+        /// A ram with a stroke limit between two LINES: the barrel's pin axis
+        /// and the rod eye's pin axis. Both lines run across the stroke and
+        /// point opposite ways, as live CutterRig reports them (2026-09-21).
+        /// A parallel mate between the eye bores stops the spin, and the
+        /// limit sits at its short stop, 0.33 apart. <paramref name="side"/>
+        /// puts the rod eye on the +X or the −X side of the barrel pin. Each
+        /// pin also sits off centre along its own line, as the live ones do.
+        /// That moves nothing along the stroke.
+        /// </summary>
+        private static MateGraph LineStrokeRam(
+            double side, bool rodFixed,
+            Func<string, double[], double[], GraphMateEntity> pin)
+        {
+            var barrelPin = P(0, -0.02, 0);
+            var rodPin = P(0.33 * side, 0.015, 0);
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "barrel", isFixed: !rodFixed),
+                    Comp("c002", "rod", isFixed: rodFixed),
+                },
+                Mate("Concentric1", "swMateCONCENTRIC",
+                    Cylinder("c001", X, P(0, 0, 0), 0.01),
+                    Cylinder("c002", X, P(0, 0, 0), 0.01)),
+                Mate("Parallel1", "swMatePARALLEL",
+                    Cylinder("c001", Yp, barrelPin, 0.008),
+                    Cylinder("c002", Yn, rodPin, 0.008)),
+                WithRange(
+                    Mate("LimitDistance1", "swMateDISTANCE",
+                        pin("c001", Yp, barrelPin), pin("c002", Yn, rodPin)),
+                    min: 0.33, max: 0.53, current: 0.33));
+        }
+
+        /// <summary>
+        /// Both live CutterRig rams limit their stroke with a distance mate
+        /// between two datum axes across the slide (2026-09-21). The
+        /// classifier read the first axis as a plane normal. A normal across
+        /// the slide measures nothing along it, so neither rod slide got its
+        /// stroke limit, and both carried LIMIT_AXIS_MISMATCH. The gap
+        /// between the two lines along the slide is what the dimension
+        /// measures, and the side the child sits on gives its sense. The two
+        /// cases with the barrel as the child are the live second ram, whose
+        /// slide runs from the rod to the barrel.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0, false, 0.33, 0.53, 0.33)]      // rod child on the +axis side: as read
+        [InlineData(-1.0, false, -0.53, -0.33, -0.33)]  // rod child on the −axis side: mirrored
+        [InlineData(1.0, true, -0.53, -0.33, -0.33)]    // barrel child on the −axis side: mirrored
+        [InlineData(-1.0, true, 0.33, 0.53, 0.33)]      // barrel child on the +axis side: as read
+        public void AnAxisToAxisStrokeLimitAttachesToTheSlide(
+            double side, bool rodFixed, double expectMin, double expectMax, double expectRest)
+        {
+            var graph = LineStrokeRam(side, rodFixed, AxisEnt);
+
+            var grouping = RigidGrouper.Group(graph);
+            var result = JointClassifier.Classify(graph, grouping);
+
+            var joint = Assert.Single(result.Joints);
+            Assert.Equal(JointType.Prismatic, joint.Type);
+            Assert.Equal(new double[] { 1, 0, 0 }, joint.Axis);
+            Assert.Equal(grouping.ComponentGroup[rodFixed ? "c001" : "c002"], joint.ChildGroup);
+            Assert.NotNull(joint.TranslationLimit);
+            Assert.Equal(expectMin, joint.TranslationLimit.Min, 12);
+            Assert.Equal(expectMax, joint.TranslationLimit.Max, 12);
+            Assert.Equal(expectRest, joint.TranslationLimit.ValueAtRest, 12);
+            Assert.Null(joint.RotationLimit);
+            Assert.DoesNotContain(result.Warnings, w => w.Code == "LIMIT_AXIS_MISMATCH");
+            // Resolved from geometry, so no "the sign is a guess" downgrade.
+            Assert.Equal("high", joint.Confidence);
+        }
+
+        /// <summary>A straight model edge is a line just as a datum axis is.
+        /// A circular edge is also typed "edge", but a distance to it runs
+        /// to its centre. Its direction is the circle's axis, so this rule
+        /// gives it no stroke limit.</summary>
+        [Fact]
+        public void StraightEdgesAcrossTheSlideLimitTheStrokeButCircularEdgesDoNot()
+        {
+            var straight = LineStrokeRam(1.0, false, EdgeEnt);
+            var joint = Assert.Single(
+                JointClassifier.Classify(straight, RigidGrouper.Group(straight)).Joints);
+            Assert.NotNull(joint.TranslationLimit);
+            Assert.Equal(0.33, joint.TranslationLimit.ValueAtRest, 12);
+
+            var circular = LineStrokeRam(1.0, false, (c, d, p) =>
+            {
+                var e = EdgeEnt(c, d, p);
+                e.Radius = 0.008;
+                return e;
+            });
+            var result = JointClassifier.Classify(circular, RigidGrouper.Group(circular));
+            Assert.Null(Assert.Single(result.Joints).TranslationLimit);
+            Assert.Equal("LIMIT_AXIS_MISMATCH", Assert.Single(result.Warnings).Code);
         }
     }
 }

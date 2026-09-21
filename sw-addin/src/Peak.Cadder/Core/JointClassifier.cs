@@ -1201,6 +1201,12 @@ namespace Peak.Cadder.Core
                     ? joint.SecondaryAxis : joint.Axis;
                 bool axisOk = dir == null || slideAxis == null
                     || Math.Abs(MathOps.Dot(dir, slideAxis)) > 0.5;
+                // Two lines that both run ACROSS the slide have no normal,
+                // but the gap between them still grows along the slide. A
+                // ram's stroke limit between its two pin axes is such a mate
+                // (live CutterRig, 2026-09-21: read as a plane normal, both
+                // rams lost their stroke limit).
+                if (!axisOk) axisOk = LinesAcrossSlide(mate, slideAxis);
                 if (typeOk && axisOk && joint.TranslationLimit == null)
                 {
                     joint.TranslationLimit = MakeLimit(mate);
@@ -1234,6 +1240,32 @@ namespace Peak.Cadder.Core
                     + joint.Type + " DOF of " + joint.Id + "; no limit attached.");
             }
             return attached;
+        }
+
+        /// <summary>
+        /// True when a distance mate measures between two straight lines
+        /// (datum axes or straight edges) that both run across the slide.
+        /// Each line keeps its direction while the child slides, so the gap
+        /// between them along the slide changes one for one with the
+        /// travel. When the lines are skew, or both cross the slide line as
+        /// a ram's pin axes do, that gap is the distance SolidWorks
+        /// dimensions. Plainly-across mirrors the plainly-along test for a
+        /// plane normal. A circular edge is also typed "edge", but it
+        /// carries its radius. A distance to it runs to its centre, not to
+        /// a line, so it stays out.
+        /// </summary>
+        private static bool LinesAcrossSlide(GraphMate mate, double[] slideAxis)
+        {
+            if (slideAxis == null || mate.Entities.Count != 2) return false;
+            foreach (var e in mate.Entities)
+            {
+                bool line = e.EntityTypeName == "axis"
+                    || (e.EntityTypeName == "edge" && e.Radius <= 0.0);
+                if (!line || e.Direction == null || e.Point == null) return false;
+                if (Math.Abs(MathOps.Dot(MathOps.Normalized(e.Direction), slideAxis)) >= 0.5)
+                    return false;
+            }
+            return true;
         }
 
         private static JointLimit MakeLimit(GraphMate mate)
@@ -1618,8 +1650,10 @@ namespace Peak.Cadder.Core
         /// +1 when the distance dimension grows as the child group moves along
         /// +axis. D = |(p2 − p1) · n| for parallel measurement faces with
         /// normal n, so the derivative's sign is sign((p2 − p1) · n) · (a · n).
-        /// 0 when the faces touch in the rest pose (D = 0: the sense is
-        /// unknowable) or the normal is off the axis.
+        /// Two lines across the slide measure along the slide itself, so
+        /// there n is the slide axis. 0 when the faces touch in the rest
+        /// pose (D = 0: the sense is unknowable) or the normal is off the
+        /// axis.
         /// </summary>
         private static int TranslationDimensionSign(
             RigJoint joint, GraphMate mate, RigidGroupingResult grouping,
@@ -1627,6 +1661,7 @@ namespace Peak.Cadder.Core
         {
             double[] n = null;
             double[] p1 = null, p2 = null;
+            double[,] parentDelta = null;
             foreach (var e in mate.Entities)
             {
                 if (e.Direction != null && n == null)
@@ -1639,7 +1674,11 @@ namespace Peak.Cadder.Core
                 {
                     if (p2 == null) p2 = p;
                 }
-                else if (p1 == null) p1 = p;
+                else if (p1 == null)
+                {
+                    p1 = p;
+                    parentDelta = delta;
+                }
             }
             if (p1 == null || p2 == null) return 0;
             if (n == null)
@@ -1663,6 +1702,21 @@ namespace Peak.Cadder.Core
             // type slides along the axis itself.
             var slideAxis = joint.Type == JointType.PinSlot
                 ? joint.SecondaryAxis : joint.Axis;
+            if (LinesAcrossSlide(mate, slideAxis))
+            {
+                // Two lines across the slide: the direction of each line
+                // lies across the travel and measures nothing. The gap
+                // between the lines grows along the slide itself (live
+                // CutterRig, 2026-09-21: the ram's pin axes). p1 and p2
+                // already sit on the parent and child sides, so the sign
+                // follows the child. When the child moves away from the
+                // parent's line, the dimension grows. The slide line is
+                // parent-side geometry and moves with the parent, as in
+                // RotationDimensionSign.
+                n = parentDelta == null
+                    ? slideAxis
+                    : MathOps.Normalized(MathOps.RotateVector(parentDelta, slideAxis));
+            }
             double along = MathOps.Dot(slideAxis, n);
             if (Math.Abs(along) < 0.5) return 0;
             double sep = (p2[0] - p1[0]) * n[0] + (p2[1] - p1[1]) * n[1] + (p2[2] - p1[2]) * n[2];
