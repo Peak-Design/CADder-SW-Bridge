@@ -69,6 +69,22 @@ namespace Peak.Cadder.Core.Model
         /// assembly whose parts almost all sit fully defined).</summary>
         public int ConstrainedStatus;
 
+        /// <summary>
+        /// The same status, read with every limit mate taken out (SolveState),
+        /// 0 when it was not read. This is the one to trust. A limit mate
+        /// counts as a fixed dimension, so a part behind one reads fully
+        /// defined while it moves; with the limits out, fully constrained
+        /// means the component cannot move in the world (live CutterRig and
+        /// corpus, 2026-09-21: the cutting head and the hydraulic pistons
+        /// read fully defined with their limits in and under-defined with
+        /// them out, a gear read under-defined either way).
+        ///
+        /// Only a TOP-LEVEL reading means that. A component inside a
+        /// flexible subassembly reads fully defined while it moves (a hinge
+        /// leaf, a lead screw), so for those it says nothing.
+        /// </summary>
+        public int StatusFree;
+
         /// <summary>Children of a flexible subassembly only: actual pose =
         /// this delta × the pose the sub DOCUMENT stores. Internal mates are
         /// read through the sub document, so their entity geometry and

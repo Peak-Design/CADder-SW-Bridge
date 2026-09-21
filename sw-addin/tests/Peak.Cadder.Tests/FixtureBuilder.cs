@@ -64,6 +64,20 @@ namespace Peak.Cadder.Tests
             return c;
         }
 
+        /// <summary>What SolidWorks reports with every limit mate taken
+        /// out (GraphComponent.StatusFree).</summary>
+        public static GraphComponent StillWithLimitsOut(GraphComponent c)
+        {
+            c.StatusFree = 3;           // swFullyConstrained
+            return c;
+        }
+
+        public static GraphComponent MovesWithLimitsOut(GraphComponent c)
+        {
+            c.StatusFree = 2;           // swUnderConstrained
+            return c;
+        }
+
         /// <summary>Fixed inside its subassembly document: rigid to the
         /// sub's frame, never to the world.</summary>
         public static GraphComponent InSubFixed(GraphComponent c)

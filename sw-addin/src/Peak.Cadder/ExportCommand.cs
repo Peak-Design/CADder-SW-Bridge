@@ -340,15 +340,32 @@ namespace Peak.Cadder
             // The solver supplies the KINEMATICS of each connection, which it
             // has already worked out for the whole assembly at once.
             progress.StopIfCancelled();
-            progress.Stage("Grouping the bodies", 20, 24);
-            var grouping = RigidGrouper.Group(graph);
-            // The probe mutates model state (fix flags, limit-mate
-            // suppression) and restores it per batch, so it runs BEFORE the
-            // STEP export: whatever a restore missed would at least be visible
-            // in the exported geometry rather than baked into an earlier file.
-            var verdicts = runDofProbe
-                ? ProbePairs(model, walked, grouping, progress)
-                : new List<PairVerdict>();
+            // SolidWorks' own reading of what can move comes first, with the
+            // limit mates out (see TakeLimitsOut), and the DOF probe reads in
+            // the same state. Both change the model and put it back, so they
+            // run BEFORE the STEP export: whatever a restore missed would at
+            // least be visible in the exported geometry rather than baked
+            // into an earlier file.
+            RigidGroupingResult grouping;
+            List<PairVerdict> verdicts;
+            SolveState limitsOut = null;
+            try
+            {
+                if (runDofProbe)
+                {
+                    progress.Stage("Reading what SolidWorks says can move", 20, 22);
+                    limitsOut = TakeLimitsOut(model, walked);
+                }
+                progress.Stage("Grouping the bodies", 22, 24);
+                grouping = RigidGrouper.Group(graph);
+                verdicts = runDofProbe
+                    ? ProbePairs(model, walked, grouping, progress)
+                    : new List<PairVerdict>();
+            }
+            finally
+            {
+                PutLimitsBack(model, limitsOut, mateErrorPrompt != null ? app : null);
+            }
             progress.StopIfCancelled();
             // The verdicts are read as a SET: a pair whose child is mated to a
             // third body is a weld when the probe called that third body rigid
@@ -411,6 +428,21 @@ namespace Peak.Cadder
                         + ": reads rigid, but the child is mated to a body the "
                         + "probe did NOT read rigid, so it may be a follower "
                         + "rather than welded");
+                    continue;
+                }
+                // SolidWorks' own status, read with the limits out, outranks
+                // the probe: the probe pins the whole parent group before it
+                // reads, and with that pinned it read the clamps, the rams,
+                // the cutting head and a bolt with a broken concentric all
+                // rigid against the ground, while the status called every one
+                // of them under-defined, which is what they are (live
+                // CutterRig, 2026-09-21).
+                string moving = MovesPerSolidWorks(grouping, graph, v.GroupB);
+                if (moving != null)
+                {
+                    AddIn.Log("DOF probe " + v.GroupA + "/" + v.GroupB
+                        + ": reads rigid, but SolidWorks says " + moving
+                        + " can move, so it is not welded");
                     continue;
                 }
                 solverRigid.Add(new[] { v.ComponentA, v.ComponentB });
@@ -629,19 +661,90 @@ namespace Peak.Cadder
             return outcome;
         }
 
+        // ── What SolidWorks says can move ───────────────────────────────────
+
+        /// <summary>The first top-level component of a group that SolidWorks
+        /// calls under-defined with the limits out, or null.</summary>
+        private static string MovesPerSolidWorks(
+            RigidGroupingResult grouping, MateGraph graph, string groupId)
+        {
+            RigidGroup group = null;
+            foreach (var g in grouping.Groups) if (g.Id == groupId) { group = g; break; }
+            if (group == null) return null;
+            var members = new HashSet<string>(group.Components);
+            foreach (var c in graph.Components)
+                if (members.Contains(c.Id) && c.ParentId == null && c.StatusFree == 2)
+                    return c.Path ?? c.Id;
+            return null;
+        }
+
+        /// <summary>
+        /// Takes every limit mate out, top level and inside flexible
+        /// subassemblies, and reads SolidWorks' constrained status of every
+        /// component into GraphComponent.StatusFree. A limit mate counts as a
+        /// fixed dimension, so with it in, a part behind it reads fully
+        /// defined while it moves (live CutterRig, 2026-09-21: the whole
+        /// cutting head). With the limits out, a top-level component that
+        /// reads fully constrained cannot move, and RigidGrouper welds it.
+        /// EditRebuild3 is the call that makes the status follow the change;
+        /// Extension.Rebuild with swUpdateMates does not.
+        ///
+        /// Couplings stay in: a gear reads under-defined with its gear mate
+        /// in, and the DOF probe's reading of a coupled pair depends on it.
+        /// </summary>
+        private static SolveState TakeLimitsOut(
+            IModelDoc2 model, List<WalkedComponent> walked)
+        {
+            var state = SolveState.Suppress(model, walked, false, AddIn.Log);
+            if (state.Count > 0 && !SolveState.Rebuild(model, "edit"))
+                AddIn.Log("solve state: the rebuild after taking the limits out failed");
+            foreach (var w in walked)
+            {
+                if (w.Graph == null || w.Comp == null || w.Graph.Suppressed) continue;
+                try { w.Graph.StatusFree = w.Comp.GetConstrainedStatus(); }
+                catch { w.Graph.StatusFree = 0; }
+                AddIn.Log("status: " + w.Graph.Id + " " + w.Graph.Path
+                    + " parent=" + (w.Graph.ParentId ?? "-")
+                    + " fixed=" + (w.Graph.IsFixed ? 1 : 0)
+                    + " insub=" + (w.Graph.FixedInSubassembly ? 1 : 0)
+                    + " on=" + w.Graph.ConstrainedStatus
+                    + " free=" + w.Graph.StatusFree);
+            }
+            return state;
+        }
+
+        /// <summary>
+        /// Puts the limit mates back and rebuilds. A mate SolidWorks will not
+        /// put back is still suppressed in its document, and a document such
+        /// as a hydraulic ram can be shared by other assemblies, so the user
+        /// is told which mates, when there is a user to tell.
+        /// </summary>
+        private static void PutLimitsBack(IModelDoc2 model, SolveState state, ISldWorks app)
+        {
+            if (state == null || state.Count == 0) return;
+            var failed = state.Restore();
+            if (!SolveState.Rebuild(model, "edit"))
+                AddIn.Log("solve state: the rebuild after putting the limits back failed");
+            if (failed.Count == 0 || app == null) return;
+            try
+            {
+                app.SendMsgToUser2(
+                    "CADder Bridge could not put back these limit mates after it "
+                    + "read the assembly. They are still suppressed:\n\n"
+                    + string.Join("\n", failed.ToArray())
+                    + "\n\nUnsuppress them before you save.",
+                    (int)swMessageBoxIcon_e.swMbWarning,
+                    (int)swMessageBoxBtn_e.swMbOk);
+            }
+            catch { }
+        }
+
         // ── Grounding diagnostics ───────────────────────────────────────────
 
         /// <summary>
-        /// What the grouping produced, and the one thing about it that can be
-        /// checked against SolidWorks: a component the solver calls
-        /// UNDER-defined has freedom of its own, so finding it merged into a
-        /// group means the rig has lost a degree of freedom.
-        ///
-        /// The reverse check is not available and it is worth saying why:
-        /// "fully defined" means a component has no freedom of its OWN, not
-        /// that it cannot move. The cutting head of live ClampRig is
-        /// fully defined and slides half a metre, because its mates inherit
-        /// the lead screw rod's motion (2026-08-24).
+        /// What the grouping produced, checked against SolidWorks both ways:
+        /// what it welded because SolidWorks says it cannot move, and any
+        /// component SolidWorks says CAN move that ended up in the ground.
         /// </summary>
         private static void LogGrounding(RigidGroupingResult grouping)
         {
@@ -650,9 +753,13 @@ namespace Peak.Cadder
 
             AddIn.Log("grounding: " + grouping.Groups.Count + " rigid group(s) from "
                 + grouping.ComponentGroup.Count + " component(s)");
+            if (grouping.StatusWelds.Count > 0)
+                AddIn.Log("grounding: " + grouping.StatusWelds.Count + " component(s) "
+                    + "welded to the ground because SolidWorks says they cannot move: "
+                    + string.Join(", ", grouping.StatusWelds.ToArray()));
             foreach (string path in grouping.MergedAwayDofs)
-                AddIn.Log("  WARNING SolidWorks calls this under-defined, but it "
-                    + "was merged into a rigid group: " + path);
+                AddIn.Log("  WARNING SolidWorks says this can move, but it is "
+                    + "welded to the ground: " + path);
 
             // BuildResult unions every fixed component into one root, so this
             // cannot fire: it is here because the alternative failure is
@@ -783,14 +890,13 @@ namespace Peak.Cadder
             int pairs = 0;
             foreach (var kv in batches) pairs += kv.Value.Count;
             progress.Stage("Measuring the freedom of " + pairs + " pair(s)", 24, 58, pairs);
-            // Every limit mate in the assembly goes for the whole session,
-            // not just the probed pair's own: the solver counts a limit as a
-            // fixed dimension wherever it sits, and one in a closed loop
-            // through the child reads the child rigid against ANY parent
-            // (live TongRig, 2026-09-14: both arms welded to the base by
-            // the stroke limit on the cylinder between them).
-            var limitsOff = probe.SuppressLimitMates();
-            try
+            // Every limit mate in the assembly is already out for the whole
+            // session (TakeLimitsOut), inside flexible subassemblies too:
+            // the solver counts a limit as a fixed dimension wherever it
+            // sits, and one in a closed loop through the child reads the
+            // child rigid against ANY parent (live TongRig, 2026-09-14: both
+            // arms welded to the base by the stroke limit on the cylinder
+            // between them).
             {
                 foreach (string parentGroup in batchOrder)
                 {
@@ -825,10 +931,6 @@ namespace Peak.Cadder
                     probed += batch.Count;
                     progress.Step(probed);
                 }
-            }
-            finally
-            {
-                probe.RestoreLimitMates(limitsOff);
             }
             if (probed > 0)
                 AddIn.Log("DOF probe: " + probed + " pair(s) in " + batchOrder.Count

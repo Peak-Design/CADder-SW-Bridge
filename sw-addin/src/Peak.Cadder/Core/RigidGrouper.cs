@@ -27,12 +27,14 @@ namespace Peak.Cadder.Core
 
         public List<GroupEdge> Edges = new List<GroupEdge>();
 
-        /// <summary>Components SolidWorks calls UNDER-defined that ended up
-        /// merged into a group anyway. Under-defined means the component has
-        /// freedom of its own, so every one of these is a degree of freedom
-        /// the rig has lost: the one direction the constrained status can be
-        /// read in safely.</summary>
+        /// <summary>Top-level components SolidWorks calls UNDER-defined that
+        /// ended up in the grounded group. SolidWorks says they can move, so
+        /// each is a freedom the rig has lost.</summary>
         public List<string> MergedAwayDofs = new List<string>();
+
+        /// <summary>Components welded to the ground because SolidWorks says
+        /// they cannot move (GraphComponent.StatusFree).</summary>
+        public List<string> StatusWelds = new List<string>();
     }
 
     /// <summary>
@@ -131,16 +133,6 @@ namespace Peak.Cadder.Core
             // the sub's reference geometry attached one body away from the
             // part it actually pins).
             //
-            // Note what is NOT here. "Fully defined" in SolidWorks means a
-            // component has no freedom of its OWN: not that it cannot move.
-            // The cutting head of live ClampRig is fully defined and
-            // slides half a metre, because its mates inherit the lead screw
-            // rod's motion (2026-08-24). Welding on that status took the
-            // whole lead screw and cutting head out of the rig. What the
-            // status IS good for is the opposite direction: a component
-            // SolidWorks calls UNDER-defined has freedom of its own, so
-            // merging it away is a lost degree of freedom, see
-            // MergedAwayDofs.
             for (int i = 0; i < comps.Count; i++)
             {
                 var c = comps[i];
@@ -159,6 +151,37 @@ namespace Peak.Cadder.Core
             if (assemblyProxy >= 0)
                 for (int i = 0; i < comps.Count; i++)
                     if (Grounds(comps[i], flexibleGrounds)) Union(parent, i, assemblyProxy);
+
+            // What SolidWorks itself says cannot move joins the ground before
+            // the mates are asked anything. The mate analysis sees one pair
+            // at a time and misses what it has no model for (a width between
+            // two plates, a cone seated in a countersink), and every miss
+            // was a part that moved in Blender and not in SolidWorks (live
+            // CutterRig, 2026-09-21: 24 countersunk bolts, four plates and a
+            // frame). The solver has already solved the whole assembly.
+            //
+            // Only the status read with the limit mates OUT: with them in, a
+            // part behind a limit reads fully defined while it moves (live
+            // ClampRig, 2026-08-24: welding on that reading took the lead
+            // screw and cutting head out of the rig). Only top-level
+            // components: inside a flexible subassembly the status does not
+            // follow the motion. And never a component with no active mate:
+            // a pattern or mirror instance follows its seed, mated or not.
+            var statusWelded = new List<string>();
+            if (assemblyProxy >= 0)
+            {
+                var mated = MatedComponents(graph);
+                for (int i = 0; i < comps.Count; i++)
+                {
+                    var c = comps[i];
+                    if (i == assemblyProxy || c.ParentId != null) continue;
+                    if (c.StatusFree != SwFullyConstrained) continue;
+                    if (!mated.Contains(c.Id)) continue;
+                    if (Find(parent, i) == Find(parent, assemblyProxy)) continue;
+                    Union(parent, i, assemblyProxy);
+                    statusWelded.Add(c.Path ?? c.Id);
+                }
+            }
 
             // The solver's own verdict, arriving on a second pass: pairs the
             // DOF probe read as having no relative freedom and that survived
@@ -232,6 +255,7 @@ namespace Peak.Cadder.Core
 
             var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds);
             result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
+            result.StatusWelds = statusWelded;
             return result;
         }
 
@@ -261,34 +285,50 @@ namespace Peak.Cadder.Core
 
         // ── What the constrained status is good for ─────────────────────────
 
-        /// <summary>
-        /// swConstrainedStatus_e values meaning the component still has
-        /// freedom of its own. That is the ONLY direction this status can be
-        /// read in: fully defined does not mean immobile (a part fully mated
-        /// to a moving one is fully defined and moves with it), but
-        /// under-defined does mean mobile.
-        /// </summary>
+        /// <summary>swConstrainedStatus_e values.</summary>
         private const int SwUnderConstrained = 2;
+        private const int SwFullyConstrained = 3;
 
+        /// <summary>
+        /// Top-level components SolidWorks calls under-defined that sit in
+        /// the grounded group. Read from StatusFree when it was read, else
+        /// from the status with the limits in, which can only be wrong in
+        /// the other direction (a limit makes a moving part read fully
+        /// defined, never a still one under-defined). A component in a
+        /// moving group is not reported: a bolt on a swinging clamp is
+        /// under-defined because the clamp swings, and it belongs with the
+        /// clamp.
+        /// </summary>
         private static List<string> UnderDefinedButMerged(
             List<GraphComponent> comps, int[] parent, RigidGroupingResult result)
         {
             var lost = new List<string>();
+            var grounded = new HashSet<string>();
+            foreach (var g in result.Groups) if (g.Grounded) grounded.Add(g.Id);
             for (int i = 0; i < comps.Count; i++)
             {
                 var c = comps[i];
-                if (c.ConstrainedStatus != SwUnderConstrained) continue;
-                if (c.IsFixed || c.FixedInSubassembly) continue;
+                if (c.ParentId != null || c.IsFixed || c.Id == AssemblyGroundId) continue;
+                int status = c.StatusFree != 0 ? c.StatusFree : c.ConstrainedStatus;
+                if (status != SwUnderConstrained) continue;
                 string group;
                 if (!result.ComponentGroup.TryGetValue(c.Id, out group)) continue;
-                foreach (var g in result.Groups)
-                {
-                    if (g.Id != group) continue;
-                    if (g.Components.Count > 1) lost.Add(c.Path ?? c.Id);
-                    break;
-                }
+                if (grounded.Contains(group)) lost.Add(c.Path ?? c.Id);
             }
             return lost;
+        }
+
+        /// <summary>Components some active mate touches.</summary>
+        private static HashSet<string> MatedComponents(MateGraph graph)
+        {
+            var mated = new HashSet<string>();
+            foreach (var m in graph.Mates)
+            {
+                if (m.Suppressed) continue;
+                foreach (var e in m.Entities)
+                    if (e != null && e.ComponentId != null) mated.Add(e.ComponentId);
+            }
+            return mated;
         }
 
         /// <summary>True when some surviving mate reaches assembly-owned

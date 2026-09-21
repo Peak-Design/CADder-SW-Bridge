@@ -376,6 +376,11 @@ namespace Peak.Cadder.Tests
         /// rod, reports fully defined, and slides half a metre. An earlier
         /// rule welded on that status and took the whole lead screw assembly
         /// and cutting head out of the rig.
+        ///
+        /// The cause was the lead screw's limit mate (live CutterRig,
+        /// 2026-09-21: the head reads under-defined with the limit out). So
+        /// the status read with the limits IN welds nothing, and only
+        /// StatusFree, read with them out, may.
         /// </summary>
         [Fact]
         public void AFullyDefinedFollowerIsNotWelded()
@@ -422,6 +427,116 @@ namespace Peak.Cadder.Tests
 
             Assert.Single(result.Groups);
             Assert.Equal(new[] { "flange-1" }, result.MergedAwayDofs);
+        }
+
+        /// <summary>
+        /// What SolidWorks says cannot move, read with the limit mates out,
+        /// joins the ground even where the mates alone leave it free. Live
+        /// CutterRig (2026-09-21): a plate held by a width between two other
+        /// plates, which the mate analysis could not read, slid in Blender
+        /// and not in SolidWorks.
+        /// </summary>
+        [Fact]
+        public void APartSolidWorksCallsStillIsWelded()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    StillWithLimitsOut(Comp("c002", "plate")),
+                },
+                // Alone this concentric leaves a turn and a slide.
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Single(result.Groups);
+            Assert.True(result.Groups[0].Grounded);
+            Assert.Equal(new[] { "plate-1" }, result.StatusWelds);
+        }
+
+        /// <summary>A part SolidWorks calls under-defined with the limits
+        /// out keeps whatever the mates give it.</summary>
+        [Fact]
+        public void APartSolidWorksCallsMovingIsNotWelded()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    MovesWithLimitsOut(Comp("c002", "clamp")),
+                },
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(2, result.Groups.Count);
+            Assert.Empty(result.StatusWelds);
+        }
+
+        /// <summary>Inside a flexible subassembly the status does not follow
+        /// the motion: a hinge leaf reads fully defined while it swings (live
+        /// corpus 07, 2026-09-21). So it welds nothing there.</summary>
+        [Fact]
+        public void TheStatusOfAPartInsideAFlexibleSubassemblyWeldsNothing()
+        {
+            var leaf = StillWithLimitsOut(Comp("c003", "leaf"));
+            leaf.ParentId = "c002";
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "hinge"),
+                    leaf,
+                },
+                Concentric("Concentric1", "c001", "c003", Z, P(0, 0, 0)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c003"]);
+            Assert.Empty(result.StatusWelds);
+        }
+
+        /// <summary>A component no active mate touches (a pattern or mirror
+        /// instance) follows its seed, so its status welds nothing.</summary>
+        [Fact]
+        public void AnUnmatedPartIsNotWeldedOnItsStatus()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    StillWithLimitsOut(Comp("c002", "copy")),
+                });
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c002"]);
+            Assert.Empty(result.StatusWelds);
+        }
+
+        /// <summary>A part SolidWorks calls under-defined that the mates
+        /// merged into a MOVING group is where it belongs (a bolt on a
+        /// swinging clamp moves because the clamp does): no report.</summary>
+        [Fact]
+        public void AnUnderDefinedPartOnAMovingBodyIsNotReported()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    MovesWithLimitsOut(Comp("c002", "clamp")),
+                    MovesWithLimitsOut(Comp("c003", "bolt")),
+                },
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
+                Concentric("Concentric2", "c002", "c003", Z, P(0.1, 0, 0)),
+                Concentric("Concentric3", "c002", "c003", Z, P(0.15, 0, 0)),
+                CoincidentPlanes("Coincident1", "c002", "c003", Z, P(0, 0, 0.01)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(result.ComponentGroup["c002"], result.ComponentGroup["c003"]);
+            Assert.Empty(result.MergedAwayDofs);
         }
 
         /// <summary>A mate onto assembly-owned geometry still grounds on the
