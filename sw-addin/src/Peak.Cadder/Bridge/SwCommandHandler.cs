@@ -68,6 +68,7 @@ namespace Peak.Cadder.Bridge
                 case "unsuppress": return Lab(request, () => Suppress(app, request, false));
                 case "dimension": return Lab(request, () => Dimension(app, request));
                 case "quit": return Lab(request, () => Quit(app));
+                case "status_probe": return Lab(request, () => StatusProbe(app, request));
                 default:
                     return Fail("unknown op " + (string.IsNullOrEmpty(op) ? "(none)" : op));
             }
@@ -653,6 +654,92 @@ namespace Peak.Cadder.Bridge
             try { ok = model.ForceRebuild3(false); }
             catch (Exception ex) { return Fail("rebuild failed: " + ex.Message); }
             return new Dictionary<string, object> { { "ok", ok }, { "rebuilt", SafeTitle(model) } };
+        }
+
+        /// <summary>
+        /// What SolidWorks calls each component (fixed, fully defined or
+        /// under-defined) with every mate in place, with the limit mates (and
+        /// coupling mates, unless "couplings" is false) taken out, and again
+        /// once they are back, plus how far each component moved over the
+        /// whole round trip. "rebuild" picks the call that makes the solver
+        /// take the change in: edit, mates or force. The lab uses it to find
+        /// out what the status means before the exporter trusts it.
+        /// </summary>
+        private static Dictionary<string, object> StatusProbe(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            var model = ModelFor(app, request);
+            var assembly = model as IAssemblyDoc;
+            if (assembly == null) return Fail("the document is not an assembly");
+            bool couplings = MiniJson.Flag(request, "couplings", true);
+            string how = MiniJson.Str(request, "rebuild", "edit");
+
+            var walked = AssemblyWalker.Walk(assembly, AddIn.Log);
+            var before = new Dictionary<WalkedComponent, int>();
+            var free = new Dictionary<WalkedComponent, int>();
+            var poses = new Dictionary<WalkedComponent, double[]>();
+            foreach (var w in walked)
+            {
+                before[w] = StatusOf(w);
+                poses[w] = PoseOf(w);
+            }
+
+            var state = SolveState.Suppress(model, walked, couplings, AddIn.Log);
+            bool rebuilt = SolveState.Rebuild(model, how);
+            foreach (var w in walked) free[w] = StatusOf(w);
+            var held = state.Describe();
+            var failed = state.Restore();
+            bool rebuiltBack = SolveState.Rebuild(model, how);
+
+            var rows = new List<object>();
+            double worst = 0;
+            foreach (var w in walked)
+            {
+                double drift = Drift(poses[w], PoseOf(w));
+                if (drift > worst) worst = drift;
+                rows.Add(new Dictionary<string, object>
+                {
+                    { "path", w.Graph.Path },
+                    { "parent", w.Parent == null ? null : w.Parent.Graph.Path },
+                    { "fixed", w.Graph.IsFixed },
+                    { "solving", w.Graph.Solving },
+                    { "suppressed", w.Graph.Suppressed },
+                    { "on", before[w] },
+                    { "free", free[w] },
+                    { "after", StatusOf(w) },
+                    { "drift", drift },
+                });
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", true },
+                { "rebuild", how },
+                { "rebuilt", rebuilt },
+                { "rebuilt_back", rebuiltBack },
+                { "taken_out", held },
+                { "not_restored", failed },
+                { "worst_drift", worst },
+                { "components", rows },
+            };
+        }
+
+        private static int StatusOf(WalkedComponent w)
+        {
+            try { return w.Comp.GetConstrainedStatus(); } catch { return 0; }
+        }
+
+        private static double[] PoseOf(WalkedComponent w)
+        {
+            try { return w.Comp.Transform2.ArrayData as double[]; } catch { return null; }
+        }
+
+        private static double Drift(double[] a, double[] b)
+        {
+            if (a == null || b == null) return 0;
+            double worst = 0;
+            for (int i = 0; i < Math.Min(12, Math.Min(a.Length, b.Length)); i++)
+                worst = Math.Max(worst, Math.Abs(a[i] - b[i]));
+            return worst;
         }
 
         /// <summary>Suppresses or unsuppresses one mate by feature name, the
