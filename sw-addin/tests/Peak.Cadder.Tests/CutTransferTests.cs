@@ -513,7 +513,7 @@ namespace Peak.Cadder.Tests
             Assert.Contains("removes both freedoms", crank.Notes);
         }
         /// <summary>
-        /// Live 825 (2026-09-21, Oscar): a weld the classifier returned
+        /// Live CutterRig (2026-09-21, Oscar): a weld the classifier returned
         /// early had no origin. A plate re-mated to the lead screw put a
         /// planar on a ring through that weld, the ring left the plate one
         /// turn about the screw line, and reading every member's point to

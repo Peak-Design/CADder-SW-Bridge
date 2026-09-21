@@ -568,7 +568,7 @@ namespace Peak.Cadder.Core
                 // A weld the classifier returned early carries no point, and
                 // a slide's twist needs none: AppendTwistsAt reads neither
                 // from a point, and Framed() keeps every type that does away
-                // from a null here. Live 825 (2026-09-21): a planar joined a
+                // from a null here. Live CutterRig (2026-09-21): a planar joined a
                 // ring through such a weld and the send failed on its origin.
                 if (x.Origin == null) { points[x.Id] = null; continue; }
                 double[] offset = null;

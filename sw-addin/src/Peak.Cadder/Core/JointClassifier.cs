@@ -337,7 +337,7 @@ namespace Peak.Cadder.Core
         /// <summary>Where a weld the classifier returns early sits: the child
         /// group's own origin, as for a slide. Every point of a weld is fixed
         /// in both bodies, so any point is right, but a joint with no point
-        /// at all is one the loop analysis cannot read (live 825,
+        /// at all is one the loop analysis cannot read (live CutterRig,
         /// 2026-09-21).</summary>
         private static double[] WeldOrigin(
             GroupEdge edge, Dictionary<string, double[]> groupAnchors)
