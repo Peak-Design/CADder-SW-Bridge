@@ -376,6 +376,40 @@ namespace Peak.Cadder.Tests
             Assert.Contains(joints[1].SourceMates, s => s.SwFeature == "Symmetric54");
         }
 
+        /// <summary>
+        /// A mount measures its child against its parent. The mirror relates
+        /// each body against its partner, so a mount that has the mirrored
+        /// body as its PARENT runs the other way, and its sense flips.
+        ///
+        /// Live CutterRig (2026-09-21): rod one slides on a cylinder-to-rod
+        /// joint, rod two on a rod-to-cylinder joint, the reverse. The
+        /// mirror of rod one's axis is exactly opposite rod two's axis,
+        /// which on its own says -1. With rod two as its joint's parent,
+        /// that flips back to +1: the rods extend together.
+        /// </summary>
+        [Fact]
+        public void AMountOnTheParentSideFlipsTheRatio()
+        {
+            var rodTwo = Mount("j002", JointType.Prismatic, "g003",
+                MathOps.Normalized(new[] { 0.42281, 0.0, -0.90622 }));
+            rodTwo.ParentGroup = "g002";
+            var joints = new List<RigJoint>
+            {
+                Mount("j001", JointType.Prismatic, "g001", RamAxis),
+                rodTwo,
+            };
+
+            var warnings = SymmetricCoupler.Resolve(
+                MirroredCylinders(-0.32991), Grouping(), joints);
+
+            Assert.Empty(warnings);
+            var c = joints[1].Coupling;
+            Assert.NotNull(c);
+            Assert.Equal("linear_coupler", c.Kind);
+            Assert.Equal("j001", c.DriverJoint);
+            Assert.Equal(1.0, c.Ratio ?? 0.0, 9);
+        }
+
         [Fact]
         public void LinesThatAreNotMirrorImagesWarn()
         {

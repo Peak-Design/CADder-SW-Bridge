@@ -16,9 +16,10 @@ namespace Peak.Cadder.Core
     /// oriented axis that is a gear coupling of ratio −dot(a_driven, M(a_driver))
     /// for revolute pairs and a linear coupler of +dot(a_driven, M(a_driver))
     /// for prismatic pairs: ±1 when the geometry is consistent, which the
-    /// synthesis verifies rather than assumes. Anything that fails a gate
-    /// falls back to the SYMMETRIC_COUPLING warning: the bodies pose
-    /// independently and the user is told.
+    /// synthesis verifies rather than assumes. Both formulas read each body
+    /// as its mount's child: a mount found on the parent side flips the
+    /// sign. Anything that fails a gate falls back to the SYMMETRIC_COUPLING
+    /// warning: the bodies pose independently and the user is told.
     /// </summary>
     public static class SymmetricCoupler
     {
@@ -139,6 +140,15 @@ namespace Peak.Cadder.Core
             ratio = driver.Type == JointType.Prismatic
                 ? Math.Sign(align)
                 : -Math.Sign(align);
+            // The mirror relates each body's motion against its mount
+            // partner, which is what a mount measures only when the body is
+            // its CHILD. A mount found on the parent side measures the
+            // partner against the body, the reverse, so its sense flips.
+            // Live CutterRig (2026-09-21): rod two's slide runs rod to
+            // cylinder, the reverse of rod one's. Without the flip, the
+            // coupling would pull one rod in as the other came out.
+            if (driver.ChildGroup != ga) ratio = -ratio;
+            if (driven.ChildGroup != gb) ratio = -ratio;
 
             driven.Coupling = new JointCoupling
             {
