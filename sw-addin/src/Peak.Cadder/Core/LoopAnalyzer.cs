@@ -1032,7 +1032,11 @@ namespace Peak.Cadder.Core
                         // A limit derived from a stroke belongs to the
                         // configuration that made this joint the driver;
                         // the option derives its own below.
-                        if (result.DerivedLimitJoints.Contains(j.Id)) c.RotationLimit = null;
+                        if (result.DerivedLimitJoints.Contains(j.Id))
+                        {
+                            if (j.Type == JointType.Prismatic) c.TranslationLimit = null;
+                            else c.RotationLimit = null;
+                        }
                         clones.Add(c);
                     }
                     var altResult = Choose(groups, clones, new HashSet<string> { alt }, false);
@@ -1897,6 +1901,106 @@ namespace Peak.Cadder.Core
                     + "stopped by that slide reaching its end, not by a limit "
                     + "mate of its own.");
             }
+
+            // A slide that drives a loop in which one other slide, parallel
+            // to it, has a stroke limit: along that axis the two move one
+            // for one, so the stroke stops the driver too.
+            foreach (var lp in result.Loops)
+            {
+                RigJoint driver;
+                if (!byId.TryGetValue(lp.SuggestedDriverJoint ?? "", out driver)) continue;
+                if (driver.Type != JointType.Prismatic) continue;
+                if (driver.TranslationLimit != null) continue;   // its own limit wins
+                if (driver.Axis == null || MathOps.Norm(driver.Axis) < 1e-9) continue;
+                string slideId;
+                var derived = ParallelSlideLimit(lp, driver, byId, out slideId);
+                if (derived == null) continue;
+                driver.TranslationLimit = derived;
+                result.DerivedLimitJoints.Add(driver.Id);
+                driver.Notes = AppendLoopNote(driver.Notes,
+                    "Translation limit derived from the stroke limit of " + slideId
+                    + ", which slides parallel to this joint in the same loop: in "
+                    + "SolidWorks this joint is stopped by that slide reaching its "
+                    + "end, not by a limit mate of its own.");
+            }
+        }
+
+        /// <summary>
+        /// The driver's limit when its loop moves along the driver's axis
+        /// through one other slide only. Walked round the ring from the
+        /// driver, every hinge must turn about that axis (it then moves
+        /// nothing along it) and every weld moves nothing. One slide with a
+        /// stroke limit must run along the axis, and no other joint may
+        /// move along it. Then the two slides move one for one, with the
+        /// sign that the ring's direction through each gives.
+        ///
+        /// Live CutterRig (2026-09-22): the cutting head slides on the
+        /// frame, and the lead screw rod slides in its housing with a
+        /// 300 mm limit mate. The head drives the loop, and with no limit
+        /// of its own it ran past both ends of the screw.
+        /// </summary>
+        private static JointLimit ParallelSlideLimit(
+            RigLoop loop, RigJoint driver, Dictionary<string, RigJoint> byId,
+            out string slideId)
+        {
+            slideId = null;
+            var z = MathOps.Normalized(driver.Axis);
+            var rest = new List<RigJoint>();
+            foreach (string id in loop.MemberJoints)
+            {
+                RigJoint j;
+                if (!byId.TryGetValue(id, out j)) return null;
+                if (j != driver) rest.Add(j);
+            }
+            if (rest.Count + 1 != loop.MemberJoints.Count) return null;
+
+            RigJoint slide = null;
+            double slideSign = 0.0;
+            string at = driver.ChildGroup;
+            while (rest.Count > 0)
+            {
+                int k = rest.FindIndex(j => j.ParentGroup == at || j.ChildGroup == at);
+                if (k < 0) return null;
+                var j = rest[k];
+                rest.RemoveAt(k);
+                double sense = j.ParentGroup == at ? 1.0 : -1.0;
+                at = j.ParentGroup == at ? j.ChildGroup : j.ParentGroup;
+                switch (j.Type)
+                {
+                    case JointType.Fixed:
+                        break;
+                    case JointType.Revolute:
+                        if (j.Axis == null || !Along(j.Axis, z)) return null;
+                        break;
+                    case JointType.Prismatic:
+                    case JointType.Cylindrical:
+                        if (j.Axis == null || !Along(j.Axis, z)) return null;
+                        if (j.TranslationLimit == null || slide != null) return null;
+                        slide = j;
+                        slideSign = sense * MathOps.Dot(MathOps.Normalized(j.Axis), z);
+                        break;
+                    default:
+                        return null;
+                }
+            }
+            if (at != driver.ParentGroup || slide == null) return null;
+
+            // Along z the ring closes: q_driver + slideSign * q_slide = const.
+            double lo = -(slide.TranslationLimit.Min - slide.TranslationLimit.ValueAtRest) / slideSign;
+            double hi = -(slide.TranslationLimit.Max - slide.TranslationLimit.ValueAtRest) / slideSign;
+            slideId = slide.Id;
+            return new JointLimit
+            {
+                Min = Math.Min(lo, hi),
+                Max = Math.Max(lo, hi),
+                ValueAtRest = 0.0,
+            };
+        }
+
+        private static bool Along(double[] axis, double[] unit)
+        {
+            if (MathOps.Norm(axis) < 1e-9) return false;
+            return Math.Abs(MathOps.Dot(MathOps.Normalized(axis), unit)) > 0.999;
         }
 
         private static JointLimit SliderDriverLimit(
