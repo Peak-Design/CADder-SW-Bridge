@@ -157,6 +157,65 @@ namespace Peak.Cadder.Core
             return changed;
         }
 
+        /// <summary>
+        /// Whether a ring member holds nothing the rest of the ring does not
+        /// hold already: every motion the other members allow between its
+        /// two bodies is one of its own. Cut there, the ring loses no
+        /// constraint and needs no closure.
+        ///
+        /// Asked at the pose and at two nudged poses. The nudge moves every
+        /// joint but keeps coaxial joints on one line, so a member that
+        /// holds nothing because of how it is mated passes all three, and
+        /// one that only seems to because of where the parts sit (a dead
+        /// centre) does not. False when a member is one this cannot
+        /// describe, and false when the rest of the ring allows no motion at
+        /// all: a rigid ring has nothing for the tree to carry, whichever
+        /// member is cut.
+        ///
+        /// Live CutterRig (2026-09-22): the blade face lies on a frame plane.
+        /// The head slides in that plane and the hub turns about its normal,
+        /// so the plane holds nothing, but the ring was closed at the hub's
+        /// hinge and the blade could not turn.
+        /// </summary>
+        internal static bool AddsNothing(RigJoint j, IList<RigJoint> ring)
+        {
+            var peers = new List<RigJoint>();
+            foreach (var p in ring) if (!ReferenceEquals(p, j)) peers.Add(p);
+            if (peers.Count == 0) return false;
+            for (int seed = 0; seed <= 2; seed++)
+            {
+                var points = NudgedPoints(peers, j, seed);
+                var others = new List<double[]>();
+                foreach (var p in peers)
+                    if (!AppendTwistsAt(p, others, points[p.Id])) return false;
+                var mine = new List<double[]>();
+                if (!AppendTwistsAt(j, mine, points[j.Id])) return false;
+                var at = ReadAt(points, j, peers);
+                int rank = Rank(others, at);
+                if (rank == 0 || IntersectionRank(others, mine, at) != rank) return false;
+            }
+            return true;
+        }
+
+        private static int Rank(List<double[]> twists, double[] at)
+        {
+            var basis = new List<double[]>();
+            foreach (var t in twists) Extend(basis, Shift(t, at));
+            return basis.Count;
+        }
+
+        /// <summary>The point the ranks are read at: the joint's own, or a
+        /// peer's when the joint is a weld with none. A rank does not depend
+        /// on the point, only its rounding does, so any point of the ring
+        /// will do.</summary>
+        private static double[] ReadAt(
+            Dictionary<string, double[]> points, RigJoint j, List<RigJoint> peers)
+        {
+            if (points[j.Id] != null) return points[j.Id];
+            foreach (var p in peers) if (points[p.Id] != null) return points[p.Id];
+            return new double[3];
+        }
+
         /// <summary>The twists a joint permits, in the global frame. False for
         /// a type whose freedom is not a fixed screw system.</summary>
         private static bool AppendTwists(RigJoint j, List<double[]> into,

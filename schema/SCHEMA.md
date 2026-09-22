@@ -385,7 +385,9 @@ The exporter counts this only where each member's part in it is plain: a
 PLANAR ring built from pins about its normal and slides in its plane.
 Everything else is 1. Under-counting costs a control the user could have had;
 over-counting takes a constraint away, and that is the error that shows as a
-mechanism coming apart.
+mechanism coming apart. A ring cut at a joint that holds nothing (see
+`"none"`) spends nothing on its closure, so its mobility is the freedom of its
+other members.
 
 **`"ik"`**: the cut is a pin, and the closure is a point coincidence: the
 consumer solves the driven side so the two halves of the cut meet again. The
@@ -449,8 +451,19 @@ orientation, and a rotation limit on such a mount would clamp the wrong axis
 stopped by the ram's own stroke at the far end of the loop.
 
 **`"none"`**: the consumer must not solve this cut at all. The loop is still
-validated like any other; only the solve is skipped. Two shapes arrive this
+validated like any other; only the solve is skipped. Three shapes arrive this
 way.
+
+The cut HOLDS NOTHING: a face-on-face joint (a planar, or a planar the ring has
+narrowed to a pin-slot) whose freedom covers every motion the rest of the ring
+allows between its two bodies. The tree already keeps the bodies where that
+joint would, so the ring needs no closure. The exporter reads this from the
+screw twists described below, at the saved pose and again with the ring's
+origins nudged, so a joint that only seems to hold nothing at a dead centre is
+not cut this way. (Live CutterRig: the blade face lies on a frame plane. The
+head slides in that plane and the hub turns about its normal, so the plane
+holds nothing. Closed at the hub's hinge instead, the blade could only follow
+the head and never turned.)
 
 BOTH of the loop's edges to the anchor are slides: two bodies each sliding on
 the same ground, tied to each other. Cutting between them leaves them siblings

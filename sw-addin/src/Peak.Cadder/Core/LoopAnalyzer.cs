@@ -382,6 +382,38 @@ namespace Peak.Cadder.Core
                     candidates.Add(new RigLoopCandidate(
                         driver.Id, cut.Id, CutSharesAPoint(cut) ? "ik" : "none"));
                 }
+                else if (n > 2 && (redundant = Redundant(ring.Edges, closureCandidate)) != null)
+                {
+                    // A member that holds nothing the rest of the ring does
+                    // not hold already is the cut, and the ring needs no
+                    // closure at all: the tree carries every motion. Cut
+                    // anywhere else, it takes a real joint's place in the
+                    // tree, and every ring met after that runs through it
+                    // (live CutterRig, 2026-09-21: two rams' rods held
+                    // coplanar by a mate between them; the rod pin was cut
+                    // instead, one rod came to hang off the other, and each
+                    // ram's loop ran through the other ram).
+                    //
+                    // Before the slide rule below, because that rule cuts a
+                    // real joint (live CutterRig, 2026-09-22: the blade face
+                    // on a frame plane. The head's slide drove, the hub's
+                    // hinge was cut and solved, and the blade never turned).
+                    cut = redundant;
+                    RigJoint first = ring.Edges[0], last = ring.Edges[n - 1];
+                    if (ReferenceEquals(first, redundant)) driver = last;
+                    else if (ReferenceEquals(last, redundant)) driver = first;
+                    else driver = PreferFirst(first, ring.Edges[1], last, ring.Edges[n - 2],
+                                              chosenDrivers, seed) ? first : last;
+                    holdsNothing = true;
+                    // A weld drives nothing, so it cannot be the ring's
+                    // input. Nothing of an open ring is solved, so any
+                    // member that moves can stand for it: the one nearest
+                    // the anchor.
+                    if (driver.Type == JointType.Fixed)
+                        driver = NearestMoving(ring.Edges, cut) ?? driver;
+                    if (driver.Type != JointType.Fixed)
+                        candidates.Add(new RigLoopCandidate(driver.Id, cut.Id, "none"));
+                }
                 else if (n > 2 && IsSlide(ring.Edges[0]) != IsSlide(ring.Edges[n - 1])
                          && !chosenDrivers.Contains(
                              (IsSlide(ring.Edges[0]) ? ring.Edges[n - 1] : ring.Edges[0]).Id)
@@ -408,26 +440,6 @@ namespace Peak.Cadder.Core
                         driver = ring.Edges[n - 1];
                         cut = ring.Edges[n - 2];
                     }
-                }
-                else if (n > 2 && (redundant = RedundantPlanar(ring.Edges)) != null)
-                {
-                    // A planar joint whose normal every hinge of the ring
-                    // shares holds nothing: every body of the ring already
-                    // moves in that plane. It is the cut, and the ring needs
-                    // no closure at all. Cut anywhere else, it takes a real
-                    // joint's place in the tree, and every ring met after
-                    // that runs through it (live CutterRig, 2026-09-21: two
-                    // rams' rods held coplanar by a mate between them; the
-                    // rod pin was cut instead, one rod came to hang off the
-                    // other, and each ram's loop ran through the other ram).
-                    cut = redundant;
-                    RigJoint first = ring.Edges[0], last = ring.Edges[n - 1];
-                    if (ReferenceEquals(first, redundant)) driver = last;
-                    else if (ReferenceEquals(last, redundant)) driver = first;
-                    else driver = PreferFirst(first, ring.Edges[1], last, ring.Edges[n - 2],
-                                              chosenDrivers, seed) ? first : last;
-                    holdsNothing = true;
-                    candidates.Add(new RigLoopCandidate(driver.Id, cut.Id, "none"));
                 }
                 else if (PreferFirst(ring.Edges[0], ring.Edges[1],
                                      ring.Edges[n - 1], ring.Edges[n - 2], chosenDrivers, seed,
@@ -493,7 +505,9 @@ namespace Peak.Cadder.Core
                 // cutting head's slide was never the input.
                 if (driver.Type != JointType.Fixed) chosenDrivers.Add(driver.Id);
                 SetPlanarity(loop, members);
-                loop.Mobility = Mobility(loop, members);
+                loop.Mobility = holdsNothing
+                    ? TreeMobility(loop, members, cut)
+                    : Mobility(loop, members);
                 // The ring's groups and the driver's moving body, for the
                 // control rule in ComputeMechanisms. Never serialised.
                 loop.RingGroups = new List<string>();
@@ -2404,6 +2418,92 @@ namespace Peak.Cadder.Core
                 }
             }
             return found;
+        }
+
+        /// <summary>
+        /// The ring member that holds nothing, or null. A planar about the
+        /// ring's hinges first, as before; then a planar or a pin-slot whose
+        /// freedom covers every motion the rest of the ring allows it.
+        /// CutTransfer reads that from the twists, so it still finds the
+        /// planar once the ring has narrowed it to a pin-slot, and a planar
+        /// in a ring with slides. The ring's own closing edge wins, so the
+        /// tree stays as it was; otherwise the lowest id.
+        ///
+        /// Only a face-on-face joint is asked. A hinge or a slide that the
+        /// ring doubles (two coaxial pins, say) holds nothing either, but
+        /// cutting it moves a body to another parent, and the rings that
+        /// read those joints are the rigs the corpus has checked. A member
+        /// with a limit or a coupling is never cut here: cut, it would take
+        /// its limit or its coupling with it.
+        /// </summary>
+        private static RigJoint Redundant(List<RigJoint> edges, RigJoint closing)
+        {
+            var planar = RedundantPlanar(edges);
+            if (planar != null) return planar;
+            if (MayGo(closing) && CutTransfer.AddsNothing(closing, edges)) return closing;
+            var byId = new List<RigJoint>(edges);
+            byId.Sort((x, y) => string.CompareOrdinal(x.Id, y.Id));
+            foreach (var j in byId)
+            {
+                if (ReferenceEquals(j, closing) || !MayGo(j)) continue;
+                if (CutTransfer.AddsNothing(j, edges)) return j;
+            }
+            return null;
+        }
+
+        /// <summary>The ring member nearest the anchor, from either side,
+        /// that is neither a weld nor the cut; null when there is none.</summary>
+        private static RigJoint NearestMoving(List<RigJoint> edges, RigJoint cut)
+        {
+            int n = edges.Count;
+            for (int k = 0; k < n; k++)
+            {
+                var j = (k % 2 == 0) ? edges[k / 2] : edges[n - 1 - k / 2];
+                if (!ReferenceEquals(j, cut) && j.Type != JointType.Fixed) return j;
+            }
+            return null;
+        }
+
+        private static bool MayGo(RigJoint j)
+        {
+            return j != null
+                && (j.Type == JointType.Planar || j.Type == JointType.PinSlot)
+                && !HasLimits(j) && j.Coupling == null;
+        }
+
+        /// <summary>How many inputs a ring takes when its cut holds nothing:
+        /// the freedoms of its other members, at least one. The closure
+        /// spends nothing, so nothing is taken off, and the count reads a
+        /// pin-slot or a planar, which the Gruebler count cannot.</summary>
+        private static int TreeMobility(RigLoop loop, List<RigJoint> members, RigJoint cut)
+        {
+            int freedom = 0;
+            foreach (var j in members)
+            {
+                if (ReferenceEquals(j, cut)) continue;
+                int f = Freedoms(j);
+                if (f < 0) return Mobility(loop, members);
+                freedom += f;
+            }
+            return Math.Max(1, freedom);
+        }
+
+        /// <summary>How many freedoms a joint of this type has; -1 for one
+        /// whose freedom is not a plain count (a path, a surface, free).</summary>
+        private static int Freedoms(RigJoint j)
+        {
+            switch (j.Type)
+            {
+                case JointType.Fixed: return 0;
+                case JointType.Revolute:
+                case JointType.Prismatic:
+                case JointType.Screw: return 1;
+                case JointType.Cylindrical:
+                case JointType.PinSlot: return 2;
+                case JointType.Planar:
+                case JointType.Ball: return 3;
+                default: return -1;
+            }
         }
 
         private static void SetPlanarity(RigLoop loop, List<RigJoint> members)

@@ -1084,6 +1084,127 @@ namespace Peak.Cadder.Tests
             Assert.Equal(new[] { "j002", "j004", "j014", "j017" }, byClosure["j017"].MemberJoints);
         }
         /// <summary>
+        /// A cutting head slides on the frame and a hub turns in the head.
+        /// A blade is bolted to the hub (a pin off the axis) and held to an
+        /// end plug by a concentric with its rotation locked, and the blade
+        /// face lies on a frame plane, as on live CutterRig (2026-09-22).
+        /// The plane holds nothing: the head slides in it and the hub turns
+        /// about its normal. So the plane is the cut, the ring stays open,
+        /// the hub's hinge stays in the tree and the blade turns. Closed at
+        /// the hinge instead, the blade only followed the head.
+        /// </summary>
+        [Fact]
+        public void ABladeOnAFramePlaneStillTurnsWithItsHub()
+        {
+            var y = new double[] { 0, 1, 0 };
+            var z = new double[] { 0, 0, 1 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),      // frame
+                Group("g007"),                      // cutting head
+                Group("g008"),                      // blade
+                Group("g009"),                      // hub
+                Group("g010"),                      // end plug
+            };
+            var joints = new List<RigJoint>
+            {
+                Joint("j005", JointType.Prismatic, "g000", "g007", z),
+                Joint("j006", JointType.Planar, "g000", "g008", y),
+                Joint("j014", JointType.Revolute, "g007", "g009", y),
+                Joint("j017", JointType.Revolute, "g008", "g009", y),
+                Joint("j018", JointType.Prismatic, "g008", "g010", y),
+                Joint("j019", JointType.Revolute, "g009", "g010", y),
+            };
+            var origins = new Dictionary<string, double[]>
+            {
+                { "j005", new[] { 0.0, 0.021, -0.004 } },
+                { "j006", new[] { 0.0, -0.0315, -0.004 } },
+                { "j014", new[] { 0.0, 0.0905, -0.004 } },
+                { "j017", new[] { 0.052, -0.029, -0.034 } },
+                { "j018", new[] { 0.0, 0.0105, -0.004 } },
+                { "j019", new[] { 0.0, -0.035, -0.004 } },
+            };
+            foreach (var j in joints) j.Origin = origins[j.Id];
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            var blade = result.Loops.Find(lp => lp.MemberJoints.Contains("j006"));
+            Assert.NotNull(blade);
+            Assert.Equal("j006", blade.ClosureJoint);
+            Assert.Equal("none", blade.ClosureKind);
+            Assert.Equal("j005", blade.SuggestedDriverJoint);
+            Assert.Equal(2, blade.Mobility);
+            foreach (var lp in result.Loops)
+                Assert.NotEqual("j014", lp.ClosureJoint);
+            Assert.Equal(JointType.Revolute, joints.Find(j => j.Id == "j014").Type);
+            // The blade, hub and plug are one body.
+            foreach (var id in new[] { "j017", "j018", "j019" })
+                Assert.Equal(JointType.Fixed, joints.Find(j => j.Id == id).Type);
+            var mech = result.Mechanisms.Find(m => m.LoopIds.Contains(blade.Id));
+            Assert.NotNull(mech);
+            Assert.Equal("j005", mech.Inputs[0].Joint);
+        }
+        /// <summary>
+        /// A planar whose normal is square to the ring's hinges holds the
+        /// bodies out of the hinges' plane, so it holds something and is not
+        /// cut as one that holds nothing.
+        /// </summary>
+        [Fact]
+        public void APlanarAcrossTheHingesIsNotCutAsHoldingNothing()
+        {
+            var x = new double[] { 1, 0, 0 };
+            var z = new double[] { 0, 0, 1 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true), Group("g001"), Group("g002"),
+            };
+            var crank = Joint("j001", JointType.Revolute, "g000", "g001", z);
+            crank.Origin = new double[] { 0, 0, 0 };
+            var link = Joint("j002", JointType.Revolute, "g001", "g002", z);
+            link.Origin = new double[] { 0.1, 0.05, 0 };
+            var face = Joint("j003", JointType.Planar, "g000", "g002", x);
+            face.Origin = new double[] { 0.3, 0.02, 0 };
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { crank, link, face });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.False(loop.ClosureJoint == "j003" && loop.ClosureKind == "none"
+                         && loop.Mobility > 1,
+                         "the planar holds the bodies out of the hinges' plane");
+        }
+        /// <summary>
+        /// A crank, a link and a pin in a slot, saved at the dead centre:
+        /// crank and link stand in one line square to the slot. At that pose
+        /// alone the slot seems to hold nothing, because the crank pin moves
+        /// along the slot. One nudge off the pose shows the slot holds the
+        /// link's end. It must not be cut as holding nothing.
+        /// </summary>
+        [Fact]
+        public void APinSlotAtADeadCentreIsNotCutAsHoldingNothing()
+        {
+            var x = new double[] { 1, 0, 0 };
+            var y = new double[] { 0, 1, 0 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true), Group("g001"), Group("g002"),
+            };
+            var crank = Joint("j001", JointType.Revolute, "g000", "g001", y);
+            crank.Origin = new double[] { 0, 0, 0 };
+            var link = Joint("j002", JointType.Revolute, "g001", "g002", y);
+            link.Origin = new double[] { 0, 0, 0.1 };
+            var slot = Joint("j003", JointType.PinSlot, "g000", "g002", y);
+            slot.Origin = new double[] { 0, 0, 0.3 };
+            slot.SecondaryAxis = x;
+
+            var result = LoopAnalyzer.Analyze(
+                groups, new List<RigJoint> { crank, link, slot });
+
+            var loop = Assert.Single(result.Loops);
+            Assert.False(loop.ClosureJoint == "j003" && loop.ClosureKind == "none",
+                         "the slot was cut as holding nothing at its dead centre");
+        }
+        /// <summary>
         /// A ring of welds names a weld as its driver, because it has
         /// nothing else to name. That weld must not win the loops met after
         /// it. Live CutterRig (2026-09-22): the lead screw's housing sits
