@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
 using Xunit;
@@ -624,6 +625,94 @@ namespace Peak.Cadder.Tests
 
             Assert.Equal(2, result.Groups.Count);
             Assert.Equal(new[] { "Width1" }, result.UnreadMultiMates);
+        }
+
+        /// <summary>
+        /// Plates centred on a tab made of a face on a housing and a face on
+        /// the frame. The housing keeps a slide pairwise, so the grouping
+        /// reads the width over three groups and cannot use it. Once the
+        /// loops have welded the housing to the frame, the width is between
+        /// two bodies, and it holds the plates' slide (live CutterRig,
+        /// 2026-09-22: the plates slid along the width).
+        /// </summary>
+        [Fact]
+        public void AWidthHoldsItsJointOnceTheLoopsWeldTheTab()
+        {
+            var graph = PlatesOnASplitTab();
+            var grouping = RigidGrouper.Group(graph);
+            Assert.Equal(new[] { "Width1" }, grouping.UnreadMultiMates);
+            string frame = grouping.ComponentGroup["c001"];
+            string housing = grouping.ComponentGroup["c002"];
+            string plates = grouping.ComponentGroup["c003"];
+            var slide = new RigJoint
+            {
+                Id = "j001", Type = JointType.Prismatic, ParentGroup = frame, ChildGroup = plates,
+                Axis = (double[])X.Clone(), Origin = P(0, 0, 0),
+            };
+            var weld = new RigJoint
+            {
+                Id = "j002", Type = JointType.Fixed, ParentGroup = frame, ChildGroup = housing,
+                Axis = (double[])Z.Clone(), Origin = P(0, 0, 0),
+            };
+
+            var welded = RigidGrouper.HoldAcrossWelds(
+                graph, grouping, new List<RigJoint> { slide, weld }, null);
+
+            Assert.Equal(new[] { "j001" }, welded);
+            Assert.Equal(JointType.Fixed, slide.Type);
+            Assert.Contains(slide.SourceMates, s => s.SwFeature == "Width1");
+            Assert.Empty(grouping.UnreadMultiMates);
+        }
+
+        /// <summary>While the housing still moves, the width stays over
+        /// three bodies and holds nothing.</summary>
+        [Fact]
+        public void AWidthOverThreeMovingBodiesHoldsNothing()
+        {
+            var graph = PlatesOnASplitTab();
+            var grouping = RigidGrouper.Group(graph);
+            string frame = grouping.ComponentGroup["c001"];
+            string housing = grouping.ComponentGroup["c002"];
+            string plates = grouping.ComponentGroup["c003"];
+            var slide = new RigJoint
+            {
+                Id = "j001", Type = JointType.Prismatic, ParentGroup = frame, ChildGroup = plates,
+                Axis = (double[])X.Clone(), Origin = P(0, 0, 0),
+            };
+            var planar = new RigJoint
+            {
+                Id = "j002", Type = JointType.Planar, ParentGroup = frame, ChildGroup = housing,
+                Axis = (double[])Z.Clone(), Origin = P(0, 0, 0),
+            };
+
+            var welded = RigidGrouper.HoldAcrossWelds(
+                graph, grouping, new List<RigJoint> { slide, planar }, null);
+
+            Assert.Empty(welded);
+            Assert.Equal(JointType.Prismatic, slide.Type);
+            Assert.Equal(new[] { "Width1" }, grouping.UnreadMultiMates);
+        }
+
+        private static MateGraph PlatesOnASplitTab()
+        {
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "housing"),
+                    Comp("c003", "plates"),
+                },
+                // The plates slide along X on the frame.
+                Concentric("Concentric1", "c001", "c003", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c001", "c003", Y, P(0, 0, 0)),
+                // The housing sits flat on the frame, free in that plane.
+                CoincidentPlanes("Coincident2", "c001", "c002", Z, P(0, 0, 0.1)),
+                // Width faces on the plates, the tab split over housing and frame.
+                Mate("Width1", "swMateWIDTH",
+                    PlaneEnt("c003", X, P(-0.05, 0, 0)),
+                    PlaneEnt("c003", X, P(0.05, 0, 0)),
+                    PlaneEnt("c002", X, P(-0.02, 0, 0.1)),
+                    PlaneEnt("c001", X, P(0.02, 0, 0))));
         }
 
         /// <summary>A mate onto assembly-owned geometry still grounds on the

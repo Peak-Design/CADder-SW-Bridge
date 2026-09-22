@@ -679,6 +679,132 @@ namespace Peak.Cadder.Core
             return true;
         }
 
+        /// <summary>
+        /// Reads the mates on three or more groups again, once the loop
+        /// analysis has welded groups together. A mate whose groups now fall
+        /// into two welded bodies holds the one moving joint between those
+        /// bodies: that joint is resolved again with its own mates and this
+        /// one, and becomes a weld when nothing is left free. A width must
+        /// have its width faces on one body and its tab on the other, as in
+        /// the grouping. Returns the joints it welded.
+        ///
+        /// Live CutterRig (2026-09-22): two plates are centred on a tab
+        /// made of a face on the lead screw housing and a face on the frame.
+        /// The housing is its own group, and only the loop analysis finds it
+        /// welded to the frame. The grouping had dropped the mate over three
+        /// groups, and the plates slid along the width.
+        /// </summary>
+        public static List<string> HoldAcrossWelds(
+            MateGraph graph, RigidGroupingResult grouping, List<RigJoint> joints,
+            Action<string> log)
+        {
+            var welded = new List<string>();
+            if (grouping.UnreadMultiMates.Count == 0) return welded;
+            string ground = null;
+            foreach (var g in grouping.Groups)
+                if (g.Grounded) { ground = g.Id; break; }
+
+            // Groups joined by welds are one body from here on.
+            var link = new Dictionary<string, string>();
+            Func<string, string> body = null;
+            body = g =>
+            {
+                string up;
+                if (!link.TryGetValue(g, out up) || up == g) return g;
+                string top = body(up);
+                link[g] = top;
+                return top;
+            };
+            foreach (var j in joints)
+            {
+                if (j.Type != JointType.Fixed || j.ParentGroup == null || j.ChildGroup == null)
+                    continue;
+                string a = body(j.ParentGroup), b = body(j.ChildGroup);
+                if (a == b) continue;
+                if (string.CompareOrdinal(a, b) < 0) link[b] = a;
+                else link[a] = b;
+            }
+
+            var unread = new HashSet<string>(grouping.UnreadMultiMates);
+            foreach (var mate in graph.Mates)
+            {
+                if (mate.Suppressed || MateFacts.Is(mate, "SYMMETRIC")) continue;
+                if (!unread.Contains(mate.FeatureName ?? "?")) continue;
+
+                var bodies = new string[mate.Entities.Count];
+                var groupsTouched = new HashSet<string>();
+                bool inert = false;
+                for (int k = 0; k < mate.Entities.Count && !inert; k++)
+                {
+                    var e = mate.Entities[k];
+                    string g = null;
+                    if (e.ComponentId == null) g = ground;
+                    else grouping.ComponentGroup.TryGetValue(e.ComponentId, out g);
+                    if (g == null) { inert = true; break; }
+                    groupsTouched.Add(g);
+                    bodies[k] = body(g);
+                }
+                if (inert || groupsTouched.Count < 3) continue;
+                var two = new List<string>();
+                foreach (string b in bodies) if (!two.Contains(b)) two.Add(b);
+                if (two.Count != 2) continue;
+                if (MateFacts.Is(mate, "WIDTH") && bodies.Length >= 3)
+                {
+                    if (bodies[1] != bodies[0]) continue;
+                    bool split = false;
+                    for (int k = 2; k < bodies.Length; k++)
+                        if (bodies[k] == bodies[0]) split = true;
+                    if (split) continue;
+                }
+
+                RigJoint only = null;
+                int count = 0;
+                foreach (var j in joints)
+                {
+                    if (j.Type == JointType.Fixed || j.ParentGroup == null || j.ChildGroup == null)
+                        continue;
+                    string pa = body(j.ParentGroup), ch = body(j.ChildGroup);
+                    if ((pa == two[0] && ch == two[1]) || (pa == two[1] && ch == two[0]))
+                    {
+                        only = j;
+                        count++;
+                    }
+                }
+                if (count != 1 || only.Coupling != null) continue;
+
+                GroupEdge edge = null;
+                foreach (var ed in grouping.Edges)
+                    if ((ed.GroupA == only.ParentGroup && ed.GroupB == only.ChildGroup)
+                        || (ed.GroupA == only.ChildGroup && ed.GroupB == only.ParentGroup))
+                    { edge = ed; break; }
+                if (edge == null) continue;
+                var mates = new List<GraphMate>();
+                foreach (var m in edge.Mates) if (!m.Suppressed) mates.Add(m);
+                mates.Add(mate);
+                if (!MotionResolver.Resolve(mates).IsRigid)
+                {
+                    log?.Invoke("mate " + mate.FeatureName + " holds " + only.Id
+                        + " once its bodies are welded, but leaves it free to move");
+                    continue;
+                }
+
+                string was = only.Type;
+                only.Type = JointType.Fixed;
+                only.TranslationLimit = null;
+                only.RotationLimit = null;
+                only.SourceMates.Add(new SourceMate { SwFeature = mate.FeatureName, Type = mate.TypeName });
+                string note = "Read pairwise this is a " + was + ", but mate " + mate.FeatureName
+                    + " holds it: that mate touches three groups, and two of them are welded "
+                    + "together by the loops, so it is a mate between this joint's two bodies.";
+                only.Notes = string.IsNullOrEmpty(only.Notes) ? note : only.Notes + " " + note;
+                grouping.UnreadMultiMates.Remove(mate.FeatureName ?? "?");
+                welded.Add(only.Id);
+                log?.Invoke("mate " + mate.FeatureName + " welds " + only.Id
+                    + ": two of its three groups are welded together by the loops");
+            }
+            return welded;
+        }
+
         private static long PairKey(int a, int b) => ((long)a << 32) | (uint)b;
 
         private static int Find(int[] parent, int i)

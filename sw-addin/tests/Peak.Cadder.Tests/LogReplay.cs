@@ -331,6 +331,8 @@ namespace Peak.Cadder.Tests
             var all = new List<RigidGroup>(o.Grouping.Groups);
             all.AddRange(o.Classification.VirtualGroups);
             o.Loops = LoopAnalyzer.Analyze(all, o.Classification.Joints);
+            if (RigidGrouper.HoldAcrossWelds(graph, o.Grouping, o.Loops.Joints, null).Count > 0)
+                o.Loops = LoopAnalyzer.Analyze(all, o.Loops.Joints);
             o.Warnings.AddRange(o.Classification.Warnings);
             o.Warnings.AddRange(SymmetricCoupler.Resolve(
                 graph, o.Grouping, o.Loops.Joints, o.Loops.Loops));

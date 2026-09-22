@@ -469,6 +469,10 @@ namespace Peak.Cadder
             var allGroups = new List<RigidGroup>(grouping.Groups);
             allGroups.AddRange(classification.VirtualGroups);
             var loops = LoopAnalyzer.Analyze(allGroups, classification.Joints);
+            // The loops can weld groups together, and a mate the grouping
+            // could not read over three groups may then hold a joint.
+            if (RigidGrouper.HoldAcrossWelds(graph, grouping, loops.Joints, AddIn.Log).Count > 0)
+                loops = LoopAnalyzer.Analyze(allGroups, loops.Joints);
             // Symmetric couplings annotate the FINAL joint list and may
             // APPEND a mirror pair (two ground-rooted free joints for a
             // symmetric-only body pair), so they resolve before the manifest
