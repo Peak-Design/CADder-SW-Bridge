@@ -36,6 +36,10 @@ namespace Peak.Cadder.Core
         /// they cannot move (GraphComponent.StatusFree).</summary>
         public List<string> StatusWelds = new List<string>();
 
+        /// <summary>The component ids behind StatusWelds, in the same order.
+        /// </summary>
+        public List<string> StatusWeldIds = new List<string>();
+
         /// <summary>Children of flexible subassemblies welded to their
         /// subassembly's frame because SolidWorks says they cannot move in
         /// the subassembly's own document (GraphComponent.SubStatusFree).
@@ -72,8 +76,14 @@ namespace Peak.Cadder.Core
         /// no single pair reveals, so when the solver says two things are one
         /// body, they are.
         /// </summary>
+        /// <param name="statusVetoed">Components the status pass must not
+        /// weld: the DOF probe found them free against the ground although
+        /// SolidWorks' status calls them fully defined.</param>
+        /// <param name="statusWelds">False skips the top-level status pass,
+        /// for the grouping the mates alone give.</param>
         public static RigidGroupingResult Group(
-            MateGraph graph, IEnumerable<string[]> solverRigidPairs = null)
+            MateGraph graph, IEnumerable<string[]> solverRigidPairs = null,
+            ISet<string> statusVetoed = null, bool statusWelds = true)
         {
             var comps = new List<GraphComponent>();
             var indexById = new Dictionary<string, int>();
@@ -206,7 +216,8 @@ namespace Peak.Cadder.Core
             // follow the motion. And never a component with no active mate:
             // a pattern or mirror instance follows its seed, mated or not.
             var statusWelded = new List<string>();
-            if (assemblyProxy >= 0)
+            var statusWeldedIds = new List<string>();
+            if (assemblyProxy >= 0 && statusWelds)
             {
                 for (int i = 0; i < comps.Count; i++)
                 {
@@ -214,9 +225,11 @@ namespace Peak.Cadder.Core
                     if (i == assemblyProxy || c.ParentId != null) continue;
                     if (c.StatusFree != SwFullyConstrained) continue;
                     if (!mated.Contains(c.Id)) continue;
+                    if (statusVetoed != null && statusVetoed.Contains(c.Id)) continue;
                     if (Find(parent, i) == Find(parent, assemblyProxy)) continue;
                     Union(parent, i, assemblyProxy);
                     statusWelded.Add(c.Path ?? c.Id);
+                    statusWeldedIds.Add(c.Id);
                 }
             }
 
@@ -309,6 +322,7 @@ namespace Peak.Cadder.Core
             var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds, multiMates);
             result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
             result.StatusWelds = statusWelded;
+            result.StatusWeldIds = statusWeldedIds;
             result.SubStatusWelds = subStatusWelded;
             return result;
         }

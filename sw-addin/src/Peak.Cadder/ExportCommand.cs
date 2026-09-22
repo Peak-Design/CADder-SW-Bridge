@@ -349,6 +349,7 @@ namespace Peak.Cadder
             RigidGroupingResult grouping;
             List<PairVerdict> verdicts;
             SolveState limitsOut = null;
+            HashSet<string> statusVetoed = null;
             try
             {
                 if (runDofProbe)
@@ -358,6 +359,12 @@ namespace Peak.Cadder
                 }
                 progress.Stage("Grouping the bodies", 22, 24);
                 grouping = RigidGrouper.Group(graph);
+                if (runDofProbe)
+                {
+                    statusVetoed = VetoStatusWelds(model, walked, graph, grouping);
+                    if (statusVetoed.Count > 0)
+                        grouping = RigidGrouper.Group(graph, null, statusVetoed);
+                }
                 verdicts = runDofProbe
                     ? ProbePairs(model, walked, grouping, progress)
                     : new List<PairVerdict>();
@@ -451,7 +458,7 @@ namespace Peak.Cadder
             {
                 AddIn.Log("DOF probe: the solver reads " + solverRigid.Count
                     + " pair(s) as having no relative freedom; regrouping");
-                grouping = RigidGrouper.Group(graph, solverRigid);
+                grouping = RigidGrouper.Group(graph, solverRigid, statusVetoed);
             }
             LogGrounding(grouping);
             // The limit-sign probe only fires when a limit rests at a
@@ -834,6 +841,89 @@ namespace Peak.Cadder
         /// classifier would otherwise decide alone: whether the pair is one
         /// body at all, and which primitive it is.
         /// </summary>
+        /// <summary>
+        /// The parts SolidWorks' status would weld that the DOF probe finds
+        /// free against the ground, and so must stay out of it.
+        ///
+        /// With several freedoms free at once, SolidWorks can call a part
+        /// fully defined that still moves. The corpus hydraulic assembly
+        /// (2026-09-22): the base linkage slides on the base behind one
+        /// limit, the piston strokes behind another. With only the slide's
+        /// limit out, the linkage reads under-defined. With both out, it
+        /// reads fully defined again, and the export welded a slider to the
+        /// ground. The probe, fixing the ground and reading the linkage,
+        /// finds the slide.
+        ///
+        /// Only groups the mates alone leave off the ground are probed, all
+        /// in one batch against the ground, which leaves the model as it
+        /// was. The limit mates are already out.
+        /// </summary>
+        private static HashSet<string> VetoStatusWelds(
+            IModelDoc2 model, List<WalkedComponent> walked, MateGraph graph,
+            RigidGroupingResult withStatus)
+        {
+            var vetoed = new HashSet<string>();
+            if (withStatus.StatusWeldIds.Count == 0) return vetoed;
+            var mateOnly = RigidGrouper.Group(graph, null, null, statusWelds: false);
+            string ground = null;
+            foreach (var g in mateOnly.Groups)
+                if (g.Grounded) { ground = g.Id; break; }
+            if (ground == null) return vetoed;
+
+            var byId = new Dictionary<string, WalkedComponent>();
+            foreach (var w in walked)
+                if (w.Comp != null) byId[w.Id] = w;
+            var groundBody = new List<Component2>();
+            foreach (var g in mateOnly.Groups)
+            {
+                if (g.Id != ground) continue;
+                foreach (var cid in g.Components)
+                {
+                    WalkedComponent w;
+                    if (byId.TryGetValue(cid, out w)) groundBody.Add(w.Comp);
+                }
+            }
+            if (groundBody.Count == 0) return vetoed;
+
+            var order = new List<string>();
+            var members = new Dictionary<string, List<string>>();
+            foreach (string id in withStatus.StatusWeldIds)
+            {
+                string g;
+                if (!mateOnly.ComponentGroup.TryGetValue(id, out g) || g == ground) continue;
+                if (!byId.ContainsKey(id)) continue;
+                List<string> list;
+                if (!members.TryGetValue(g, out list))
+                {
+                    list = new List<string>();
+                    members[g] = list;
+                    order.Add(g);
+                }
+                list.Add(id);
+            }
+            if (order.Count == 0) return vetoed;
+
+            var reps = new List<Component2>();
+            foreach (string g in order) reps.Add(byId[members[g][0]].Comp);
+            var got = new DofProbe(model, AddIn.Log).ProbeAgainst(groundBody, reps);
+            int kept = 0;
+            for (int i = 0; i < order.Count && i < got.Count; i++)
+            {
+                var ids = members[order[i]];
+                if (!got[i].NamesFreedom) { kept += ids.Count; continue; }
+                foreach (string id in ids)
+                {
+                    vetoed.Add(id);
+                    AddIn.Log("status: " + byId[id].Graph.Path + " reads fully defined, but "
+                        + "the DOF probe finds it free against the ground ["
+                        + got[i].RawStatuses + "], so it is not welded on its status");
+                }
+            }
+            AddIn.Log("status: " + kept + " weld(s) on SolidWorks' status checked by the "
+                + "DOF probe, " + vetoed.Count + " vetoed");
+            return vetoed;
+        }
+
         private static List<PairVerdict> ProbePairs(
             IModelDoc2 model, List<WalkedComponent> walked,
             RigidGroupingResult grouping, ExportProgress progress = null)

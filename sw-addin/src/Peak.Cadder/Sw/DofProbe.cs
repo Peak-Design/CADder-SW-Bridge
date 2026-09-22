@@ -42,6 +42,14 @@ namespace Peak.Cadder.Sw
         /// </summary>
         public bool Characterised;
 
+        /// <summary>
+        /// The reading names a freedom that holds beyond this pose: a slot
+        /// that is Static, StaticNormal or Free, or a body the call reports
+        /// Unrestricted. An Instantaneous slot alone does not count: it is a
+        /// dead centre, still at this pose only.
+        /// </summary>
+        public bool NamesFreedom;
+
         public string RawStatuses;
     }
 
@@ -103,6 +111,13 @@ namespace Peak.Cadder.Sw
         ///   5 Instantaneous   true at this pose only (a coupler travelling
         ///                     along an arc)
         /// </summary>
+        /// <summary>A slot status that names a freedom beyond this pose:
+        /// Static 1, StaticNormal 2 or Free 3, not Instantaneous 5.</summary>
+        private static bool Lasting(int status)
+        {
+            return status == 1 || status == 2 || status == 3;
+        }
+
         public const int StatusUnused = 0;
         public const int StatusStatic = 1;
 
@@ -285,6 +300,10 @@ namespace Peak.Cadder.Sw
 
                 verdict.Weldable = IsWeldable(
                     r1Status, r2Status, l1Status, l2Status, remaining);
+                verdict.NamesFreedom = remaining == 1
+                    || (remaining == 0
+                        && (Lasting(r1Status) || Lasting(r2Status)
+                            || Lasting(l1Status) || Lasting(l2Status)));
                 if (verdict.Weldable
                     && (r1DirStatus != Unused || r2DirStatus != Unused)
                     && _log != null)

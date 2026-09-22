@@ -550,6 +550,34 @@ namespace Peak.Cadder.Tests
             Assert.Empty(result.SubStatusWelds);
         }
 
+        /// <summary>A part the DOF probe found free is not welded on its
+        /// status, and the mates decide (corpus hydraulic assembly,
+        /// 2026-09-22: a slider read fully defined with two limits out).
+        /// </summary>
+        [Fact]
+        public void AVetoedPartIsNotWeldedOnItsStatus()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "base", isFixed: true),
+                    StillWithLimitsOut(Comp("c002", "slider")),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c002", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c002", Y, P(0, 0, 0)));
+
+            var welded = RigidGrouper.Group(graph);
+            var vetoed = RigidGrouper.Group(graph, null, new HashSet<string> { "c002" });
+            var mateOnly = RigidGrouper.Group(graph, null, null, statusWelds: false);
+
+            Assert.Equal(new[] { "c002" }, welded.StatusWeldIds);
+            Assert.Equal(welded.ComponentGroup["c001"], welded.ComponentGroup["c002"]);
+            Assert.Empty(vetoed.StatusWelds);
+            Assert.NotEqual(vetoed.ComponentGroup["c001"], vetoed.ComponentGroup["c002"]);
+            Assert.Empty(mateOnly.StatusWelds);
+            Assert.NotEqual(mateOnly.ComponentGroup["c001"], mateOnly.ComponentGroup["c002"]);
+        }
+
         /// <summary>A component no active mate touches (a pattern or mirror
         /// instance) follows its seed, so its status welds nothing.</summary>
         [Fact]
