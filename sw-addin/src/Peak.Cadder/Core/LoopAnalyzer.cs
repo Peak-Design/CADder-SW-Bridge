@@ -456,7 +456,13 @@ namespace Peak.Cadder.Core
                     : chained || holdsNothing || !CutSharesAPoint(cut) ? "none" : "ik";
                 loop.SuggestedDriverJoint = driver.Id;
                 loop.DriverCandidates = candidates;
-                chosenDrivers.Add(driver.Id);
+                // A weld drives nothing, so it has no claim on the loops met
+                // after it. Only a ring of welds names one, because it has
+                // nothing else to name. Live CutterRig (2026-09-22): a ring
+                // of three welds in the lead screw was met first, its weld
+                // then won every later loop of that mechanism, and the
+                // cutting head's slide was never the input.
+                if (driver.Type != JointType.Fixed) chosenDrivers.Add(driver.Id);
                 SetPlanarity(loop, members);
                 loop.Mobility = Mobility(loop, members);
                 // The ring's groups and the driver's moving body, for the

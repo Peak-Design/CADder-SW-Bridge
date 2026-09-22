@@ -1083,5 +1083,53 @@ namespace Peak.Cadder.Tests
             Assert.Equal(new[] { "j001", "j003", "j013", "j015" }, byClosure["j015"].MemberJoints);
             Assert.Equal(new[] { "j002", "j004", "j014", "j017" }, byClosure["j017"].MemberJoints);
         }
+        /// <summary>
+        /// A ring of welds names a weld as its driver, because it has
+        /// nothing else to name. That weld must not win the loops met after
+        /// it. Live CutterRig (2026-09-22): the lead screw's housing sits
+        /// on the frame through a ring of three welds, one of them shared
+        /// with the cutting head's loop, and every loop of the mechanism
+        /// took the weld as its input. The head could not be moved.
+        /// </summary>
+        [Fact]
+        public void ARingOfWeldsDoesNotHandItsWeldToTheNextLoop()
+        {
+            var z = new double[] { 0, 0, 1 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g007"),      // cutting head
+                Group("g014"),      // lead screw housing
+                Group("g015"),      // housing part
+                Group("g018"),      // screw rod
+            };
+            var joints = new List<RigJoint>
+            {
+                Joint("j005", JointType.Prismatic, "g000", "g007", z),
+                Joint("j006", JointType.Fixed, "g000", "g014"),
+                Joint("j007", JointType.Fixed, "g000", "g015"),
+                Joint("j022", JointType.Revolute, "g007", "g018", z),
+                Joint("j029", JointType.Fixed, "g014", "g015"),
+                Joint("j031", JointType.Cylindrical, "g014", "g018", z),
+            };
+            var origins = new Dictionary<string, double[]>
+            {
+                { "j005", new[] { 0.0, 0.4, 0.3 } }, { "j006", new[] { 0.0, 0.5, 0.0 } },
+                { "j007", new[] { 0.0, 0.5, 0.1 } }, { "j022", new[] { 0.0, 0.45, 0.3 } },
+                { "j029", new[] { 0.0, 0.5, 0.1 } }, { "j031", new[] { 0.0, 0.45, 0.2 } },
+            };
+            foreach (var j in joints) j.Origin = origins[j.Id];
+            joints.Find(j => j.Id == "j031").TranslationLimit =
+                new JointLimit { Min = 0, Max = 0.3, ValueAtRest = 0.0005 };
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            var headLoop = result.Loops.Find(lp => lp.MemberJoints.Contains("j005"));
+            Assert.NotNull(headLoop);
+            Assert.Equal("j005", headLoop.SuggestedDriverJoint);
+            var mech = result.Mechanisms.Find(m => m.LoopIds.Contains(headLoop.Id));
+            Assert.NotNull(mech);
+            Assert.Equal("j005", mech.Inputs[0].Joint);
+        }
     }
 }
