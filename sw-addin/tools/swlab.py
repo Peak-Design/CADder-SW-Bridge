@@ -8,6 +8,8 @@
     python swlab.py ribbon               what the add-in put on the ribbon
     python swlab.py export [--step] [--mesh] [--dir D] [--quality Q]
     python swlab.py send [--step] [--timeout S]   (default: direct link, native mesh)
+    python swlab.py send --update [--rig-mode KEEP|APPEND|REGENERATE]
+                                              what Refresh Model sends
     python swlab.py mates [--json]
     python swlab.py suppress <MateName> | unsuppress <MateName>
     python swlab.py dimension <D1@Distance1> [<value in m or rad>]
@@ -138,6 +140,10 @@ def main(argv):
     p.add_argument("--out")
     p.add_argument("--quality", type=float)
     p.add_argument("--timeout", type=float)
+    p.add_argument("--update", action="store_true",
+                   help="send: bring the Blender scene up to date, as Refresh Model does")
+    p.add_argument("--rig-mode", choices=("KEEP", "APPEND", "REGENERATE"),
+                   help="send --update: what to do with the rig")
     p.add_argument("--lines", type=int, default=50)
     p.add_argument("--width", type=int, default=1280)
     p.add_argument("--height", type=int, default=800)
@@ -167,6 +173,10 @@ def main(argv):
         req["native"] = not a.step
         if a.dir:
             req["dir"] = os.path.abspath(a.dir)
+        if a.update:
+            req["update"] = True
+        if a.rig_mode:
+            req["rig_mode"] = a.rig_mode
     elif a.op in ("suppress", "unsuppress"):
         req["mate"] = a.args[0]
     elif a.op == "dimension":

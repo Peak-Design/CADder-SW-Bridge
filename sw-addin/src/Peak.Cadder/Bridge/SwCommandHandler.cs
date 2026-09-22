@@ -555,10 +555,16 @@ namespace Peak.Cadder.Bridge
             string stepPath = paths.ContainsKey("step") ? (string)paths["step"] : null;
             string meshPath = paths.ContainsKey("mesh") ? (string)paths["mesh"] : null;
             string manifestPath = paths.ContainsKey("manifest") ? (string)paths["manifest"] : null;
+            // "update" and "rig_mode" make this the payload Refresh Model
+            // sends, so a lab session can refresh a scene the way the ribbon
+            // does.
+            bool update = MiniJson.Flag(request, "update", false);
+            string rigMode = request.ContainsKey("rig_mode")
+                ? request["rig_mode"] as string : null;
             var payload = SendToBlenderCommand.BuildPayload(
                 settings, native ? null : stepPath, native ? meshPath : null,
-                manifestPath, view: settings.MatchView
-                    ? ViewReader.Read(model) : null);
+                manifestPath, update: update, rigMode: rigMode,
+                view: settings.MatchView ? ViewReader.Read(model) : null);
             int timeoutMs = (int)(MiniJson.Num(request, "timeout_s", 600) * 1000);
             var resp = BlenderBridge.PostImport(target, payload, timeoutMs, AddIn.Log);
             var reply = new Dictionary<string, object>
