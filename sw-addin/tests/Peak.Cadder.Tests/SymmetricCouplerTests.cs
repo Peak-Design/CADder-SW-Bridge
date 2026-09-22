@@ -479,6 +479,116 @@ namespace Peak.Cadder.Tests
             Assert.Contains("reflects the other two", w.Message);
         }
 
+        // ── Mirrored bodies that ride loops ─────────────────────────────────
+
+        /// <summary>Two clamps on hinges, each swung by a ram, with the rods'
+        /// pin ends held symmetric about the X plane, as on live CutterRig.
+        /// Every number on side two is side one's mirrored.</summary>
+        private static void ClampsAndRams(
+            out List<RigidGroup> groups, out List<RigJoint> joints, out MateGraph graph,
+            out RigidGroupingResult grouping)
+        {
+            var y = new double[] { 0, 1, 0 };
+            var stroke = MathOps.Normalized(new[] { 0.4228, 0.0, 0.9062 });
+            var strokeTwo = MathOps.Normalized(new[] { -0.4228, 0.0, 0.9062 });
+            groups = new List<RigidGroup>
+            {
+                new RigidGroup { Id = "g000", Name = "frame", Grounded = true, Components = { "c001" } },
+                new RigidGroup { Id = "g001", Name = "clamp one", Components = { "c002" } },
+                new RigidGroup { Id = "g002", Name = "clamp two", Components = { "c003" } },
+                new RigidGroup { Id = "g003", Name = "cylinder one", Components = { "c004" } },
+                new RigidGroup { Id = "g004", Name = "rod one", Components = { "c005" } },
+                new RigidGroup { Id = "g005", Name = "cylinder two", Components = { "c006" } },
+                new RigidGroup { Id = "g006", Name = "rod two", Components = { "c007" } },
+            };
+            grouping = new RigidGroupingResult();
+            foreach (var g in groups)
+            {
+                grouping.Groups.Add(g);
+                grouping.ComponentGroup[g.Components[0]] = g.Id;
+            }
+            RigJoint J(string id, string type, string parent, string child,
+                       double[] axis, double[] origin) => new RigJoint
+            {
+                Id = id, Type = type, ParentGroup = parent, ChildGroup = child,
+                Axis = (double[])axis.Clone(), SecondaryAxis = new double[] { 1, 0, 0 },
+                Origin = origin,
+            };
+            joints = new List<RigJoint>
+            {
+                J("j001", JointType.Revolute, "g000", "g001", y, P(0.29, 0.0555, 0.5575)),
+                J("j002", JointType.Revolute, "g000", "g002", y, P(-0.29, 0.0155, 0.5575)),
+                J("j003", JointType.Revolute, "g000", "g003", y, P(0.19, 0.05, 0.12)),
+                J("j004", JointType.Revolute, "g000", "g005", y, P(-0.19, 0.02, 0.12)),
+                J("j013", JointType.Revolute, "g001", "g004", y, P(0.3299, 0.0355, 0.4199)),
+                J("j014", JointType.Revolute, "g002", "g006", y, P(-0.3299, 0.0355, 0.4199)),
+                J("j015", JointType.Prismatic, "g003", "g004", stroke, P(0.3299, 0.04, 0.4199)),
+                J("j017", JointType.Prismatic, "g005", "g006", strokeTwo, P(-0.3299, 0.04, 0.4199)),
+            };
+            graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "clamp one"), Comp("c003", "clamp two"),
+                    Comp("c004", "cylinder one"), Comp("c005", "rod one"),
+                    Comp("c006", "cylinder two"), Comp("c007", "rod two"),
+                },
+                Mate("Symmetric54", "swMateSYMMETRIC",
+                    Cylinder("c005", new[] { 0.0, -1.0, 0.0 }, P(0.3299, 0.053, 0.4199), 0.015),
+                    Cylinder("c007", new[] { 0.0, 1.0, 0.0 }, P(-0.3299, 0.018, 0.4199), 0.015),
+                    PlaneEnt(null, X, P(0, 0, 0))));
+        }
+
+        /// <summary>
+        /// The rods' pins sit inside the two ram loops, which the clamp
+        /// hinges drive, so a coupling on a pin does nothing: the loop sets
+        /// it. The mirror goes on the two clamp hinges instead, and turning
+        /// one clamp turns the other the opposite way (live CutterRig,
+        /// 2026-09-22: the second clamp stood still while the first swung).
+        /// </summary>
+        [Fact]
+        public void MirroredBodiesInTwoLoopsCoupleTheLoopDrivers()
+        {
+            ClampsAndRams(out var groups, out var joints, out var graph, out var grouping);
+            var loops = LoopAnalyzer.Analyze(groups, joints);
+
+            var warnings = SymmetricCoupler.Resolve(graph, grouping, loops.Joints, loops.Loops);
+
+            Assert.Empty(warnings);
+            var byId = new Dictionary<string, RigJoint>();
+            foreach (var j in loops.Joints) byId[j.Id] = j;
+            Assert.Null(byId["j013"].Coupling);
+            Assert.Null(byId["j014"].Coupling);
+            Assert.Null(byId["j001"].Coupling);
+            var c = byId["j002"].Coupling;
+            Assert.NotNull(c);
+            Assert.Equal("gear", c.Kind);
+            Assert.Equal("j001", c.DriverJoint);
+            Assert.Equal(-1.0, c.Ratio ?? 0.0, 9);
+            Assert.Contains(byId["j002"].SourceMates, s => s.SwFeature == "Symmetric54");
+        }
+
+        /// <summary>Two loops that are not mirror images joint for joint
+        /// cannot carry the mirror between their drivers, so the mounts are
+        /// coupled as before.</summary>
+        [Fact]
+        public void LoopsThatAreNotMirrorImagesKeepTheMountCoupling()
+        {
+            ClampsAndRams(out var groups, out var joints, out var graph, out var grouping);
+            // Cylinder two's pivot moves 40 mm off the mirror of cylinder one's.
+            joints.Find(j => j.Id == "j004").Origin = P(-0.23, 0.02, 0.12);
+            var loops = LoopAnalyzer.Analyze(groups, joints);
+
+            var warnings = SymmetricCoupler.Resolve(graph, grouping, loops.Joints, loops.Loops);
+
+            Assert.Empty(warnings);
+            var byId = new Dictionary<string, RigJoint>();
+            foreach (var j in loops.Joints) byId[j.Id] = j;
+            Assert.Null(byId["j002"].Coupling);
+            Assert.NotNull(byId["j014"].Coupling);
+            Assert.Equal("j013", byId["j014"].Coupling.DriverJoint);
+        }
+
         // ── The same lines between TWO bodies, as the resolver reads them ───
 
         /// <summary>Both cylinders on one body, mirrored about a plane of the

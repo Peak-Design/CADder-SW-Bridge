@@ -39,7 +39,8 @@ namespace Peak.Cadder.Core
     public static class MirrorFeatureCoupler
     {
         public static List<ManifestWarning> Resolve(
-            MateGraph graph, RigidGroupingResult grouping, List<RigJoint> joints)
+            MateGraph graph, RigidGroupingResult grouping, List<RigJoint> joints,
+            List<RigLoop> loops = null)
         {
             var warnings = new List<ManifestWarning>();
             if (graph.MirrorPairs.Count == 0) return warnings;
@@ -76,7 +77,7 @@ namespace Peak.Cadder.Core
                     MathOps.Normalized(pair.PlaneNormal),
                     new SourceMate { SwFeature = pair.FeatureName, Type = "MirrorComponent" },
                     MirrorScope.Rigid, "the mirror feature's plane",
-                    freePairRefusal: null);
+                    freePairRefusal: null, loops: loops, planeGroup: groundGroup);
                 if (reason == null) continue;
 
                 var w = new ManifestWarning();

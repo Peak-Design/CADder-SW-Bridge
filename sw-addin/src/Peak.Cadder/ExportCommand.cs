@@ -473,9 +473,10 @@ namespace Peak.Cadder
             // APPEND a mirror pair (two ground-rooted free joints for a
             // symmetric-only body pair), so they resolve before the manifest
             // is assembled: island detection must see those joints.
-            var symWarnings = SymmetricCoupler.Resolve(graph, grouping, loops.Joints);
+            var symWarnings = SymmetricCoupler.Resolve(
+                graph, grouping, loops.Joints, loops.Loops);
             symWarnings.AddRange(
-                MirrorFeatureCoupler.Resolve(graph, grouping, loops.Joints));
+                MirrorFeatureCoupler.Resolve(graph, grouping, loops.Joints, loops.Loops));
             // Cam profiles and universal joints are functions the solver
             // knows and no mate records: the probe turns the driver through
             // a revolution and tables the driven joint. Same model-moving

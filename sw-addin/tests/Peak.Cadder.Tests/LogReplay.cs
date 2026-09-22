@@ -332,7 +332,8 @@ namespace Peak.Cadder.Tests
             all.AddRange(o.Classification.VirtualGroups);
             o.Loops = LoopAnalyzer.Analyze(all, o.Classification.Joints);
             o.Warnings.AddRange(o.Classification.Warnings);
-            o.Warnings.AddRange(SymmetricCoupler.Resolve(graph, o.Grouping, o.Loops.Joints));
+            o.Warnings.AddRange(SymmetricCoupler.Resolve(
+                graph, o.Grouping, o.Loops.Joints, o.Loops.Loops));
             return o;
         }
 

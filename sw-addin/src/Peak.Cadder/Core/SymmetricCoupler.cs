@@ -20,11 +20,19 @@ namespace Peak.Cadder.Core
     /// as its mount's child: a mount found on the parent side flips the
     /// sign. Anything that fails a gate falls back to the SYMMETRIC_COUPLING
     /// warning: the bodies pose independently and the user is told.
+    ///
+    /// When each mount sits in a closed loop of its own, the loop sets the
+    /// mount, and the coupling goes on the two loops' drivers instead
+    /// (see MirroredLoopInputs).
     /// </summary>
     public static class SymmetricCoupler
     {
+        /// <param name="loops">The loops the joints close, or null. With
+        /// them, a mirror between two bodies that each ride a loop of their
+        /// own couples the two loops' drivers.</param>
         public static List<ManifestWarning> Resolve(
-            MateGraph graph, RigidGroupingResult grouping, List<RigJoint> joints)
+            MateGraph graph, RigidGroupingResult grouping, List<RigJoint> joints,
+            List<RigLoop> loops = null)
         {
             var warnings = new List<ManifestWarning>();
             string groundGroup = null;
@@ -68,7 +76,8 @@ namespace Peak.Cadder.Core
                     joints, groundGroup, ga, gb,
                     plane.Point ?? new double[3], MathOps.Normalized(plane.Direction),
                     new SourceMate { SwFeature = m.FeatureName, Type = m.TypeName },
-                    MirrorScope.Plane, "the symmetric mate's plane", freePairRefusal);
+                    MirrorScope.Plane, "the symmetric mate's plane", freePairRefusal,
+                    loops, GroupOf(plane, grouping) ?? groundGroup);
 
                 if (reason != null) warnings.Add(CouplingWarning(m, reason));
             }
@@ -103,7 +112,8 @@ namespace Peak.Cadder.Core
         internal static string TryCouple(
             List<RigJoint> joints, string groundGroup, string ga, string gb,
             double[] planePoint, double[] planeNormal, SourceMate source,
-            string scope, string planeLabel, string freePairRefusal)
+            string scope, string planeLabel, string freePairRefusal,
+            List<RigLoop> loops = null, string planeGroup = null)
         {
             var driver = FindMount(joints, ga);
             var driven = FindMount(joints, gb);
@@ -112,6 +122,35 @@ namespace Peak.Cadder.Core
             {
                 var t = driver; driver = driven; driven = t;
                 var tg = ga; ga = gb; gb = tg;
+            }
+
+            RigJoint inputA, inputB;
+            string common;
+            if (driver != null && driven != null && driver != driven
+                && MirroredLoopInputs(loops, joints, driver, driven, planeGroup,
+                                      planePoint, planeNormal,
+                                      out inputA, out inputB, out common))
+            {
+                double along = MathOps.Dot(inputB.Axis, Mirror(inputA.Axis, planeNormal));
+                double loopRatio = inputA.Type == JointType.Prismatic
+                    ? Math.Sign(along)
+                    : -Math.Sign(along);
+                // Each input measures its moving side against the plane's
+                // own body, which the mirror maps onto itself. An input with
+                // that body as its CHILD measures the reverse.
+                if (inputA.ChildGroup == common) loopRatio = -loopRatio;
+                if (inputB.ChildGroup == common) loopRatio = -loopRatio;
+                inputB.Coupling = new JointCoupling
+                {
+                    Kind = inputA.Type == JointType.Prismatic ? "linear_coupler" : "gear",
+                    DriverJoint = inputA.Id,
+                    Ratio = loopRatio,
+                };
+                inputB.SourceMates.Add(source);
+                inputB.Notes = AppendNote(inputB.Notes,
+                    "mirrors " + inputA.Id + " about " + planeLabel + ": the mirrored "
+                    + "bodies each ride a loop, and these joints drive the two loops.");
+                return null;
             }
 
             double ratio = 0.0;
@@ -159,6 +198,123 @@ namespace Peak.Cadder.Core
             driven.SourceMates.Add(source);
             driven.Notes = AppendNote(driven.Notes,
                 "mirrors " + driver.Id + " about " + planeLabel + ".");
+            return null;
+        }
+
+        /// <summary>
+        /// The drivers of the two loops that carry two mirrored mounts.
+        ///
+        /// A mount inside a loop the rig closes does not hold its body's
+        /// motion: the loop sets that joint from its driver, so a coupling
+        /// on the mount does nothing. When each mount sits in exactly one
+        /// such loop of its own (mobility 1, a closure the rig makes), and
+        /// the two loops are mirror images joint for joint, the mirror of
+        /// one body is the mirror of its whole loop, and the two drivers
+        /// carry it. Both drivers must hang off the plane's own body, which
+        /// the mirror maps onto itself.
+        ///
+        /// Live CutterRig (2026-09-22): one symmetric mate holds the two
+        /// ram rods as mirror images. The rods hang on pins inside the two
+        /// ram loops, which the two clamp hinges drive, so the coupling on
+        /// the rod pins did nothing and the second clamp stood still while
+        /// the first one swung.
+        /// </summary>
+        private static bool MirroredLoopInputs(
+            List<RigLoop> loops, List<RigJoint> joints, RigJoint mountA, RigJoint mountB,
+            string planeGroup, double[] planePoint, double[] planeNormal,
+            out RigJoint inputA, out RigJoint inputB, out string common)
+        {
+            inputA = null;
+            inputB = null;
+            common = null;
+            if (loops == null || planeGroup == null) return false;
+            var loopA = OwnLoop(loops, mountA.Id, mountB.Id);
+            var loopB = OwnLoop(loops, mountB.Id, mountA.Id);
+            if (loopA == null || loopB == null || loopA == loopB) return false;
+
+            inputA = JointById(joints, loopA.SuggestedDriverJoint);
+            inputB = JointById(joints, loopB.SuggestedDriverJoint);
+            if (inputA == null || inputB == null || inputA == inputB) return false;
+            if (inputA.Coupling != null || inputB.Coupling != null) return false;
+            if (inputA.Type != inputB.Type) return false;
+            if (inputA.Type != JointType.Revolute && inputA.Type != JointType.Prismatic)
+                return false;
+            if (!LineMirrors(inputA, inputB, planePoint, planeNormal)) return false;
+
+            if (inputA.ParentGroup == planeGroup || inputA.ChildGroup == planeGroup)
+                common = planeGroup;
+            if (common == null
+                || (inputB.ParentGroup != common && inputB.ChildGroup != common))
+                return false;
+
+            // Every joint of one loop has its mirror image in the other.
+            if (loopA.MemberJoints.Count != loopB.MemberJoints.Count) return false;
+            var used = new HashSet<string>();
+            foreach (string idA in loopA.MemberJoints)
+            {
+                var a = JointById(joints, idA);
+                if (a == null) return false;
+                RigJoint match = null;
+                foreach (string idB in loopB.MemberJoints)
+                {
+                    if (used.Contains(idB)) continue;
+                    var b = JointById(joints, idB);
+                    if (b == null || b.Type != a.Type) continue;
+                    if (a == inputA && b != inputB) continue;
+                    if (!LineMirrors(a, b, planePoint, planeNormal)) continue;
+                    match = b;
+                    break;
+                }
+                if (match == null) return false;
+                used.Add(match.Id);
+            }
+            return true;
+        }
+
+        /// <summary>The one loop the rig closes that holds `mount` and not
+        /// `other`, or null when there is none or more than one.</summary>
+        private static RigLoop OwnLoop(List<RigLoop> loops, string mount, string other)
+        {
+            RigLoop found = null;
+            foreach (var lp in loops)
+            {
+                if (lp.ClosureKind == "none" || lp.Mobility != 1) continue;
+                if (!lp.MemberJoints.Contains(mount) || lp.MemberJoints.Contains(other))
+                    continue;
+                if (found != null) return null;
+                found = lp;
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Whether joint `b` sits where the mirror puts joint `a`. A hinge
+        /// is a line: the reflected direction is parallel to b's and the
+        /// reflected origin lies on b's line. A slide or a planar has a
+        /// direction only. A joint with no axis passes on its type alone.
+        /// </summary>
+        private static bool LineMirrors(
+            RigJoint a, RigJoint b, double[] planePoint, double[] planeNormal)
+        {
+            if (a.Axis == null || b.Axis == null) return a.Axis == null && b.Axis == null;
+            if (MathOps.Norm(a.Axis) < 1e-9 || MathOps.Norm(b.Axis) < 1e-9) return false;
+            var nb = MathOps.Normalized(b.Axis);
+            if (!MateFacts.IsParallel(Mirror(MathOps.Normalized(a.Axis), planeNormal), nb))
+                return false;
+            if (a.Type != JointType.Revolute && a.Type != JointType.Cylindrical) return true;
+            if (a.Origin == null || b.Origin == null) return false;
+            double away = MathOps.Dot(Minus(a.Origin, planePoint), planeNormal);
+            var pa = new[] { a.Origin[0] - 2.0 * away * planeNormal[0],
+                             a.Origin[1] - 2.0 * away * planeNormal[1],
+                             a.Origin[2] - 2.0 * away * planeNormal[2] };
+            return MateFacts.DistancePointToLine(pa, nb, b.Origin)
+                   <= MateFacts.CollinearTol * Math.Max(1.0, MathOps.Norm(b.Origin));
+        }
+
+        private static RigJoint JointById(List<RigJoint> joints, string id)
+        {
+            if (id == null) return null;
+            foreach (var j in joints) if (j.Id == id) return j;
             return null;
         }
 
