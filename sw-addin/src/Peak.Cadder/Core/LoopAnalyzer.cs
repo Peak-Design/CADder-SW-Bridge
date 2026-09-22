@@ -430,7 +430,8 @@ namespace Peak.Cadder.Core
                     candidates.Add(new RigLoopCandidate(driver.Id, cut.Id, "none"));
                 }
                 else if (PreferFirst(ring.Edges[0], ring.Edges[1],
-                                     ring.Edges[n - 1], ring.Edges[n - 2], chosenDrivers, seed))
+                                     ring.Edges[n - 1], ring.Edges[n - 2], chosenDrivers, seed,
+                                     CrankEnd(ring)))
                 {
                     driver = ring.Edges[0];
                     cut = ring.Edges[1];
@@ -1658,7 +1659,7 @@ namespace Peak.Cadder.Core
 
         private static bool PreferFirst(
             RigJoint driverA, RigJoint cutA, RigJoint driverB, RigJoint cutB,
-            HashSet<string> chosen = null, HashSet<string> seed = null)
+            HashSet<string> chosen = null, HashSet<string> seed = null, int crank = 0)
         {
             // The input asked for outranks everything: see Choose's seed.
             if (seed != null)
@@ -1685,6 +1686,9 @@ namespace Peak.Cadder.Core
             if (fa != fb) return !fa;
             bool la = HasLimits(driverA), lb = HasLimits(driverB);
             if (la != lb) return la;
+            // Of a four-bar's two ground links, the one that turns a full
+            // circle drives (see CrankEnd).
+            if (crank != 0) return crank > 0;
             bool ra = driverA.Type == JointType.Revolute;
             bool rb = driverB.Type == JointType.Revolute;
             if (ra != rb) return ra;
@@ -1694,6 +1698,48 @@ namespace Peak.Cadder.Core
             bool cb = cutB.Type == JointType.Revolute;
             if (ca != cb) return ca;
             return string.CompareOrdinal(driverA.Id, driverB.Id) <= 0;
+        }
+
+        /// <summary>
+        /// Which anchor link of a planar four-bar turns a full circle
+        /// against the anchor: +1 the link of the ring's first edge, -1 the
+        /// link of its last edge, 0 neither or both, or not a four-bar.
+        ///
+        /// Grashof: with s the shortest link, l the longest and p, q the
+        /// other two, s + l &lt;= p + q lets the shortest link turn fully. A
+        /// crank next to the anchor can drive the whole range. The rocker on
+        /// the other side stops at two toggles, and a control on it runs past
+        /// them and opens the loop. Live weldingrobot (2026-09-22): links of
+        /// 90, 125 and 35.35 mm on a 127.47 mm base. The id tie-break chose
+        /// the 90 mm rocker, which swings 49 degrees, over the 35.35 mm
+        /// crank.
+        /// </summary>
+        private static int CrankEnd(Ring ring)
+        {
+            if (ring.Edges.Count != 4) return 0;
+            foreach (var e in ring.Edges)
+                if (e.Type != JointType.Revolute || e.Axis == null || e.Origin == null) return 0;
+            var n = MathOps.Normalized(ring.Edges[0].Axis);
+            foreach (var e in ring.Edges)
+                if (MathOps.Norm(MathOps.Cross(n, MathOps.Normalized(e.Axis))) >= 1e-6) return 0;
+            var len = new double[4];
+            for (int i = 0; i < 4; i++)
+            {
+                var d = FlattenOnto(Minus(ring.Edges[(i + 1) % 4].Origin, ring.Edges[i].Origin), n);
+                len[i] = MathOps.Norm(d);
+                if (len[i] < 1e-9) return 0;
+            }
+            // len[0] is the first edge's link, len[2] the last edge's link,
+            // len[1] the coupler, len[3] the anchor.
+            double s = Math.Min(Math.Min(len[0], len[1]), Math.Min(len[2], len[3]));
+            double l = Math.Max(Math.Max(len[0], len[1]), Math.Max(len[2], len[3]));
+            double sum = len[0] + len[1] + len[2] + len[3];
+            double tol = 1e-9 * Math.Max(1.0, l);
+            if (s + l > sum - s - l + tol) return 0;
+            bool first = Math.Abs(len[0] - s) <= tol;
+            bool last = Math.Abs(len[2] - s) <= tol;
+            if (first == last) return 0;
+            return first ? 1 : -1;
         }
 
         // ── Slider-crank limits ─────────────────────────────────────────────

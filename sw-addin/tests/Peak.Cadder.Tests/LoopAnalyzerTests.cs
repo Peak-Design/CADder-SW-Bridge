@@ -1276,5 +1276,41 @@ namespace Peak.Cadder.Tests
             foreach (var j in joints)
                 if (j.Id != "j031") Assert.Null(j.TranslationLimit);
         }
+        /// <summary>
+        /// Of a four-bar's two ground links, the one that turns a full circle
+        /// drives, whatever the ids say. The live weldingrobot linkage: a
+        /// 35.35 mm crank and a 90 mm rocker on a 127.47 mm base, 125 mm
+        /// coupler. The rocker swings 49 degrees and a control on it opens
+        /// the loop past its toggles.
+        /// </summary>
+        [Fact]
+        public void TheCrankOfAFourBarDrives()
+        {
+            var x = new double[] { 1, 0, 0 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"),      // rocker
+                Group("g002"),      // coupler
+                Group("g003"),      // crank
+            };
+            var joints = new List<RigJoint>
+            {
+                Joint("j002", JointType.Revolute, "g000", "g001", x),
+                Joint("j003", JointType.Revolute, "g001", "g002", x),
+                Joint("j004", JointType.Revolute, "g000", "g003", x),
+                Joint("j005", JointType.Revolute, "g002", "g003", x),
+            };
+            joints[0].Origin = new[] { 0.0, 0.0, 0.0 };
+            joints[1].Origin = new[] { 0.0, 0.014487, 0.088823 };
+            joints[2].Origin = new[] { 0.0, 0.12747, 0.0 };
+            joints[3].Origin = new[] { 0.0, 0.12747, 0.03535 };
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            var loop = Assert.Single(result.Loops);
+            Assert.Equal("j004", loop.SuggestedDriverJoint);
+            Assert.Equal("j004", result.Mechanisms[0].Inputs[0].Joint);
+        }
     }
 }
