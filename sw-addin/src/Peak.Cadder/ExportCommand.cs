@@ -778,6 +778,10 @@ namespace Peak.Cadder
                 AddIn.Log("grounding: " + grouping.StatusWelds.Count + " component(s) "
                     + "welded to the ground because SolidWorks says they cannot move: "
                     + string.Join(", ", grouping.StatusWelds.ToArray()));
+            foreach (string path in grouping.PoseHeldSkips)
+                AddIn.Log("status: " + path + " reads fully defined, but a cam or path "
+                    + "mate holds it, and that holds it differently at every pose, so "
+                    + "it is not welded on its status");
             if (grouping.SubStatusWelds.Count > 0)
                 AddIn.Log("grounding: " + grouping.SubStatusWelds.Count + " component(s) "
                     + "welded to their subassembly because SolidWorks says they cannot "

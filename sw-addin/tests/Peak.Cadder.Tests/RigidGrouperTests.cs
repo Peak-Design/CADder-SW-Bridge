@@ -578,6 +578,34 @@ namespace Peak.Cadder.Tests
             Assert.NotEqual(mateOnly.ComponentGroup["c001"], mateOnly.ComponentGroup["c002"]);
         }
 
+        /// <summary>A follower on a cam reads fully defined at a dwell and
+        /// still moves when the cam turns on, so a cam mate keeps it off the
+        /// status pass (corpus cam-follower, 2026-09-22).</summary>
+        [Fact]
+        public void APartHeldByACamIsNotWeldedOnItsStatus()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "cam"),
+                    StillWithLimitsOut(Comp("c003", "lifter")),
+                },
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c003", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident3", "c001", "c003", Y, P(0, 0, 0)),
+                Mate("CamMateTangent1", "swMateCAMFOLLOWER",
+                    Cylinder("c002", Z, P(0, 0, 0), 0.0762),
+                    Cylinder("c003", Z, P(0.1137, 0, 0), 0.0375)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c003"]);
+            Assert.Empty(result.StatusWelds);
+            Assert.Equal(new[] { "lifter-1" }, result.PoseHeldSkips);
+        }
+
         /// <summary>A component no active mate touches (a pattern or mirror
         /// instance) follows its seed, so its status welds nothing.</summary>
         [Fact]

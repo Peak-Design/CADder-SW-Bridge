@@ -40,6 +40,10 @@ namespace Peak.Cadder.Core
         /// </summary>
         public List<string> StatusWeldIds = new List<string>();
 
+        /// <summary>Parts that read fully defined but are held by a cam or
+        /// path mate, and so were not welded on their status.</summary>
+        public List<string> PoseHeldSkips = new List<string>();
+
         /// <summary>Children of flexible subassemblies welded to their
         /// subassembly's frame because SolidWorks says they cannot move in
         /// the subassembly's own document (GraphComponent.SubStatusFree).
@@ -176,12 +180,37 @@ namespace Peak.Cadder.Core
             // Blender). A child no active mate touches follows its seed, as
             // for the top-level status below.
             var mated = MatedComponents(graph);
+            // A cam or path mate holds a part differently at every pose, and
+            // the status is read at one pose. At a cam's dwell the follower
+            // cannot move to first order, so SolidWorks calls it fully
+            // defined, and the cam moves it 79 mm further round (corpus
+            // cam-follower, 2026-09-22: the lifter was welded and the roller
+            // ran through the lobe). The DOF probe reads the same pose, so it
+            // cannot tell either. Such a part is never welded on its status,
+            // nor is anything the mates alone make one body with it.
+            var poseTouched = PoseHeldComponents(graph);
+            HashSet<string> poseHeld = null;
+            if (poseTouched.Count > 0 && statusWelds)
+            {
+                var mateOnly = Group(graph, solverRigidPairs, null, statusWelds: false);
+                var heldGroups = new HashSet<string>();
+                foreach (string id in poseTouched)
+                {
+                    string g;
+                    if (mateOnly.ComponentGroup.TryGetValue(id, out g)) heldGroups.Add(g);
+                }
+                poseHeld = new HashSet<string>();
+                foreach (var kv in mateOnly.ComponentGroup)
+                    if (heldGroups.Contains(kv.Value)) poseHeld.Add(kv.Key);
+            }
+            var poseSkips = new List<string>();
             var subStatusWelded = new List<string>();
             for (int i = 0; i < comps.Count; i++)
             {
                 var c = comps[i];
                 if (c.ParentId == null || c.SubStatusFree != SwFullyConstrained) continue;
                 if (!mated.Contains(c.Id)) continue;
+                if (poseTouched.Contains(c.Id)) { poseSkips.Add(c.Path ?? c.Id); continue; }
                 int p;
                 if (!indexById.TryGetValue(c.ParentId, out p)) continue;
                 if (Find(parent, i) == Find(parent, p)) continue;
@@ -226,6 +255,11 @@ namespace Peak.Cadder.Core
                     if (c.StatusFree != SwFullyConstrained) continue;
                     if (!mated.Contains(c.Id)) continue;
                     if (statusVetoed != null && statusVetoed.Contains(c.Id)) continue;
+                    if (poseHeld != null && poseHeld.Contains(c.Id))
+                    {
+                        poseSkips.Add(c.Path ?? c.Id);
+                        continue;
+                    }
                     if (Find(parent, i) == Find(parent, assemblyProxy)) continue;
                     Union(parent, i, assemblyProxy);
                     statusWelded.Add(c.Path ?? c.Id);
@@ -323,6 +357,7 @@ namespace Peak.Cadder.Core
             result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
             result.StatusWelds = statusWelded;
             result.StatusWeldIds = statusWeldedIds;
+            result.PoseHeldSkips = poseSkips;
             result.SubStatusWelds = subStatusWelded;
             return result;
         }
@@ -387,6 +422,21 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>Components some active mate touches.</summary>
+        /// <summary>Components an active cam-follower or path mate touches.
+        /// </summary>
+        private static HashSet<string> PoseHeldComponents(MateGraph graph)
+        {
+            var touched = new HashSet<string>();
+            foreach (var m in graph.Mates)
+            {
+                if (m.Suppressed) continue;
+                if (!MateFacts.Is(m, "CAMFOLLOWER") && !MateFacts.Is(m, "PATH")) continue;
+                foreach (var e in m.Entities)
+                    if (e != null && e.ComponentId != null) touched.Add(e.ComponentId);
+            }
+            return touched;
+        }
+
         private static HashSet<string> MatedComponents(MateGraph graph)
         {
             var mated = new HashSet<string>();
