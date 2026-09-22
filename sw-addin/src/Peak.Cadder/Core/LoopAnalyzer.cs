@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Peak.Cadder.Core.Model;
 
@@ -81,7 +81,35 @@ namespace Peak.Cadder.Core
             MoveCutsOffWelds(result);
             SeatClosureOrigins(result);
             AddCouplingMechanisms(result);
+            DropStrayCandidates(result);
             return result;
+        }
+
+        /// <summary>
+        /// Drops a driver candidate that names a joint outside its own loop,
+        /// with a note. The consumer refuses a whole manifest over one such
+        /// candidate, and a candidate is only an offer: the loop's own
+        /// driver and closure are untouched.
+        /// </summary>
+        private static void DropStrayCandidates(LoopAnalysisResult result)
+        {
+            var seen = new HashSet<RigLoop>();
+            var all = new List<RigLoop>(result.Loops);
+            foreach (var mech in result.Mechanisms)
+                foreach (var option in mech.Inputs) all.AddRange(option.Loops);
+            foreach (var loop in all)
+            {
+                if (!seen.Add(loop)) continue;
+                for (int i = loop.DriverCandidates.Count - 1; i >= 0; i--)
+                {
+                    var c = loop.DriverCandidates[i];
+                    if (loop.MemberJoints.Contains(c.DriverJoint)
+                        && loop.MemberJoints.Contains(c.ClosureJoint)) continue;
+                    result.Notes.Add(loop.Id + ": candidate " + c.DriverJoint + " cut at "
+                        + c.ClosureJoint + " dropped, it is not a member of the loop");
+                    loop.DriverCandidates.RemoveAt(i);
+                }
+            }
         }
 
         /// <summary>One pass of closure selection, orientation and seating
@@ -706,12 +734,10 @@ namespace Peak.Cadder.Core
                         foreach (var option in mech.Inputs)
                         {
                             if (option.Joint != candidate.DriverJoint) continue;
-                            foreach (var lp in option.Loops)
-                                if (lp.Id == loop.Id)
-                                {
-                                    candidate.ClosureJoint = lp.ClosureJoint;
-                                    candidate.ClosureKind = lp.ClosureKind;
-                                }
+                            var same = SameRing(option.Loops, loop);
+                            if (same == null) continue;
+                            candidate.ClosureJoint = same.ClosureJoint;
+                            candidate.ClosureKind = same.ClosureKind;
                         }
                     RigJoint cut;
                     if (candidate.ClosureKind == "ik"
@@ -722,6 +748,36 @@ namespace Peak.Cadder.Core
                 }
                 loop.DriverCandidates = kept;
             }
+        }
+
+        /// <summary>
+        /// The loop of an input that is the same ring as `loop`: the same
+        /// members, else the most members in common, the first on a tie.
+        /// Never by id. An input's loops carry the mechanism's ids in
+        /// solving order, and the re-choice can meet the rings in another
+        /// order, so one id can name two rings (live CutterRig, 2026-09-22:
+        /// read by id, a washer ring got the cut of the ring beside it, and
+        /// the consumer refused the manifest).
+        /// </summary>
+        private static RigLoop SameRing(IList<RigLoop> loops, RigLoop loop)
+        {
+            RigLoop best = null;
+            int bestScore = 0;
+            foreach (var lp in loops)
+            {
+                int shared = 0;
+                foreach (var jid in lp.MemberJoints)
+                    if (loop.MemberJoints.Contains(jid)) shared++;
+                bool same = shared == lp.MemberJoints.Count
+                            && shared == loop.MemberJoints.Count;
+                int score = same ? int.MaxValue : shared;
+                if (score > bestScore)
+                {
+                    best = lp;
+                    bestScore = score;
+                }
+            }
+            return best;
         }
 
         private static void Recut(
@@ -960,6 +1016,15 @@ namespace Peak.Cadder.Core
 
                 foreach (string alt in inputs)
                 {
+                    // A weld cannot be posed, so it is no input to offer.
+                    // Only a ring of welds names one as its candidate.
+                    RigJoint altJoint = null;
+                    foreach (var j in joints) if (j.Id == alt) { altJoint = j; break; }
+                    if (altJoint != null && altJoint.Type == JointType.Fixed)
+                    {
+                        result.Notes.Add(mech.Id + ": input " + alt + " not offered, it is a weld");
+                        continue;
+                    }
                     var clones = new List<RigJoint>(joints.Count);
                     foreach (var j in joints)
                     {
@@ -1000,7 +1065,9 @@ namespace Peak.Cadder.Core
                         continue;
                     }
                     // Same ids as the choice, so bones keep their names when
-                    // the consumer switches.
+                    // the consumer switches. The ids name slots in solving
+                    // order, not rings: the re-choice can meet the rings in
+                    // another order (see SameRing).
                     for (int i = 0; i < altLoops.Count; i++) altLoops[i].Id = loops[i].Id;
 
                     if (!signatures.Add(Signature(altLoops)))

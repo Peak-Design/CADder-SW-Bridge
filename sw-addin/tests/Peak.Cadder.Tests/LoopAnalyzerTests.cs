@@ -1131,5 +1131,76 @@ namespace Peak.Cadder.Tests
             Assert.NotNull(mech);
             Assert.Equal("j005", mech.Inputs[0].Joint);
         }
+        /// <summary>
+        /// Two nut-and-washer rings hang off one plate through a ring of
+        /// welds, as on live CutterRig (2026-09-22). Taken from another
+        /// input, the analyser meets the rings in another order, so one loop
+        /// id names two different rings under the two inputs. Every
+        /// candidate must still name joints of its own loop: matched across
+        /// inputs by id, one washer ring got the cut of the ring beside it,
+        /// and the consumer refused the manifest. No weld is offered as an
+        /// input.
+        /// </summary>
+        [Fact]
+        public void CandidatesStayInTheirOwnRingAcrossInputs()
+        {
+            var x = new double[] { 1, 0, 0 };
+            var y = new double[] { 0, 1, 0 };
+            var z = new double[] { 0, 0, 1 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g007", grounded: true),      // plate
+                Group("g008"), Group("g009"),       // two welded brackets
+                Group("g010"), Group("g011"),       // nut and washer, side one
+                Group("g012"), Group("g013"),       // nut and washer, side two
+            };
+            var joints = new List<RigJoint>
+            {
+                Joint("j018", JointType.Fixed, "g007", "g008", x),
+                Joint("j019", JointType.Fixed, "g007", "g009", y),
+                Joint("j020", JointType.Planar, "g007", "g011", z),
+                Joint("j021", JointType.Planar, "g007", "g013", z),
+                Joint("j024", JointType.Fixed, "g008", "g009", y),
+                Joint("j025", JointType.Planar, "g008", "g010", z),
+                Joint("j026", JointType.Planar, "g009", "g012", z),
+                Joint("j027", JointType.Fixed, "g011", "g010", z),
+                Joint("j028", JointType.Fixed, "g013", "g012", z),
+            };
+            var origins = new Dictionary<string, double[]>
+            {
+                { "j018", new[] { 0.04, 0.09, -0.10 } }, { "j019", new[] { -0.04, 0.07, -0.11 } },
+                { "j020", new[] { 0.04, 0.08, -0.09 } }, { "j021", new[] { -0.04, 0.08, -0.09 } },
+                { "j024", new[] { -0.04, 0.07, -0.11 } }, { "j025", new[] { 0.04, 0.08, -0.10 } },
+                { "j026", new[] { -0.04, 0.08, -0.10 } }, { "j027", new[] { 0.04, 0.08, -0.09 } },
+                { "j028", new[] { -0.04, 0.08, -0.09 } },
+            };
+            foreach (var j in joints) j.Origin = origins[j.Id];
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            foreach (var lp in result.Loops)
+            {
+                foreach (var c in lp.DriverCandidates)
+                {
+                    Assert.Contains(c.DriverJoint, lp.MemberJoints);
+                    Assert.Contains(c.ClosureJoint, lp.MemberJoints);
+                }
+            }
+            foreach (var mech in result.Mechanisms)
+                foreach (var option in mech.Inputs)
+                {
+                    Assert.NotEqual(JointType.Fixed,
+                        joints.Find(j => j.Id == option.Joint).Type);
+                    Assert.Equal(mech.LoopIds, option.Loops.ConvertAll(lp => lp.Id));
+                    foreach (var lp in option.Loops)
+                    {
+                        foreach (var c in lp.DriverCandidates)
+                        {
+                            Assert.Contains(c.DriverJoint, lp.MemberJoints);
+                            Assert.Contains(c.ClosureJoint, lp.MemberJoints);
+                        }
+                    }
+                }
+        }
     }
 }
