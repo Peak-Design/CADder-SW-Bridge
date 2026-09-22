@@ -267,23 +267,6 @@ namespace Peak.Cadder
             bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null,
             ExportProgress progress = null)
         {
-            try
-            {
-                return ExportBundleCore(app, model, assembly, stepPath, manifestPath,
-                    settings, manifestOnly, mateErrorPrompt, progress);
-            }
-            finally
-            {
-                Sw.ComCleanup.Now();
-            }
-        }
-
-        private static RigExportOutcome ExportBundleCore(
-            ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
-            string stepPath, string manifestPath, AppSettings settings,
-            bool manifestOnly, Func<string, bool> mateErrorPrompt,
-            ExportProgress progress)
-        {
             // The numbers beside each stage are its share of the whole
             // export, 0 to 100. They come from timing the samples here: the
             // two probes are most of a long export, because each of their

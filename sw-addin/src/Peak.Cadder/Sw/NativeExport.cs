@@ -26,17 +26,10 @@ namespace Peak.Cadder.Sw
             HashSet<string> keepPaths = null, ExportProgress progress = null,
             AppearanceOptions appearance = null, DefeatureOptions defeature = null)
         {
-            try
-            {
-                var scene = Build(app, model, fineness, log, separateSolids, keepPaths,
-                    progress, appearance, defeature);
-                MeshWriter.Write(path, scene);
-                return scene;
-            }
-            finally
-            {
-                ComCleanup.Now();
-            }
+            var scene = Build(app, model, fineness, log, separateSolids, keepPaths,
+                progress, appearance, defeature);
+            MeshWriter.Write(path, scene);
+            return scene;
         }
 
         public static MeshScene Build(
