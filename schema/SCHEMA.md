@@ -85,6 +85,21 @@ there says nothing about the parent, so the mates decide (live CutterRig,
 2026-09-22: every part of the cutting head reads fully defined in its own
 document, and its nuts and washers slid in Blender until this reading).
 
+Two limits of the reading were found on the corpus (2026-09-22), and each
+has a guard:
+
+- With several freedoms free at once, SolidWorks can call a moving part fully
+  defined. The corpus hydraulic assembly has a slide and a piston, each behind
+  a limit. With only the slide's limit out, its linkage reads under-defined,
+  and with both out it reads fully defined again. So before a part joins the
+  ground on its status, the DOF probe reads it against the ground, with the
+  limits still out. A part the probe finds free is not welded on its status.
+- The status is read at one pose. At a cam's dwell the follower cannot move to
+  first order, so it reads fully defined, and the cam moves it further round
+  (corpus cam-follower). The probe reads the same pose. So a part that a
+  cam-follower or path mate touches, and every part the mates alone make one
+  body with it, is never welded on its status.
+
 The status is also checked the other way: a top-level component that reads
 under-defined with the limits out, but sits in the ground group, is logged,
 because a degree of freedom was lost.
