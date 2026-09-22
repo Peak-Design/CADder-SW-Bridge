@@ -85,6 +85,20 @@ namespace Peak.Cadder.Core.Model
         /// </summary>
         public int StatusFree;
 
+        /// <summary>
+        /// Children of a flexible subassembly only: the status read in the
+        /// subassembly's OWN document, with the limit mates out, 0 when not
+        /// read. There the child is top level, so the reading is SolidWorks'
+        /// own: fully constrained means the child cannot move against that
+        /// document's fixed parts. Mates in a parent assembly can only add
+        /// to that, so the child is rigid to the subassembly's frame. An
+        /// under-defined reading says nothing about the parent: its mates
+        /// may still hold the child (live CutterRig, 2026-09-22: every part
+        /// of the cutting head reads fully defined in its own document, and
+        /// its nuts and washers slid in Blender).
+        /// </summary>
+        public int SubStatusFree;
+
         /// <summary>Children of a flexible subassembly only: actual pose =
         /// this delta × the pose the sub DOCUMENT stores. Internal mates are
         /// read through the sub document, so their entity geometry and

@@ -36,6 +36,12 @@ namespace Peak.Cadder.Core
         /// they cannot move (GraphComponent.StatusFree).</summary>
         public List<string> StatusWelds = new List<string>();
 
+        /// <summary>Children of flexible subassemblies welded to their
+        /// subassembly's frame because SolidWorks says they cannot move in
+        /// the subassembly's own document (GraphComponent.SubStatusFree).
+        /// </summary>
+        public List<string> SubStatusWelds = new List<string>();
+
         /// <summary>Mates that touch three or more components and did not
         /// come down to two rigid groups, so the rig cannot use them.
         /// </summary>
@@ -152,6 +158,27 @@ namespace Peak.Cadder.Core
                 if (indexById.TryGetValue(c.ParentId, out p)) Union(parent, i, p);
             }
 
+            // A child SolidWorks calls fully defined in its subassembly's own
+            // document, with the limits out, is rigid to the subassembly's
+            // frame in the same way: mates in a parent can only add to what
+            // holds it (live CutterRig, 2026-09-22: the cutting head's nuts
+            // and washers read fully defined in its own document and slid in
+            // Blender). A child no active mate touches follows its seed, as
+            // for the top-level status below.
+            var mated = MatedComponents(graph);
+            var subStatusWelded = new List<string>();
+            for (int i = 0; i < comps.Count; i++)
+            {
+                var c = comps[i];
+                if (c.ParentId == null || c.SubStatusFree != SwFullyConstrained) continue;
+                if (!mated.Contains(c.Id)) continue;
+                int p;
+                if (!indexById.TryGetValue(c.ParentId, out p)) continue;
+                if (Find(parent, i) == Find(parent, p)) continue;
+                Union(parent, i, p);
+                subStatusWelded.Add(c.Path ?? c.Id);
+            }
+
             // Every fixed component belongs to the SAME ground: two things
             // fixed to the assembly have no freedom between them whether or
             // not a mate happens to span them. Without this the ground
@@ -181,7 +208,6 @@ namespace Peak.Cadder.Core
             var statusWelded = new List<string>();
             if (assemblyProxy >= 0)
             {
-                var mated = MatedComponents(graph);
                 for (int i = 0; i < comps.Count; i++)
                 {
                     var c = comps[i];
@@ -283,6 +309,7 @@ namespace Peak.Cadder.Core
             var result = BuildResult(comps, parent, pairMates, keys, flexibleGrounds, multiMates);
             result.MergedAwayDofs = UnderDefinedButMerged(comps, parent, result);
             result.StatusWelds = statusWelded;
+            result.SubStatusWelds = subStatusWelded;
             return result;
         }
 

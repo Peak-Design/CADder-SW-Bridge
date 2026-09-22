@@ -40,6 +40,12 @@ namespace Peak.Cadder.Sw
         private readonly List<Held> _held = new List<Held>();
         private readonly Action<string> _log;
 
+        /// <summary>Subassembly documents rebuilt for ReadSubStatus, deepest
+        /// first, with their children's transforms before the rebuild.</summary>
+        private readonly List<IModelDoc2> _rebuiltDocs = new List<IModelDoc2>();
+        private readonly List<KeyValuePair<Component2, double[]>> _subPoses =
+            new List<KeyValuePair<Component2, double[]>>();
+
         private SolveState(Action<string> log) { _log = log; }
 
         /// <summary>How many mates are out.</summary>
@@ -89,6 +95,128 @@ namespace Peak.Cadder.Sw
                 log("solve state: " + state._held.Count + " mate(s) taken out"
                     + (couplings ? " (limits and couplings)" : " (limits)"));
             return state;
+        }
+
+        /// <summary>
+        /// Reads each walked flexible subassembly's children in the
+        /// subassembly's own document (GraphComponent.SubStatusFree). There
+        /// they are top level, and the status is SolidWorks' own. The
+        /// document is rebuilt first when any mate is out, deepest first, so
+        /// the reading follows the limits taken out inside it. A document
+        /// whose active configuration is not the one the instance uses is
+        /// not read: its components would describe the other configuration.
+        /// </summary>
+        public void ReadSubStatus(IList<WalkedComponent> walked)
+        {
+            if (walked == null) return;
+            var subs = new List<WalkedComponent>();
+            foreach (var w in walked)
+            {
+                if (w == null || w.Graph == null || w.Comp == null) continue;
+                if (w.Graph.Solving != "flexible" || w.Graph.Suppressed) continue;
+                subs.Add(w);
+            }
+            subs.Sort((a, b) => Depth(b).CompareTo(Depth(a)));
+
+            var byDoc = new Dictionary<string, Dictionary<string, int>>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var p in subs)
+            {
+                IModelDoc2 doc = null;
+                try { doc = p.Comp.GetModelDoc2() as IModelDoc2; } catch { }
+                var asm = doc as IAssemblyDoc;
+                if (asm == null) continue;
+                string config = p.ReferencedConfiguration;
+                string active = ActiveConfiguration(doc);
+                if (!string.IsNullOrEmpty(config) && !string.Equals(config, active, StringComparison.Ordinal))
+                {
+                    if (_log != null)
+                        _log("solve state: " + p.Graph.Path + " uses configuration " + config
+                            + ", its document shows " + active + ": its own status is not read");
+                    continue;
+                }
+
+                string key = SafePath(doc) + "|" + active;
+                Dictionary<string, int> statusByName;
+                if (!byDoc.TryGetValue(key, out statusByName))
+                {
+                    object[] comps = null;
+                    if (_held.Count > 0)
+                    {
+                        try { comps = asm.GetComponents(true) as object[]; } catch { }
+                        if (comps != null)
+                            foreach (var o in comps)
+                            {
+                                var sc = o as Component2;
+                                if (sc != null) _subPoses.Add(new KeyValuePair<Component2, double[]>(sc, Pose(sc)));
+                            }
+                        if (Rebuild(doc, "edit")) _rebuiltDocs.Add(doc);
+                        else if (_log != null) _log("solve state: rebuilding " + SafePath(doc) + " failed");
+                    }
+                    try { comps = asm.GetComponents(true) as object[]; } catch { comps = null; }
+                    statusByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    if (comps != null)
+                        foreach (var o in comps)
+                        {
+                            var sc = o as Component2;
+                            if (sc == null) continue;
+                            string name = null;
+                            int status = 0;
+                            try { name = sc.Name2; status = sc.GetConstrainedStatus(); } catch { }
+                            if (!string.IsNullOrEmpty(name)) statusByName[name] = status;
+                        }
+                    byDoc[key] = statusByName;
+                }
+
+                foreach (var c in p.Children)
+                {
+                    if (c == null || c.Graph == null || c.Comp == null) continue;
+                    string name = null;
+                    try { name = c.Comp.Name2; } catch { }
+                    if (string.IsNullOrEmpty(name)) continue;
+                    int slash = name.LastIndexOf('/');
+                    if (slash >= 0) name = name.Substring(slash + 1);
+                    int status;
+                    if (statusByName.TryGetValue(name, out status)) c.Graph.SubStatusFree = status;
+                }
+            }
+        }
+
+        /// <summary>Rebuilds the subassembly documents ReadSubStatus rebuilt,
+        /// once the mates are back, and logs how far any child moved.</summary>
+        public void RebuildSubDocuments()
+        {
+            foreach (var doc in _rebuiltDocs)
+                if (!Rebuild(doc, "edit") && _log != null)
+                    _log("solve state: rebuilding " + SafePath(doc) + " after the limits went back failed");
+            double worst = 0.0;
+            foreach (var kv in _subPoses)
+            {
+                var now = Pose(kv.Key);
+                if (now == null || kv.Value == null) continue;
+                for (int i = 0; i < Math.Min(now.Length, kv.Value.Length); i++)
+                    worst = Math.Max(worst, Math.Abs(now[i] - kv.Value[i]));
+            }
+            if (_log != null && _rebuiltDocs.Count > 0)
+                _log("solve state: " + _rebuiltDocs.Count + " subassembly document(s) rebuilt, "
+                    + "worst drift " + worst.ToString("G3", System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        private static int Depth(WalkedComponent w)
+        {
+            int d = 0;
+            for (var p = w.Parent; p != null; p = p.Parent) d++;
+            return d;
+        }
+
+        private static double[] Pose(Component2 comp)
+        {
+            try
+            {
+                var t = comp.Transform2;
+                return t == null ? null : t.ArrayData as double[];
+            }
+            catch { return null; }
         }
 
         private void SuppressIn(

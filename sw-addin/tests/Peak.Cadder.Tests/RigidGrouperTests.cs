@@ -498,6 +498,58 @@ namespace Peak.Cadder.Tests
             Assert.Empty(result.StatusWelds);
         }
 
+        /// <summary>
+        /// A washer that SolidWorks calls fully defined in its subassembly's
+        /// own document joins the subassembly's frame, even where the mates
+        /// read here leave it free in a plane (live CutterRig, 2026-09-22:
+        /// the cutting head's nuts and washers slid in Blender).
+        /// </summary>
+        [Fact]
+        public void APartFullyDefinedInItsOwnSubassemblyJoinsItsFrame()
+        {
+            var washer = Inside(Comp("c004", "washer"), "c002");
+            washer.SubStatusFree = 3;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Flexible(Comp("c002", "head")),
+                    InSubFixed(Inside(Comp("c003", "plate"), "c002")),
+                    washer,
+                },
+                Concentric("Concentric1", "c001", "c003", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c003", "c004", Z, P(0, 0, 0.01)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(result.ComponentGroup["c003"], result.ComponentGroup["c004"]);
+            Assert.Equal(new[] { "washer-1" }, result.SubStatusWelds);
+        }
+
+        /// <summary>Under-defined in its own document says nothing about
+        /// the parent, so the mates decide.</summary>
+        [Fact]
+        public void APartUnderDefinedInItsOwnSubassemblyIsLeftToTheMates()
+        {
+            var washer = Inside(Comp("c004", "washer"), "c002");
+            washer.SubStatusFree = 2;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Flexible(Comp("c002", "head")),
+                    InSubFixed(Inside(Comp("c003", "plate"), "c002")),
+                    washer,
+                },
+                Concentric("Concentric1", "c001", "c003", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c003", "c004", Z, P(0, 0, 0.01)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.NotEqual(result.ComponentGroup["c003"], result.ComponentGroup["c004"]);
+            Assert.Empty(result.SubStatusWelds);
+        }
+
         /// <summary>A component no active mate touches (a pattern or mirror
         /// instance) follows its seed, so its status welds nothing.</summary>
         [Fact]

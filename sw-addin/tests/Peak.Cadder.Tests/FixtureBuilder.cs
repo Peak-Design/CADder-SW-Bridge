@@ -80,6 +80,13 @@ namespace Peak.Cadder.Tests
 
         /// <summary>Fixed inside its subassembly document: rigid to the
         /// sub's frame, never to the world.</summary>
+        /// <summary>Makes a component a flexible subassembly node.</summary>
+        public static GraphComponent Flexible(GraphComponent c)
+        {
+            c.Solving = "flexible";
+            return c;
+        }
+
         public static GraphComponent InSubFixed(GraphComponent c)
         {
             c.FixedInSubassembly = true;

@@ -708,12 +708,20 @@ namespace Peak.Cadder
                 if (w.Graph == null || w.Comp == null || w.Graph.Suppressed) continue;
                 try { w.Graph.StatusFree = w.Comp.GetConstrainedStatus(); }
                 catch { w.Graph.StatusFree = 0; }
+            }
+            // Inside a flexible subassembly the status in the top solve says
+            // nothing, so each child is read again in its own document.
+            state.ReadSubStatus(walked);
+            foreach (var w in walked)
+            {
+                if (w.Graph == null || w.Comp == null || w.Graph.Suppressed) continue;
                 AddIn.Log("status: " + w.Graph.Id + " " + w.Graph.Path
                     + " parent=" + (w.Graph.ParentId ?? "-")
                     + " fixed=" + (w.Graph.IsFixed ? 1 : 0)
                     + " insub=" + (w.Graph.FixedInSubassembly ? 1 : 0)
                     + " on=" + w.Graph.ConstrainedStatus
-                    + " free=" + w.Graph.StatusFree);
+                    + " free=" + w.Graph.StatusFree
+                    + " sub=" + w.Graph.SubStatusFree);
             }
             return state;
         }
@@ -728,6 +736,7 @@ namespace Peak.Cadder
         {
             if (state == null || state.Count == 0) return;
             var failed = state.Restore();
+            state.RebuildSubDocuments();
             if (!SolveState.Rebuild(model, "edit"))
                 AddIn.Log("solve state: the rebuild after putting the limits back failed");
             if (failed.Count == 0 || app == null) return;
@@ -762,6 +771,10 @@ namespace Peak.Cadder
                 AddIn.Log("grounding: " + grouping.StatusWelds.Count + " component(s) "
                     + "welded to the ground because SolidWorks says they cannot move: "
                     + string.Join(", ", grouping.StatusWelds.ToArray()));
+            if (grouping.SubStatusWelds.Count > 0)
+                AddIn.Log("grounding: " + grouping.SubStatusWelds.Count + " component(s) "
+                    + "welded to their subassembly because SolidWorks says they cannot "
+                    + "move in it: " + string.Join(", ", grouping.SubStatusWelds.ToArray()));
             foreach (string path in grouping.MergedAwayDofs)
                 AddIn.Log("  WARNING SolidWorks says this can move, but it is "
                     + "welded to the ground: " + path);
