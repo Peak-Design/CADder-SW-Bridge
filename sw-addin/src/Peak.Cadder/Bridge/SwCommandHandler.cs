@@ -1001,6 +1001,28 @@ namespace Peak.Cadder.Bridge
         private static IModelDoc2 ModelFor(ISldWorks app, Dictionary<string, object> request)
         {
             if (app == null) return null;
+            // A path names one document. A title can name two: with file
+            // extensions hidden, plunger.SLDASM and its part plunger.SLDPRT
+            // are both "plunger", and the lab exported the part (nothing).
+            string path = MiniJson.Str(request, "document_path", null);
+            if (!string.IsNullOrEmpty(path))
+            {
+                string want;
+                try { want = Path.GetFullPath(path); } catch { return null; }
+                var open = app.GetFirstDocument() as IModelDoc2;
+                while (open != null)
+                {
+                    string have = SafePath(open);
+                    if (!string.IsNullOrEmpty(have))
+                    {
+                        try { have = Path.GetFullPath(have); } catch { }
+                        if (string.Equals(have, want, StringComparison.OrdinalIgnoreCase))
+                            return open;
+                    }
+                    open = open.GetNext() as IModelDoc2;
+                }
+                return null;
+            }
             string title = MiniJson.Str(request, "title", null);
             if (string.IsNullOrEmpty(title)) return app.ActiveDoc as IModelDoc2;
             var doc = app.GetFirstDocument() as IModelDoc2;

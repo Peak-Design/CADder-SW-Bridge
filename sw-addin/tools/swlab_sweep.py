@@ -88,7 +88,8 @@ def export_all(files, roots, out, timeout_s, resume=False):
             if not opened.get("ok"):
                 row["error"] = "open: " + str(opened.get("error"))
             else:
-                exported = swlab.call({"op": "export", "dir": folder, "timeout_s": timeout_s})
+                exported = swlab.call({"op": "export", "dir": folder, "document_path": path,
+                                       "timeout_s": timeout_s})
                 row.update({k: v for k, v in exported.items() if k != "log"})
                 row["log"] = exported.get("log") or []
                 if not exported.get("ok"):
