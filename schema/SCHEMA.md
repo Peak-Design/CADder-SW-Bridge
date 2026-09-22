@@ -61,17 +61,33 @@ into its neighbour when the file name matched screw/bolt/washer/nut/pin/
 dowel/rivet. It changed kinematics from metadata, and "spindle" and "pinion"
 both contain "pin".)
 
-**"Fully defined" is not "cannot move".** SolidWorks' constrained status
-says a component has no freedom of its OWN: not that it is immobile. A
-part fully mated to a moving one is fully defined and moves with it. Live
-ClampRig (2026-08-24) settled this: the cutting head is mated to the
-machine body AND to the lead screw rod, reports fully defined, and slides
-half a metre. An exporter that welded on that status took the whole lead
-screw assembly and cutting head out of the rig.
+**The status is read with the limit mates out.** SolidWorks counts a
+limit mate as a fixed dimension, so a part behind one reads fully defined
+while it moves. Live ClampRig (2026-08-24): the cutting head sits behind
+the lead screw's limit mate, reads fully defined, and slides half a metre.
+An exporter that welded on that reading took the whole lead screw assembly
+and cutting head out of the rig.
 
-The status is read, but only in the direction that is sound: a component
-SolidWorks calls UNDER-defined has freedom of its own, so finding it merged
-into a rigid group means a degree of freedom was lost, and the log says so.
+So the exporter takes every limit mate out, at the top level and inside
+each flexible subassembly, rebuilds, and reads the status again. Live checks
+(2026-09-21) show that this reading follows the motion: the cutting head
+and the hydraulic pistons read under-defined with their limits out, and the
+parts that cannot move read fully defined. A top-level component that reads
+fully defined then joins the ground before any mate is read. Coupling mates
+stay in: a gear reads under-defined with its gear mate in.
+
+Inside a flexible subassembly the status in the top solve does not follow
+the motion: a hinge leaf reads fully defined while it swings. So each child
+is read again in its subassembly's own document, where it is top level. A
+child that reads fully defined there joins the subassembly's frame, because
+mates in a parent can only add to what holds it. An under-defined reading
+there says nothing about the parent, so the mates decide (live CutterRig,
+2026-09-22: every part of the cutting head reads fully defined in its own
+document, and its nuts and washers slid in Blender until this reading).
+
+The status is also checked the other way: a top-level component that reads
+under-defined with the limits out, but sits in the ground group, is logged,
+because a degree of freedom was lost.
 
 The same caution applies to the DOF probe. `GetRemainingDOFs` answers the
 same question (freedom of its own), so a "no relative freedom" verdict on a

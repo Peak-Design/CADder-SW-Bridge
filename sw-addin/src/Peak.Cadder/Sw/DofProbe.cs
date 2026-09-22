@@ -507,10 +507,10 @@ namespace Peak.Cadder.Sw
         /// the loop (live TongRig, 2026-09-14: the stroke limit on the
         /// cylinder read both arms rigid against the base they hinge on).
         ///
-        /// Top level only. A limit inside a flexible subassembly cannot be
-        /// suppressed through a top-context handle (live corpus 07); the
-        /// pairs inside such a sub are not probed at all, and a top-level
-        /// loop that runs through one is logged as a reading to distrust.
+        /// Top level only, for Probe on one pair. The export takes the limits
+        /// out itself before it probes (SolveState), inside flexible
+        /// subassemblies too, through each subassembly's own document: a
+        /// top-context handle cannot suppress a mate there (live corpus 07).
         /// </summary>
         public List<IFeature> SuppressLimitMates()
         {
