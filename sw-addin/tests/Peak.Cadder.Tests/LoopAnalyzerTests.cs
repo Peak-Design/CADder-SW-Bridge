@@ -1024,5 +1024,64 @@ namespace Peak.Cadder.Tests
             Assert.Equal(parent, joint.ParentGroup);
             Assert.Equal(child, joint.ChildGroup);
         }
+        /// <summary>
+        /// Two hydraulic rams that swing two clamps, as on live CutterRig
+        /// (2026-09-21), with the two rods held coplanar by a mate between
+        /// them and the two clamps by another. Both planar joints hold
+        /// nothing, because every hinge turns about their normal. They must
+        /// be the cuts. Cutting a rod pin instead hung one rod off the other,
+        /// each ram's loop then ran through the other ram, and the manifest
+        /// named a driver that was not in its own loop.
+        /// </summary>
+        [Fact]
+        public void APlanarThatHoldsNothingIsTheCutAndEachRamKeepsItsOwnLoop()
+        {
+            var y = new double[] { 0, 1, 0 };
+            var stroke = new double[] { 0.4228, 0, 0.9062 };
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true),
+                Group("g001"), Group("g002"),     // clamps
+                Group("g003"), Group("g004"),     // ram 1: cylinder, rod
+                Group("g005"), Group("g006"),     // ram 2: cylinder, rod
+            };
+            var joints = new List<RigJoint>
+            {
+                Joint("j001", JointType.Revolute, "g000", "g001", y),
+                Joint("j002", JointType.Revolute, "g000", "g002", y),
+                Joint("j003", JointType.Revolute, "g000", "g003", y),
+                Joint("j004", JointType.Revolute, "g000", "g005", y),
+                Joint("j012", JointType.Planar, "g001", "g002", y),
+                Joint("j013", JointType.Revolute, "g001", "g004", y),
+                Joint("j014", JointType.Revolute, "g002", "g006", y),
+                Joint("j015", JointType.Prismatic, "g003", "g004", stroke),
+                Joint("j016", JointType.Planar, "g006", "g004", y),
+                Joint("j017", JointType.Prismatic, "g005", "g006", stroke),
+            };
+            var origins = new Dictionary<string, double[]>
+            {
+                { "j001", new[] { 0.29, 0.05, 0.56 } }, { "j002", new[] { -0.29, 0.05, 0.56 } },
+                { "j003", new[] { 0.19, 0.05, 0.12 } }, { "j004", new[] { -0.19, 0.05, 0.12 } },
+                { "j012", new[] { 0.0, 0.07, 0.0 } }, { "j013", new[] { 0.33, 0.05, 0.42 } },
+                { "j014", new[] { -0.33, 0.05, 0.42 } }, { "j015", new[] { 0.33, 0.04, 0.42 } },
+                { "j016", new[] { -0.33, 0.04, 0.42 } }, { "j017", new[] { -0.33, 0.04, 0.42 } },
+            };
+            foreach (var j in joints) j.Origin = origins[j.Id];
+
+            var result = LoopAnalyzer.Analyze(groups, joints);
+
+            foreach (var loop in result.Loops)
+            {
+                Assert.Contains(loop.SuggestedDriverJoint, loop.MemberJoints);
+                foreach (var c in loop.DriverCandidates)
+                    Assert.Contains(c.DriverJoint, loop.MemberJoints);
+            }
+            var byClosure = new Dictionary<string, RigLoop>();
+            foreach (var loop in result.Loops) byClosure[loop.ClosureJoint] = loop;
+            Assert.Equal("none", byClosure["j016"].ClosureKind);
+            Assert.Equal("none", byClosure["j012"].ClosureKind);
+            Assert.Equal(new[] { "j001", "j003", "j013", "j015" }, byClosure["j015"].MemberJoints);
+            Assert.Equal(new[] { "j002", "j004", "j014", "j017" }, byClosure["j017"].MemberJoints);
+        }
     }
 }

@@ -265,6 +265,8 @@ namespace Peak.Cadder.Core
                 RigJoint cut, driver;
                 bool aimPair = false;
                 bool chained = false;
+                bool holdsNothing = false;
+                RigJoint redundant = null;
                 int n = ring.Edges.Count;
                 int slide = SoleSlideIndex(ring);
                 RigJoint slideDriver = slide < 0 ? null
@@ -379,6 +381,26 @@ namespace Peak.Cadder.Core
                         cut = ring.Edges[n - 2];
                     }
                 }
+                else if (n > 2 && (redundant = RedundantPlanar(ring.Edges)) != null)
+                {
+                    // A planar joint whose normal every hinge of the ring
+                    // shares holds nothing: every body of the ring already
+                    // moves in that plane. It is the cut, and the ring needs
+                    // no closure at all. Cut anywhere else, it takes a real
+                    // joint's place in the tree, and every ring met after
+                    // that runs through it (live CutterRig, 2026-09-21: two
+                    // rams' rods held coplanar by a mate between them; the
+                    // rod pin was cut instead, one rod came to hang off the
+                    // other, and each ram's loop ran through the other ram).
+                    cut = redundant;
+                    RigJoint first = ring.Edges[0], last = ring.Edges[n - 1];
+                    if (ReferenceEquals(first, redundant)) driver = last;
+                    else if (ReferenceEquals(last, redundant)) driver = first;
+                    else driver = PreferFirst(first, ring.Edges[1], last, ring.Edges[n - 2],
+                                              chosenDrivers, seed) ? first : last;
+                    holdsNothing = true;
+                    candidates.Add(new RigLoopCandidate(driver.Id, cut.Id, "none"));
+                }
                 else if (PreferFirst(ring.Edges[0], ring.Edges[1],
                                      ring.Edges[n - 1], ring.Edges[n - 2], chosenDrivers, seed))
                 {
@@ -431,7 +453,7 @@ namespace Peak.Cadder.Core
                 // the Damped Track that aims it at its own rod, and that ram
                 // stopped following its clamp.
                 loop.ClosureKind = aimPair ? "aim_pair"
-                    : chained || !CutSharesAPoint(cut) ? "none" : "ik";
+                    : chained || holdsNothing || !CutSharesAPoint(cut) ? "none" : "ik";
                 loop.SuggestedDriverJoint = driver.Id;
                 loop.DriverCandidates = candidates;
                 chosenDrivers.Add(driver.Id);
@@ -2113,6 +2135,52 @@ namespace Peak.Cadder.Core
                 }
             }
             return Math.Max(1, freedom - 3);
+        }
+
+        /// <summary>
+        /// A planar joint in a ring that moves in that plane anyway: every
+        /// hinge of the ring turns about the planar's normal, every slide
+        /// runs square to it, and nothing else is in the ring but welds and
+        /// other such planars. Null when there is none, or when a joint of
+        /// the ring could leave the plane. The lowest id wins when there are
+        /// several.
+        /// </summary>
+        private static RigJoint RedundantPlanar(List<RigJoint> edges)
+        {
+            double[] normal = null;
+            foreach (var j in edges)
+            {
+                if (j.Type != JointType.Revolute) continue;
+                if (j.Axis == null) return null;
+                if (normal == null) { normal = MathOps.Normalized(j.Axis); continue; }
+                if (MathOps.Norm(MathOps.Cross(normal, MathOps.Normalized(j.Axis))) >= 1e-6)
+                    return null;
+            }
+            if (normal == null) return null;
+            RigJoint found = null;
+            foreach (var j in edges)
+            {
+                switch (j.Type)
+                {
+                    case JointType.Revolute:
+                    case JointType.Fixed:
+                        break;
+                    case JointType.Prismatic:
+                        if (j.Axis == null
+                            || Math.Abs(MathOps.Dot(normal, MathOps.Normalized(j.Axis))) >= 1e-6)
+                            return null;
+                        break;
+                    case JointType.Planar:
+                        if (j.Axis == null
+                            || MathOps.Norm(MathOps.Cross(normal, MathOps.Normalized(j.Axis))) >= 1e-6)
+                            return null;
+                        if (found == null || string.CompareOrdinal(j.Id, found.Id) < 0) found = j;
+                        break;
+                    default:
+                        return null;
+                }
+            }
+            return found;
         }
 
         private static void SetPlanarity(RigLoop loop, List<RigJoint> members)
