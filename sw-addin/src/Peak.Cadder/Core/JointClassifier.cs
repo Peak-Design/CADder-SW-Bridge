@@ -486,6 +486,16 @@ namespace Peak.Cadder.Core
                 out hingeMate, out unmodelled, axisOwners);
             joint.Type = type;
 
+            if (type == JointType.Planar && constraints.Exists(m => MateFacts.Is(m, "SLOT")))
+            {
+                // The slot mate did not show which way the slot runs, so it
+                // could not narrow the planar freedom.
+                joint.Confidence = "medium";
+                joint.Notes = AppendNote(joint.Notes,
+                    "This joint does not use the slot mate. The pin can move anywhere "
+                    + "in the plane, not only along the slot.");
+            }
+
             if (camMates.Count > 0)
             {
                 // A cam profile is a curve-valued coupling: the follower's
@@ -1157,6 +1167,39 @@ namespace Peak.Cadder.Core
                 }
             }
 
+            // Centered / distance-along / percent-along pin the component
+            // at a spot in the slot (ISlotMateFeatureData.Constraint): the
+            // spin about the pin axis is all that remains. Only the free
+            // slot still slides, and along the SLOT, never along the pin.
+            bool slotHeld = slot != null
+                && slot.SlotConstraint >= 1 && slot.SlotConstraint <= 3;
+            double[] pinDir = null, pinPoint = null, travel = null;
+            if (slot != null && SlotPin(slot, out pinDir, out pinPoint))
+                travel = SlotTravel(slot, pinDir);
+
+            if (state.TransDim == 2 && state.Rot == RotFreedom.AboutDirection
+                && pinDir != null && MateFacts.IsParallel(state.RotDir, pinDir)
+                && (slotHeld || travel != null))
+            {
+                // A pin in a slot usually has its head on the plate too, and
+                // that face alone reads as planar about the pin. The slot
+                // narrows it, so it must come before the planar answer:
+                // after it, a centered pin slid anywhere on the plate.
+                axis = pinDir;
+                origin = pinPoint;
+                foreach (var pl in planes)
+                {
+                    if (MateFacts.IsParallel(pl[0], axis))
+                    {
+                        origin = IntersectPlaneAxis(pl, axis, origin);
+                        break;
+                    }
+                }
+                if (slotHeld) return JointType.Revolute;
+                slideDir = travel;
+                return JointType.PinSlot;
+            }
+
             if (state.TransDim == 2 && state.Rot == RotFreedom.AboutDirection
                 && planes.Count > 0)
             {
@@ -1165,20 +1208,21 @@ namespace Peak.Cadder.Core
                 return JointType.Planar;
             }
 
-            if (slot != null)
+            if (slot != null && pinDir != null)
             {
-                double[] sdir, spt;
-                if (MateFacts.TryGetAxis(slot, out sdir, out spt))
+                axis = pinDir;
+                origin = pinPoint;
+                if (slotHeld) return JointType.Revolute;
+                if (travel != null)
                 {
-                    axis = sdir;
-                    origin = spt;
-                    // Centered / distance-along / percent-along pin the
-                    // component at a spot in the slot (ISlotMateFeatureData.
-                    // Constraint): the spin about the pin axis is all that
-                    // remains. Only the free slot still slides.
-                    return slot.SlotConstraint >= 1 && slot.SlotConstraint <= 3
-                        ? JointType.Revolute : JointType.Prismatic;
+                    slideDir = travel;
+                    return JointType.PinSlot;
                 }
+                // The first direction in the mate is the pin's own axis. As
+                // a slide it pushed the pin out of the plate and lost the
+                // slot travel. With no travel to read, the pair is free.
+                axis = null;
+                origin = null;
             }
 
             if (screwMate != null)
@@ -1193,6 +1237,44 @@ namespace Peak.Cadder.Core
             }
 
             return JointType.Free;
+        }
+
+        /// <summary>
+        /// The pin of a slot mate: its first cylinder or datum axis. Any
+        /// other direction the mate carries (a slot wall's normal) is not
+        /// the axis the pin turns on. A mate with neither keeps the older
+        /// reading, its first direction of any kind.
+        /// </summary>
+        private static bool SlotPin(GraphMate slot, out double[] dir, out double[] point)
+        {
+            foreach (var e in slot.Entities)
+            {
+                if (e.Direction == null) continue;
+                if (e.EntityTypeName != "cylinder" && e.EntityTypeName != "axis") continue;
+                dir = MathOps.Normalized(e.Direction);
+                point = e.Point ?? new double[3];
+                return true;
+            }
+            return MateFacts.TryGetAxis(slot, out dir, out point);
+        }
+
+        /// <summary>
+        /// The way a straight slot runs, or null when the mate does not
+        /// show it. A side wall of the slot is a plane whose normal is
+        /// across the pin, and the slot runs along the wall, across the pin
+        /// too. The pin's cylinder, the slot's round ends and its floor all
+        /// leave the travel open.
+        /// </summary>
+        private static double[] SlotTravel(GraphMate slot, double[] pinDir)
+        {
+            foreach (var e in slot.Entities)
+            {
+                if (e.EntityTypeName != "plane" || e.Direction == null) continue;
+                var n = MathOps.Normalized(e.Direction);
+                if (!MateFacts.IsPerpendicular(n, pinDir)) continue;
+                return MathOps.Normalized(MathOps.Cross(pinDir, n));
+            }
+            return null;
         }
 
         /// <summary>A point on the slide line: the first line-like mate's
