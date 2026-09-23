@@ -110,14 +110,16 @@ namespace Peak.Cadder.Sw
             }
 
             // Where the INSTANCE's dimension currently sits: the recorded
-            // rest shifted by the relative pose delta on the probe axis.
-            double corrected = limit.ValueAtRest
-                + RelativeDeltaOnAxis(joint, mate, axis, rotational);
+            // rest shifted by the relative pose delta on the probe axis,
+            // which way round depending on the sign (RestEndpoint).
             double span = Math.Abs(limit.Max - limit.Min);
             double endFloor = rotational ? 2e-3 : 1e-5;
             double endTol = Math.Max(endFloor, span * 0.02);
-            bool atMin = Math.Abs(corrected - limit.Min) <= endTol;
-            bool atMax = Math.Abs(corrected - limit.Max) <= endTol;
+            int stop = RestEndpoint(
+                limit.ValueAtRest, RelativeDeltaOnAxis(joint, mate, axis, rotational),
+                limit.Min, limit.Max, endTol);
+            bool atMin = stop < 0;
+            bool atMax = stop > 0;
 
             double eps = rotational
                 ? Math.Max(Math.Min(0.035, span / 4.0), 5e-4)    // ≤ ~2°
@@ -253,6 +255,43 @@ namespace Peak.Cadder.Sw
                     _log("limit sign probe restore failed: " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// The stop the pair rests at: -1 Min, +1 Max, 0 neither or not
+        /// known. <paramref name="delta"/> is the flexed instance's motion
+        /// on the probe axis, and it moves the dimension by +delta or
+        /// -delta according to the very sign the probe is looking for.
+        /// Adding it as +delta, as before, made the endpoint signal confirm
+        /// its own assumption: under the other sign the pair sits at the
+        /// OTHER stop, the free direction flips, and the formula gave +1
+        /// again. So both signs are tried. A sign that puts the pair outside
+        /// the range cannot be true. When the two possible signs name
+        /// different stops, there is no answer, and the sign stays a guess.
+        /// </summary>
+        internal static int RestEndpoint(
+            double rest, double delta, double min, double max, double tolerance)
+        {
+            double plus = rest + delta, minus = rest - delta;
+            double low = Math.Min(min, max) - tolerance, high = Math.Max(min, max) + tolerance;
+            bool plusFits = plus >= low && plus <= high;
+            bool minusFits = minus >= low && minus <= high;
+            if (plusFits && minusFits)
+            {
+                int a = StopAt(plus, min, max, tolerance);
+                return a == StopAt(minus, min, max, tolerance) ? a : 0;
+            }
+            if (plusFits) return StopAt(plus, min, max, tolerance);
+            if (minusFits) return StopAt(minus, min, max, tolerance);
+            return 0;
+        }
+
+        private static int StopAt(double value, double min, double max, double tolerance)
+        {
+            bool atMin = Math.Abs(value - min) <= tolerance;
+            bool atMax = Math.Abs(value - max) <= tolerance;
+            if (atMin == atMax) return 0;
+            return atMin ? -1 : 1;
         }
 
         // ── Movers ────────────────────────────────────────────────────────
