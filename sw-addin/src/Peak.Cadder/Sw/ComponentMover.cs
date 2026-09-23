@@ -61,6 +61,11 @@ namespace Peak.Cadder.Sw
 
         public bool Ready { get { return _assembly != null; } }
 
+        /// <summary>Every component a restore of this mover could not put
+        /// back, over all its restores, so the export can tell the user
+        /// after the probes.</summary>
+        public readonly List<LeftMoved> Left = new List<LeftMoved>();
+
         /// <summary>Turns (rotational) or slides the component by `amount`
         /// about/along the world axis through `origin`. `from` is the
         /// component's transform before the move, for the solve fallback.</summary>
@@ -218,6 +223,7 @@ namespace Peak.Cadder.Sw
                         + "{3:0.0e0} m from where it was. Check its position in SolidWorks "
                         + "before you save",
                         who ?? "restore", moved.Name, moved.Angle, moved.Distance));
+            Left.AddRange(left);
             return left;
         }
 

@@ -423,5 +423,8 @@ namespace Peak.Cadder.Sw
             _mover.RestoreAll(snaps, who);
         }
 
+        /// <summary>The components this probe could not put back.</summary>
+        internal List<ComponentMover.LeftMoved> LeftMoved { get { return _mover.Left; } }
+
     }
 }

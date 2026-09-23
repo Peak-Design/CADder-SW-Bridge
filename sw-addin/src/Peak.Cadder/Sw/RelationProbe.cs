@@ -31,11 +31,14 @@ namespace Peak.Cadder.Sw
         /// <summary>Attaches a table coupling to the driven joint of every
         /// cam-follower and universal-joint mate the model lets the probe
         /// read. Returns the feature names of the mates now modelled, so
-        /// the caller can retire their "not modelled" warnings.</summary>
+        /// the caller can retire their "not modelled" warnings. The
+        /// components the probe could not put back go in
+        /// <paramref name="leftMoved"/>.</summary>
         public static List<string> Resolve(
             ISldWorks app, IModelDoc2 model, List<WalkedComponent> walked,
             RigidGroupingResult grouping, MateGraph graph, List<RigJoint> joints,
-            Action<string> log, int stepDegrees = 5, IDictionary<string, string> unread = null)
+            Action<string> log, int stepDegrees = 5, IDictionary<string, string> unread = null,
+            List<ComponentMover.LeftMoved> leftMoved = null)
         {
             unread = unread ?? new Dictionary<string, string>();
             // Never coarser than 45 degrees, never finer than half a degree:
@@ -170,6 +173,7 @@ namespace Peak.Cadder.Sw
                     + " through " + table.Samples.Length + " point(s)"
                     + (table.Periodic ? ", periodic" : ", not a full turn"));
             }
+            if (leftMoved != null) leftMoved.AddRange(mover.Left);
             return modelled;
         }
 
@@ -279,7 +283,7 @@ namespace Peak.Cadder.Sw
             }
             finally
             {
-                mover.RestoreAll(snapshots);
+                mover.RestoreAll(snapshots, "relation probe " + name);
                 var back = SwFrames.ToMatrix(dChild.Comp.Transform2);
                 if (back != null)
                 {

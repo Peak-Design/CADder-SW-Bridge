@@ -521,11 +521,13 @@ namespace Peak.Cadder
             {
                 progress.Stage("Reading the cams and the couplings", 64, 78);
                 var unread = new Dictionary<string, string>();
+                var leftMoved = new List<Sw.ComponentMover.LeftMoved>(signOracle.LeftMoved);
                 var modelled = runDofProbe
                     ? RelationProbe.Resolve(
                         app, model, walked, grouping, graph, loops.Joints, AddIn.Log,
-                        settings.RelationStepDeg, unread)
+                        settings.RelationStepDeg, unread, leftMoved)
                     : new List<string>();
+                AddLeftMovedWarning(classification.Warnings, leftMoved, walked);
                 // A cam the probe could not table (free in its plane, on a
                 // slide) or did not turn (probe off) travels as its faces
                 // instead, and the consumer holds the follower on them.
@@ -749,6 +751,42 @@ namespace Peak.Cadder
             warnings.RemoveAll(w =>
                 w.Code == "CAM_FOLLOWER" && w.Message != null
                 && rigged.Exists(n => w.Message.Contains("mate " + n + " ")));
+        }
+
+        /// <summary>
+        /// Adds a PROBE_LEFT_MOVED warning that names every component the
+        /// probes could not put back, once each. The log line of the
+        /// restore was the only record before, and the STEP file, written
+        /// after the probes, showed those components where the probe left
+        /// them. <paramref name="walked"/> gives the component ids.
+        /// </summary>
+        internal static void AddLeftMovedWarning(List<ManifestWarning> warnings,
+            List<ComponentMover.LeftMoved> left, List<WalkedComponent> walked)
+        {
+            if (left == null || left.Count == 0) return;
+            var ids = new Dictionary<string, string>();
+            if (walked != null)
+                foreach (var w in walked)
+                {
+                    string n = null;
+                    try { n = w.Comp != null ? w.Comp.Name2 : null; } catch { }
+                    if (n != null && !ids.ContainsKey(n)) ids[n] = w.Id;
+                }
+            var warning = new ManifestWarning { Code = "PROBE_LEFT_MOVED" };
+            var names = new List<string>();
+            foreach (var moved in left)
+            {
+                if (moved == null || names.Contains(moved.Name)) continue;
+                names.Add(moved.Name);
+                string id;
+                if (moved.Name != null && ids.TryGetValue(moved.Name, out id))
+                    warning.Components.Add(id);
+            }
+            warning.Message = "The probes could not put " + names.Count
+                + " component(s) back where they were: " + string.Join(", ", names)
+                + ". The STEP file can show them in the wrong position. Check their "
+                + "positions in SolidWorks before you save, then send again.";
+            warnings.Add(warning);
         }
 
         // ── What SolidWorks says can move ───────────────────────────────────
