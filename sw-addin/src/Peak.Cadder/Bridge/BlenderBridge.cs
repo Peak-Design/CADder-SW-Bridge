@@ -78,9 +78,28 @@ namespace Peak.Cadder.Bridge
 
         public static List<BlenderInstance> Discover(Action<string> log)
         {
+            return Discover(RegistryDir, log, IsBlender, 2000);
+        }
+
+        /// <summary>
+        /// Every Blender in <paramref name="dir"/> that answers a ping.
+        ///
+        /// An entry is deleted only when its Blender is gone
+        /// (<paramref name="running"/> says no for its process id) or
+        /// nothing listens on its port. Blender answers a ping from Python,
+        /// and a long import holds Python, so a live Blender can miss a
+        /// ping. Blender writes its entry only when its bridge starts, and
+        /// deleting it after one slow ping hid that Blender until it
+        /// started again: the next send launched a second Blender. A read
+        /// can also meet a file that Blender is still writing. Such an
+        /// entry stays, and this call leaves the Blender out.
+        /// </summary>
+        internal static List<BlenderInstance> Discover(
+            string dir, Action<string> log, Func<int, bool> running, int pingMs)
+        {
             var result = new List<BlenderInstance>();
-            if (!Directory.Exists(RegistryDir)) return result;
-            foreach (var file in Directory.GetFiles(RegistryDir, "*.json"))
+            if (!Directory.Exists(dir)) return result;
+            foreach (var file in Directory.GetFiles(dir, "*.json"))
             {
                 BlenderInstance inst = null;
                 try { inst = ReadRegistryFile(file); }
@@ -88,9 +107,18 @@ namespace Peak.Cadder.Bridge
                 {
                     if (log != null) log("bridge registry " + file + ": " + ex.Message);
                 }
-                if (inst != null && Ping(inst, log))
+                var answer = inst == null ? PingAnswer.NoAnswer : Knock(inst, log, pingMs);
+                if (answer == PingAnswer.Ok)
                 {
                     result.Add(inst);
+                    continue;
+                }
+                int pid = inst != null && inst.Pid > 0 ? inst.Pid : PidOf(file);
+                if (answer == PingAnswer.NoAnswer && running != null && running(pid))
+                {
+                    if (log != null) log("bridge registry " + Path.GetFileName(file)
+                        + ": Blender " + pid + " is running but did not answer; "
+                        + "the entry stays");
                     continue;
                 }
                 // A dead entry: the Blender behind it is gone. Deleting keeps
@@ -102,6 +130,19 @@ namespace Peak.Cadder.Bridge
             result.Sort((a, b) => string.CompareOrdinal(
                 b.BlenderVersion ?? "", a.BlenderVersion ?? ""));
             return result;
+        }
+
+        /// <summary>Whether a Blender has that process id now. The name
+        /// comes from the process list, which opens no process.</summary>
+        internal static bool IsBlender(int pid)
+        {
+            if (pid <= 0) return false;
+            try
+            {
+                using (var proc = Process.GetProcessById(pid))
+                    return proc.ProcessName.StartsWith("blender", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
         }
 
         private static BlenderInstance ReadRegistryFile(string path)
@@ -121,23 +162,54 @@ namespace Peak.Cadder.Bridge
             return inst;
         }
 
-        public static bool Ping(BlenderInstance inst, Action<string> log)
+        /// <summary>The process id in a registry file's name
+        /// (&lt;pid&gt;.json), or 0.</summary>
+        private static int PidOf(string file)
+        {
+            int pid;
+            return int.TryParse(Path.GetFileNameWithoutExtension(file), out pid) ? pid : 0;
+        }
+
+        /// <summary>What a ping got back.</summary>
+        private enum PingAnswer
+        {
+            /// <summary>A CADder bridge answered.</summary>
+            Ok,
+            /// <summary>Something answered that is not a CADder bridge, or
+            /// nothing listens on the port.</summary>
+            Refused,
+            /// <summary>No answer in time: the Blender can be busy.</summary>
+            NoAnswer,
+        }
+
+        public static bool Ping(BlenderInstance inst, Action<string> log, int timeoutMs = 2000)
+        {
+            return Knock(inst, log, timeoutMs) == PingAnswer.Ok;
+        }
+
+        private static PingAnswer Knock(
+            BlenderInstance inst, Action<string> log, int timeoutMs)
         {
             try
             {
-                var obj = Request(inst, "GET", "/cadlink/ping", null, 2000);
-                if (!MiniJson.Flag(obj, "ok")) return false;
+                var obj = Request(inst, "GET", "/cadlink/ping", null, timeoutMs);
+                if (!MiniJson.Flag(obj, "ok")) return PingAnswer.Refused;
                 // The live answer beats the registry file: the blend file
                 // changes as the user works.
                 inst.BlendFile = MiniJson.Str(obj, "blend_file", inst.BlendFile);
                 inst.BlenderVersion = MiniJson.Str(obj, "blender_version", inst.BlenderVersion);
                 inst.AddonVersion = MiniJson.Str(obj, "addon_version", inst.AddonVersion);
-                return true;
+                return PingAnswer.Ok;
+            }
+            catch (WebException ex) when (ex.Status == WebExceptionStatus.ConnectFailure)
+            {
+                if (log != null) log("ping 127.0.0.1:" + inst.Port + " refused: " + ex.Message);
+                return PingAnswer.Refused;
             }
             catch (Exception ex)
             {
                 if (log != null) log("ping 127.0.0.1:" + inst.Port + " failed: " + ex.Message);
-                return false;
+                return PingAnswer.NoAnswer;
             }
         }
 
