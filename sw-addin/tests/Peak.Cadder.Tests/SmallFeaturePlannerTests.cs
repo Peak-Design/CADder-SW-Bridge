@@ -26,6 +26,9 @@ namespace Peak.Cadder.Tests
             public string Key;
             public double Extent;
             public bool Outer;
+            /// <summary>What FeatureSide answers for this loop: +1 a hole,
+            /// -1 a boss, 0 cannot tell.</summary>
+            public int Side = 1;
             public double[] Centre = { 0.0, 0.0, 0.0 };
             public List<Edge> Edges = new List<Edge>();
         }
@@ -56,6 +59,8 @@ namespace Peak.Cadder.Tests
             }
 
             public double[] LoopCentre(Loop loop) { return loop.Centre; }
+
+            public int FeatureSide(Face owner, Loop loop, double extent) { return loop.Side; }
         }
 
         private static Face F(string name, bool plane)
@@ -66,12 +71,12 @@ namespace Peak.Cadder.Tests
         /// <summary>One closed edge between two faces: a loop on each,
         /// with the same key, as the two sides of one rim.</summary>
         private static void Rim(Face a, bool outerOnA, Face b, bool outerOnB,
-                                string key, double extent, double depth = 0.0)
+                                string key, double extent, double depth = 0.0, int side = 1)
         {
             var edge = new Edge { A = a, B = b };
             var centre = new[] { 0.0, 0.0, -depth };
-            a.Loops.Add(new Loop { Key = key, Extent = extent, Outer = outerOnA, Centre = centre, Edges = { edge } });
-            b.Loops.Add(new Loop { Key = key, Extent = extent, Outer = outerOnB, Centre = centre, Edges = { edge } });
+            a.Loops.Add(new Loop { Key = key, Extent = extent, Outer = outerOnA, Side = side, Centre = centre, Edges = { edge } });
+            b.Loops.Add(new Loop { Key = key, Extent = extent, Outer = outerOnB, Side = -side, Centre = centre, Edges = { edge } });
         }
 
         private static FeaturePlanner<Face, Loop, Edge>.Result Plan(
@@ -148,6 +153,95 @@ namespace Peak.Cadder.Tests
             Assert.Equal("wall", Names(plan.Gone));
             Assert.Equal("top,under", Names(plan.Fill));
             Assert.Single(plan.Features);
+        }
+
+        /// <summary>A plate with an 8 mm pin standing on it and a 6 mm
+        /// through hole beside it.</summary>
+        [Fact]
+        public void APinStandingOnAFaceStaysAndTheHoleGoes()
+        {
+            var top = F("top", true);
+            var side = F("side", true);
+            var under = F("under", true);
+            var pinWall = F("pinWall", false);
+            var pinTop = F("pinTop", true);
+            var wall = F("wall", false);
+            Rim(top, true, side, true, "top-edge", 0.1);
+            Rim(under, true, side, false, "under-edge", 0.1, 0.01);
+            Rim(top, false, pinWall, true, "P", 0.008, side: -1);
+            Rim(pinWall, false, pinTop, true, "Q", 0.008, -0.01);
+            Rim(top, false, wall, true, "Kt", 0.006);
+            Rim(under, false, wall, false, "Kb", 0.006, 0.01);
+            var plan = Plan(new[] { top, side, under, pinWall, pinTop, wall });
+            Assert.Equal("wall", Names(plan.Gone));
+            Assert.Equal("top,under", Names(plan.Fill));
+            Assert.DoesNotContain(plan.Gone, f => f.Name.StartsWith("pin"));
+        }
+
+        [Fact]
+        public void ALoopThatCannotSayWhichWayItGoesIsLeftAlone()
+        {
+            var top = F("top", true);
+            var side = F("side", true);
+            var wall = F("wall", false);
+            var bottom = F("bottom", true);
+            Rim(top, true, side, true, "top-edge", 0.1);
+            Rim(top, false, wall, true, "K", 0.006, side: 0);
+            Rim(wall, false, bottom, true, "B", 0.006, 0.004);
+            var plan = Plan(new[] { top, side, wall, bottom });
+            Assert.Empty(plan.Gone);
+            Assert.Empty(plan.Fill);
+            Assert.Single(plan.Features);
+            Assert.NotNull(plan.Features[0].Declined);
+        }
+
+        private static readonly double[] Up = { 0.0, 0.0, 1.0 };
+        private static readonly double[] Origin = { 0.0, 0.0, 0.0 };
+
+        [Fact]
+        public void FacesThatGoDownIntoTheMaterialAreAHole()
+        {
+            // The wall of a 6 mm hole, 10 mm deep, under a face whose
+            // outward normal is up.
+            var points = new[]
+            {
+                new[] { 0.003, 0, 0 }, new[] { -0.003, 0, 0 },
+                new[] { 0.003, 0, -0.01 }, new[] { -0.003, 0, -0.01 },
+            };
+            Assert.Equal(1, SmallFeatureSurvey.SideOf(Origin, Up, points, 0.006));
+        }
+
+        [Fact]
+        public void FacesThatStandUpOutOfTheFaceAreABoss()
+        {
+            var points = new[]
+            {
+                new[] { 0.004, 0, 0 }, new[] { -0.004, 0, 0 },
+                new[] { 0.004, 0, 0.012 }, new[] { -0.004, 0, 0.012 },
+            };
+            Assert.Equal(-1, SmallFeatureSurvey.SideOf(Origin, Up, points, 0.008));
+        }
+
+        [Fact]
+        public void AHoleInACurvedFaceIsStillAHole()
+        {
+            // A radial hole in the bore of a tube: the rim rises a little
+            // above the plane at the rim point, the hole goes 3 mm deep.
+            var points = new[]
+            {
+                new[] { 0.002, 0, 0.0002 }, new[] { -0.002, 0, 0.0002 },
+                new[] { 0.002, 0, -0.003 }, new[] { -0.002, 0, -0.003 },
+            };
+            Assert.Equal(1, SmallFeatureSurvey.SideOf(Origin, Up, points, 0.004));
+        }
+
+        [Fact]
+        public void FacesOnBothSidesOrOnNeitherSayNothing()
+        {
+            var both = new[] { new[] { 0.004, 0, 0.01 }, new[] { -0.004, 0, -0.01 } };
+            Assert.Equal(0, SmallFeatureSurvey.SideOf(Origin, Up, both, 0.008));
+            var flat = new[] { new[] { 0.004, 0, 0.0 }, new[] { -0.004, 0, 0.0 } };
+            Assert.Equal(0, SmallFeatureSurvey.SideOf(Origin, Up, flat, 0.008));
         }
     }
 }

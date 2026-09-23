@@ -25,7 +25,8 @@ namespace Peak.Cadder.Sw
     /// covers round holes, slots, keyways and small cutouts alike, with
     /// less code than a cylinder classifier. Flat faces always count.
     /// Curved ones count when the caller asks, which is what reaches a hole
-    /// drilled into a boss or a shaft.
+    /// drilled into a boss or a shaft. The loop must open INTO the material:
+    /// the foot of a pin or a boss is an inner loop too, and it stays.
     ///
     /// The feature behind a loop is found by walking INWARD: cross into the
     /// face on the other side, then keep crossing every edge that is not
@@ -274,6 +275,95 @@ namespace Peak.Cadder.Sw
             }
 
             public double[] LoopCentre(ILoop2 loop) { return SmallFeatureSurvey.LoopCentre(loop); }
+
+            /// <summary>
+            /// Reads the side from the faces across the rim: the points on
+            /// their edges, measured from the owner's plane at the rim. The
+            /// owner's normal is the FACE normal, which points out of the
+            /// material: ISurface.EvaluateAtPoint gives the surface normal,
+            /// and FaceInSurfaceSense says when the face runs the other way.
+            /// </summary>
+            public int FeatureSide(IFace2 owner, ILoop2 loop, double extent)
+            {
+                double[] at = null;
+                var rim = new List<IEdge>();
+                foreach (var edge in SmallFeatureSurvey.EdgesOf(loop))
+                {
+                    rim.Add(edge);
+                    if (at == null)
+                        foreach (var p in SamplePoints(edge)) { at = p; break; }
+                }
+                if (at == null) return 0;
+                var outward = OutwardNormal(owner, at);
+                if (outward == null) return 0;
+
+                var beyond = new List<IFace2>();
+                foreach (var edge in rim)
+                    foreach (var face in FacesOf(edge))
+                        if (face != null && !Same(face, owner) && !Contains(beyond, face))
+                            beyond.Add(face);
+                var points = new List<double[]>();
+                foreach (var face in beyond)
+                    foreach (var other in SmallFeatureSurvey.LoopsOf(face))
+                        foreach (var edge in SmallFeatureSurvey.EdgesOf(other))
+                            points.AddRange(SamplePoints(edge));
+                return SideOf(at, outward, points, extent);
+            }
+
+            private static double[] OutwardNormal(IFace2 face, double[] at)
+            {
+                try
+                {
+                    var surface = face.GetSurface() as ISurface;
+                    if (surface == null) return null;
+                    var raw = surface.EvaluateAtPoint(at[0], at[1], at[2]) as double[];
+                    if (raw == null || raw.Length < 3) return null;
+                    double sign = face.FaceInSurfaceSense() ? -1.0 : 1.0;
+                    double length = Math.Sqrt(raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]);
+                    if (!(length > 0.0)) return null;
+                    return new[]
+                    {
+                        sign * raw[0] / length, sign * raw[1] / length, sign * raw[2] / length,
+                    };
+                }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>
+        /// Which way a feature goes from the owner face: +1 into the
+        /// material, -1 out of it, 0 when the points do not say.
+        ///
+        /// An inner loop of a face can be a hole or the foot of a boss, a
+        /// pin or a standoff. Both walk closed, so before this the walk took
+        /// a pin away and refilled the face over its foot, and the closure
+        /// check passed: a visible part of the outline went with no warning.
+        /// SolidWorks' own example (Determine Type of Face) tells the two
+        /// apart at the rim. This reads the whole faces beyond the rim
+        /// instead, which also works where they meet the owner at a tangent,
+        /// as a filleted rim does.
+        ///
+        /// <paramref name="at"/> is a point on the rim and
+        /// <paramref name="outward"/> the owner's unit normal there, out of
+        /// the material. The deepest point beyond the rim on each side of
+        /// that plane decides. A curved owner lets the rim itself rise or
+        /// fall a little, so the other side only has to be much smaller.
+        /// </summary>
+        internal static int SideOf(
+            double[] at, double[] outward, IEnumerable<double[]> beyond, double extent)
+        {
+            double into = 0.0, outOf = 0.0;
+            foreach (var p in beyond)
+            {
+                double d = (p[0] - at[0]) * outward[0] + (p[1] - at[1]) * outward[1]
+                    + (p[2] - at[2]) * outward[2];
+                if (-d > into) into = -d;
+                if (d > outOf) outOf = d;
+            }
+            double floor = Math.Max(1e-7, extent * 1e-3);
+            if (into > floor && outOf <= into * 0.25) return 1;
+            if (outOf > floor && into <= outOf * 0.25) return -1;
+            return 0;
         }
 
         /// <summary>
@@ -844,6 +934,11 @@ namespace Peak.Cadder.Sw
         string LoopKey(TLoop loop, out double extent);
 
         double[] LoopCentre(TLoop loop);
+
+        /// <summary>Which way the feature behind an inner loop of this face
+        /// goes: +1 into the material (a hole or a pocket), -1 out of it (a
+        /// boss, a pin or a standoff), 0 when it cannot tell.</summary>
+        int FeatureSide(TFace owner, TLoop loop, double extent);
     }
 
     /// <summary>
@@ -926,6 +1021,20 @@ namespace Peak.Cadder.Sw
                     double extent;
                     string key = _topo.LoopKey(loop, out extent);
                     if (key == null || extent > maxExtent) continue;
+                    // Only a hole or a pocket is a feature to leave out. A
+                    // pin or a boss standing on the face is part of the
+                    // outline, and it is not a candidate at all.
+                    int side = _topo.FeatureSide(face, loop, extent);
+                    if (side < 0) continue;
+                    if (side == 0)
+                    {
+                        plan.Features.Add(new Feature
+                        {
+                            Extent = extent,
+                            Declined = "the faces beyond the loop show no hole",
+                        });
+                        continue;
+                    }
                     marked.Add(key);
                     if (!rims.ContainsKey(key))
                     {
