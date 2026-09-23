@@ -427,24 +427,265 @@ namespace Peak.Cadder.Sw
         /// </summary>
         private static string LoopKey(ILoop2 loop, out double extent)
         {
-            extent = 0.0;
-            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            var points = new List<double[]>();
             int edges = 0;
             foreach (var edge in EdgesOf(loop))
             {
                 edges++;
-                foreach (var p in SamplePoints(edge))
+                points.AddRange(SamplePoints(edge));
+            }
+            return LoopKey(edges, points, out extent);
+        }
+
+        /// <summary>The key of a loop of this many edges through these
+        /// points.</summary>
+        internal static string LoopKey(int edges, IEnumerable<double[]> points, out double extent)
+        {
+            double[] centre;
+            if (edges == 0 || !Box(points, out centre, out extent))
+            {
+                extent = 0.0;
+                return null;
+            }
+            return string.Format(
+                CultureInfo.InvariantCulture, "{0}|{1:F7},{2:F7},{3:F7}|{4:F7}",
+                edges, centre[0], centre[1], centre[2], extent);
+        }
+
+        /// <summary>
+        /// Enough points to bound an edge, all of them on the edge. A line
+        /// answers with its two ends. A circle answers from its own
+        /// parameters, which is most bolt holes, and an arc keeps the
+        /// extremes that are on it. Anything else is evaluated at a few
+        /// places, which bounds a spline without a refinement loop.
+        /// </summary>
+        private static IEnumerable<double[]> SamplePoints(IEdge edge)
+        {
+            return EdgePoints(ShapeOf(edge));
+        }
+
+        /// <summary>What SamplePoints reads from one edge, so that the rules
+        /// that turn it into points can run without SolidWorks.</summary>
+        internal sealed class EdgeShape
+        {
+            public bool IsLine;
+            public bool IsCircle;
+            /// <summary>Centre (0..2), axis (3..5) and radius (6), as
+            /// ICurve.CircleParams gives them.</summary>
+            public double[] Circle;
+            /// <summary>The ends of the EDGE. A closed edge has one point
+            /// for both.</summary>
+            public double[] Start, End;
+            /// <summary>The parameter range of the whole CURVE. For a line
+            /// that is the whole infinite line.</summary>
+            public double CurveMin = double.NaN, CurveMax = double.NaN;
+            public Func<double, double[]> Evaluate;
+            /// <summary>Whether a point of the curve lies on the edge. True
+            /// when it cannot tell.</summary>
+            public Func<double[], bool> OnEdge;
+        }
+
+        private static EdgeShape ShapeOf(IEdge edge)
+        {
+            var shape = new EdgeShape();
+            ICurve curve = null;
+            try { curve = edge.GetCurve() as ICurve; }
+            catch { }
+            if (curve == null) return shape;
+            try { shape.IsLine = curve.IsLine(); }
+            catch { }
+            if (!shape.IsLine)
+            {
+                try { shape.IsCircle = curve.IsCircle(); }
+                catch { }
+            }
+            if (shape.IsCircle)
+            {
+                try { shape.Circle = curve.CircleParams as double[]; }
+                catch { }
+            }
+            double s = 0, e = 0;
+            bool closed = false, periodic = false;
+            try
+            {
+                if (curve.GetEndParams(out s, out e, out closed, out periodic))
                 {
-                    if (p[0] < minX) minX = p[0];
-                    if (p[1] < minY) minY = p[1];
-                    if (p[2] < minZ) minZ = p[2];
-                    if (p[0] > maxX) maxX = p[0];
-                    if (p[1] > maxY) maxY = p[1];
-                    if (p[2] > maxZ) maxZ = p[2];
+                    shape.CurveMin = s;
+                    shape.CurveMax = e;
                 }
             }
-            if (edges == 0 || minX > maxX) return null;
+            catch { }
+            shape.Evaluate = t =>
+            {
+                double[] p = null;
+                try { p = curve.Evaluate(t) as double[]; }
+                catch { }
+                return p != null && p.Length >= 3 ? new[] { p[0], p[1], p[2] } : null;
+            };
+            ReadEnds(edge, shape);
+            // The edge knows its own extent, whichever way its curve runs:
+            // a point of the curve is on the edge when the edge's nearest
+            // point to it is the point itself. When the edge cannot answer,
+            // the point counts, so the box can only come out too big, and
+            // a feature that is not small is never taken for one.
+            double reach = shape.Circle != null && shape.Circle.Length >= 7
+                ? Math.Abs(shape.Circle[6]) : 0.0;
+            double tolerance = Math.Max(1e-8, reach * 1e-6);
+            shape.OnEdge = q =>
+            {
+                double[] on = null;
+                try { on = edge.GetClosestPointOn(q[0], q[1], q[2]) as double[]; }
+                catch { }
+                if (on == null || on.Length < 3) return true;
+                return Near(on, q, tolerance);
+            };
+            return shape;
+        }
+
+        /// <summary>The two ends of the edge itself, which for a closed
+        /// edge are one point. Both the calls that give them need
+        /// IEdge.GetCurve first, which ShapeOf has made.</summary>
+        private static void ReadEnds(IEdge edge, EdgeShape shape)
+        {
+            try
+            {
+                var data = edge.GetCurveParams3();
+                if (data != null)
+                {
+                    shape.Start = Point(data.StartPoint as double[], 0);
+                    shape.End = Point(data.EndPoint as double[], 0);
+                }
+            }
+            catch { }
+            if (shape.Start != null && shape.End != null) return;
+            try
+            {
+                var raw = edge.GetCurveParams2() as double[];
+                shape.Start = Point(raw, 0);
+                shape.End = Point(raw, 3);
+            }
+            catch { }
+            if (shape.Start == null || shape.End == null) shape.Start = shape.End = null;
+        }
+
+        private static double[] Point(double[] raw, int at)
+        {
+            if (raw == null || raw.Length < at + 3) return null;
+            return new[] { raw[at], raw[at + 1], raw[at + 2] };
+        }
+
+        /// <summary>
+        /// The points SamplePoints gives for one edge. Every point lies on
+        /// the edge, so the same points bound the loop and show which way
+        /// the faces beyond a rim go.
+        ///
+        /// The edge's own two ends come first. IEdge.GetCurve gives the
+        /// UNDERLYING curve, and for a line that is the whole infinite line:
+        /// its end parameters are the largest the parameter space allows.
+        /// Evaluated there, every loop with a straight edge came out
+        /// enormous, so a slot, a keyway or a small cutout never counted as
+        /// small, whatever the dial said.
+        /// </summary>
+        internal static List<double[]> EdgePoints(EdgeShape shape)
+        {
+            var points = new List<double[]>();
+            if (shape == null) return points;
+            bool closed = shape.Start == null || shape.End == null
+                || Near(shape.Start, shape.End, 1e-9);
+            if (shape.Start != null) points.Add(shape.Start);
+            if (shape.End != null && !closed) points.Add(shape.End);
+            // Two points bound a straight edge exactly, and two points is
+            // also what a fill needs from it. Sampling nine made a
+            // rectangular plate look like a 34 triangle fill instead of the
+            // two it really is.
+            if (shape.IsLine) return points;
+
+            var cp = shape.Circle;
+            if (shape.IsCircle && cp != null && cp.Length >= 7)
+            {
+                // The circle's own extremes along each world axis, where the
+                // arc reaches them. The box of (cx +/- r, cy +/- r, cz) is
+                // the box of a circle about Z only. A circle in any other
+                // plane got a width it does not have in one direction and
+                // none in another.
+                foreach (var q in CircleExtremes(cp))
+                    if (closed || shape.OnEdge == null || shape.OnEdge(q)) points.Add(q);
+                return points;
+            }
+
+            // Anything else: the curve at a few places, where they are on
+            // the edge. A curve with an unbounded range gives no samples.
+            double s = shape.CurveMin, e = shape.CurveMax;
+            if (double.IsNaN(s) || double.IsNaN(e) || double.IsInfinity(s)
+                || double.IsInfinity(e) || Math.Abs(e - s) > 1e8
+                || shape.Evaluate == null)
+                return points;
+            const int steps = 8;
+            for (int i = 0; i <= steps; i++)
+            {
+                var p = shape.Evaluate(s + (e - s) * i / steps);
+                if (p == null) continue;
+                if (closed || shape.OnEdge == null || shape.OnEdge(p)) points.Add(p);
+            }
+            return points;
+        }
+
+        /// <summary>
+        /// The points of a circle furthest along each world axis, both
+        /// ways: the centre plus r times that axis laid into the circle's
+        /// plane. The box of these six points is the box of the circle.
+        /// An axis along the circle's normal has no extreme, and is left out.
+        /// </summary>
+        internal static IEnumerable<double[]> CircleExtremes(double[] cp)
+        {
+            double nx = cp[3], ny = cp[4], nz = cp[5];
+            double length = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            if (!(length > 0.0)) yield break;
+            var n = new[] { nx / length, ny / length, nz / length };
+            double r = Math.Abs(cp[6]);
+            for (int k = 0; k < 3; k++)
+            {
+                var u = new[] { -n[k] * n[0], -n[k] * n[1], -n[k] * n[2] };
+                u[k] += 1.0;
+                double size = Math.Sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+                if (size < 1e-12) continue;
+                for (int sign = -1; sign <= 1; sign += 2)
+                    yield return new[]
+                    {
+                        cp[0] + sign * r * u[0] / size,
+                        cp[1] + sign * r * u[1] / size,
+                        cp[2] + sign * r * u[2] / size,
+                    };
+            }
+        }
+
+        private static bool Near(double[] a, double[] b, double tolerance)
+        {
+            double dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+            return dx * dx + dy * dy + dz * dz <= tolerance * tolerance;
+        }
+
+        /// <summary>The box of some points: its middle, and its widest
+        /// side. False when there are no points.</summary>
+        internal static bool Box(
+            IEnumerable<double[]> points, out double[] centre, out double extent)
+        {
+            centre = null;
+            extent = 0.0;
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            bool any = false;
+            foreach (var p in points)
+            {
+                any = true;
+                if (p[0] < minX) minX = p[0];
+                if (p[1] < minY) minY = p[1];
+                if (p[2] < minZ) minZ = p[2];
+                if (p[0] > maxX) maxX = p[0];
+                if (p[1] > maxY) maxY = p[1];
+                if (p[2] > maxZ) maxZ = p[2];
+            }
+            if (!any) return false;
             // The WIDEST SIDE of the box, not its diagonal. A dial that says
             // 12 mm has to mean a 12 mm hole, and the diagonal of a circle's
             // box is 1.414 times its diameter whichever way the circle
@@ -452,92 +693,9 @@ namespace Peak.Cadder.Sw
             // The widest side is the diameter exactly for a hole drilled
             // along an axis, never less than 0.82 of it for one drilled at
             // an angle, and the length of a slot rather than its diagonal.
-            double dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-            extent = Math.Max(dx, Math.Max(dy, dz));
-            return string.Format(
-                CultureInfo.InvariantCulture, "{0}|{1:F7},{2:F7},{3:F7}|{4:F7}",
-                edges, (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5,
-                extent);
-        }
-
-        /// <summary>
-        /// Enough points to bound an edge. A circle answers from its own
-        /// parameters, which is most bolt holes and costs one call; anything
-        /// else is evaluated at a few places, which bounds a slot's arcs and
-        /// a spline alike without a refinement loop.
-        /// </summary>
-        private static IEnumerable<double[]> SamplePoints(IEdge edge)
-        {
-            ICurve curve = null;
-            try { curve = edge.GetCurve() as ICurve; }
-            catch { }
-            if (curve == null) yield break;
-
-            bool isLine = false;
-            try { isLine = curve.IsLine(); }
-            catch { }
-            if (isLine)
-            {
-                // Two points bound a straight edge exactly, and two points
-                // is also what a fill needs from it. Sampling nine made a
-                // rectangular plate look like a 34 triangle fill instead of
-                // the two it really is.
-                foreach (var p in Ends(curve)) yield return p;
-                yield break;
-            }
-
-            bool isCircle = false;
-            try { isCircle = curve.IsCircle(); }
-            catch { }
-            if (isCircle)
-            {
-                double[] cp = null;
-                try { cp = curve.CircleParams as double[]; }
-                catch { }
-                // centre (0..2), axis (3..5), radius (6). The box of the
-                // whole circle bounds any arc of it, which is all this needs.
-                if (cp != null && cp.Length >= 7)
-                {
-                    double r = cp[6];
-                    for (int sx = -1; sx <= 1; sx += 2)
-                        for (int sy = -1; sy <= 1; sy += 2)
-                            yield return new[] { cp[0] + sx * r, cp[1] + sy * r, cp[2] };
-                    yield break;
-                }
-            }
-
-            double s = 0, e = 0;
-            bool closed = false, periodic = false;
-            bool ok = false;
-            try { ok = curve.GetEndParams(out s, out e, out closed, out periodic); }
-            catch { }
-            if (!ok || double.IsNaN(s) || double.IsNaN(e)) yield break;
-            const int steps = 8;
-            for (int i = 0; i <= steps; i++)
-            {
-                double t = s + (e - s) * i / steps;
-                double[] p = null;
-                try { p = curve.Evaluate(t) as double[]; }
-                catch { }
-                if (p != null && p.Length >= 3) yield return p;
-            }
-        }
-
-        private static IEnumerable<double[]> Ends(ICurve curve)
-        {
-            double s = 0, e = 0;
-            bool closed = false, periodic = false;
-            bool ok = false;
-            try { ok = curve.GetEndParams(out s, out e, out closed, out periodic); }
-            catch { }
-            if (!ok) yield break;
-            foreach (double t in new[] { s, e })
-            {
-                double[] p = null;
-                try { p = curve.Evaluate(t) as double[]; }
-                catch { }
-                if (p != null && p.Length >= 3) yield return p;
-            }
+            extent = Math.Max(maxX - minX, Math.Max(maxY - minY, maxZ - minZ));
+            centre = new[] { (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5 };
+            return true;
         }
 
         /// <summary>
@@ -629,25 +787,11 @@ namespace Peak.Cadder.Sw
         /// </summary>
         private static double[] LoopCentre(ILoop2 loop)
         {
-            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
-            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
-            bool any = false;
-            foreach (var edge in EdgesOf(loop))
-                foreach (var p in SamplePoints(edge))
-                {
-                    any = true;
-                    if (p[0] < minX) minX = p[0];
-                    if (p[1] < minY) minY = p[1];
-                    if (p[2] < minZ) minZ = p[2];
-                    if (p[0] > maxX) maxX = p[0];
-                    if (p[1] > maxY) maxY = p[1];
-                    if (p[2] > maxZ) maxZ = p[2];
-                }
-            if (!any) return null;
-            return new[]
-            {
-                (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5,
-            };
+            var points = new List<double[]>();
+            foreach (var edge in EdgesOf(loop)) points.AddRange(SamplePoints(edge));
+            double[] centre;
+            double extent;
+            return Box(points, out centre, out extent) ? centre : null;
         }
 
         /// <summary>What a face's whole polygon costs by the point model,
