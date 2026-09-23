@@ -375,7 +375,9 @@ namespace Peak.Cadder.Appearance
 
                 var a = new Attachment
                 {
-                    Colour = Rgb.FromColorRef(rm.PrimaryColor),
+                    Colour = DisplayedColour(SafeInt(() => rm.ColorForm, -1),
+                        SafeInt(() => rm.PrimaryColor, 0), SafeInt(() => rm.SecondaryColor, 0),
+                        SafeInt(() => rm.TertiaryColor, 0)),
                     Transparency = SafeDouble(() => rm.Transparency),
                     Rank = rank,
                     Source = what,
@@ -402,6 +404,19 @@ namespace Peak.Cadder.Appearance
             }
             return docLevel;
         }
+
+        /// <summary>
+        /// The colour that SolidWorks draws for an appearance, by the rule
+        /// that the direct send uses (AppearanceSpec.DisplayColourRef). A
+        /// one- or two-colour appearance shows its second colour, and the
+        /// first is the highlight tint of the metals. The repair took the
+        /// first colour, so a polished gold override came out as
+        /// (255,206,127) in the STEP file and as (247,224,153) in
+        /// SolidWorks and over the direct send.
+        /// </summary>
+        internal static Rgb DisplayedColour(int colorForm, int primary, int secondary, int tertiary)
+            => Rgb.FromColorRef(Core.AppearanceSpec.DisplayColourRef(
+                colorForm, primary, secondary, tertiary));
 
         private static void Attach(Dictionary<string, Attachment> attach, string path, Attachment a)
         {
@@ -449,6 +464,9 @@ namespace Peak.Cadder.Appearance
 
         private static double SafeDouble(Func<double> f)
         { try { return f(); } catch { return 0.0; } }
+
+        private static int SafeInt(Func<int> f, int fallback)
+        { try { return f(); } catch { return fallback; } }
 
         private static string SafeStr(Func<string> f)
         { try { return f(); } catch { return null; } }
