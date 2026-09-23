@@ -1,9 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Net;
-using System.Text;
-using System.Threading;
 using System.Windows.Forms;
 using Peak.Cadder.Core;
 using SolidWorks.Interop.sldworks;
@@ -26,6 +23,10 @@ namespace Peak.Cadder.Bridge
     /// through a hidden control's Invoke, and the reply goes back on the pool
     /// thread that was waiting. Same shape as the Blender side's timer pump,
     /// for the same reason.
+    ///
+    /// CommandListener does the HTTP part, and JobGate the waiting. A ping
+    /// never waits for a job, and the jobs take turns on the SolidWorks
+    /// thread.
     /// </summary>
     public static class SwCommandServer
     {
@@ -34,8 +35,8 @@ namespace Peak.Cadder.Bridge
         public delegate Dictionary<string, object> Handler(
             ISldWorks app, Dictionary<string, object> request);
 
-        private static HttpListener _listener;
-        private static Thread _thread;
+        private static CommandListener _listener;
+        private static JobGate _gate;
         private static Control _marshal;
         private static string _token;
         private static string _registryFile;
@@ -68,32 +69,19 @@ namespace Peak.Cadder.Bridge
             if (Running || app == null || handler == null) return;
             _app = app;
             _handler = handler;
-            _token = Guid.NewGuid().ToString("N");
             _marshal = new Control();
             _marshal.CreateControl();
             var _ = _marshal.Handle;   // forces the window handle to exist now
+            _gate = new JobGate(PostToSolidWorks);
 
-            for (int port = 51820; port < 51840 && _listener == null; port++)
-            {
-                var listener = new HttpListener();
-                listener.Prefixes.Add("http://127.0.0.1:" + port + "/");
-                try
-                {
-                    listener.Start();
-                    _listener = listener;
-                    Port = port;
-                }
-                catch (HttpListenerException) { }
-                catch (ObjectDisposedException) { }
-            }
+            _listener = CommandListener.Open(51820, 51839, RunOnSolidWorksThread, Ping, log);
             if (_listener == null)
             {
                 if (log != null) log("sw bridge: no free port in 51820-51839");
                 return;
             }
-
-            _thread = new Thread(() => Serve(log)) { IsBackground = true };
-            _thread.Start();
+            Port = _listener.Port;
+            _token = _listener.Token;
             WriteRegistry(log);
             if (log != null)
                 log("sw bridge: listening on 127.0.0.1:" + Port);
@@ -103,6 +91,7 @@ namespace Peak.Cadder.Bridge
         {
             try { if (_listener != null) _listener.Close(); } catch { }
             _listener = null;
+            _gate = null;
             try { if (_registryFile != null) File.Delete(_registryFile); }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
@@ -112,101 +101,46 @@ namespace Peak.Cadder.Bridge
             if (log != null) log("sw bridge: stopped");
         }
 
-        private static void Serve(Action<string> log)
+        /// <summary>What a ping answers.</summary>
+        private static Dictionary<string, object> Ping()
         {
-            while (true)
+            return new Dictionary<string, object>
             {
-                HttpListenerContext ctx;
-                try { ctx = _listener.GetContext(); }
-                catch { return; }        // Stop() closed it
-                try { Handle(ctx, log); }
-                catch (Exception ex)
-                {
-                    if (log != null) log("sw bridge: " + ex.Message);
-                }
-            }
-        }
-
-        private static void Handle(HttpListenerContext ctx, Action<string> log)
-        {
-            string path = ctx.Request.Url.AbsolutePath.TrimEnd('/');
-            if (path == "/ping")
-            {
-                Respond(ctx, 200, new Dictionary<string, object>
-                {
-                    { "ok", true },
-                    { "app", "Peak.Cadder" },
-                    { "version", AddIn.AddInVersion },
-                    { "pid", System.Diagnostics.Process.GetCurrentProcess().Id },
-                });
-                return;
-            }
-            string sent = ctx.Request.Headers["X-CADLink-Token"];
-            if (!string.Equals(sent, _token, StringComparison.Ordinal))
-            {
-                Respond(ctx, 403, new Dictionary<string, object>
-                {
-                    { "ok", false }, { "error", "bad token" },
-                });
-                return;
-            }
-
-            string body;
-            using (var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8))
-                body = reader.ReadToEnd();
-            Dictionary<string, object> request;
-            try { request = MiniJson.ParseObject(body); }
-            catch (Exception ex)
-            {
-                Respond(ctx, 400, new Dictionary<string, object>
-                {
-                    { "ok", false }, { "error", "bad json: " + ex.Message },
-                });
-                return;
-            }
-
-            Dictionary<string, object> reply;
-            try { reply = RunOnSolidWorksThread(request); }
-            catch (Exception ex)
-            {
-                if (log != null) log("sw bridge job: " + ex);
-                reply = new Dictionary<string, object>
-                {
-                    { "ok", false }, { "error", ex.Message },
-                };
-            }
-            Respond(ctx, 200, reply);
+                { "ok", true },
+                { "app", "Peak.Cadder" },
+                { "version", AddIn.AddInVersion },
+                { "pid", System.Diagnostics.Process.GetCurrentProcess().Id },
+            };
         }
 
         /// <summary>
-        /// Hops onto the thread SolidWorks owns and waits. Invoke marshals the
-        /// exception back too, so a failing job reads the same here as it
-        /// would if it had run inline.
+        /// Hops onto the thread SolidWorks owns and waits. A failing job
+        /// throws here the same as it would if it had run inline.
         /// </summary>
         private static Dictionary<string, object> RunOnSolidWorksThread(
             Dictionary<string, object> request)
         {
-            var marshal = _marshal;
-            if (marshal == null || marshal.IsDisposed)
+            var gate = _gate;
+            if (gate == null)
                 throw new InvalidOperationException("the add-in is shutting down");
-            if (!marshal.InvokeRequired) return _handler(_app, request);
             // Up to the request's own "timeout_s" (default ten minutes). A
             // job still running then is most likely behind a dialog
             // SolidWorks put up: the reply says so instead of hanging the
             // caller, and the job finishes on its own when the dialog goes.
             double timeoutS = MiniJson.Num(request, "timeout_s", 600);
-            var call = new Func<Dictionary<string, object>>(() => _handler(_app, request));
-            var pending = marshal.BeginInvoke(call);
-            if (!pending.AsyncWaitHandle.WaitOne(TimeSpan.FromSeconds(Math.Max(1, timeoutS))))
-            {
-                return new Dictionary<string, object>
-                {
-                    { "ok", false },
-                    { "error", "still running after " + timeoutS + " s. SolidWorks may be "
-                               + "showing a dialog; the job completes when it is dismissed" },
-                };
-            }
-            return (Dictionary<string, object>)marshal.EndInvoke(pending);
+            return gate.Run(() => _handler(_app, request),
+                TimeSpan.FromSeconds(Math.Max(1, timeoutS)));
+        }
+
+        /// <summary>Queues an action on the SolidWorks thread through the
+        /// hidden control, and returns at once.</summary>
+        private static void PostToSolidWorks(Action action)
+        {
+            var marshal = _marshal;
+            if (marshal == null || marshal.IsDisposed)
+                throw new InvalidOperationException("the add-in is shutting down");
+            if (!marshal.InvokeRequired) action();
+            else marshal.BeginInvoke(action);
         }
 
         /// <summary>Runs an action on the SolidWorks thread after a delay,
@@ -223,17 +157,6 @@ namespace Peak.Cadder.Bridge
                 try { action(); } catch { }
             };
             timer.Start();
-        }
-
-        private static void Respond(
-            HttpListenerContext ctx, int status, Dictionary<string, object> payload)
-        {
-            var bytes = Encoding.UTF8.GetBytes(MiniJson.Write(payload));
-            ctx.Response.StatusCode = status;
-            ctx.Response.ContentType = "application/json";
-            ctx.Response.ContentLength64 = bytes.Length;
-            using (var output = ctx.Response.OutputStream)
-                output.Write(bytes, 0, bytes.Length);
         }
 
         /// <summary>
