@@ -232,10 +232,11 @@ namespace Peak.Cadder.Sw
                 {
                     var entity = face as IEntity;
                     var comp = entity == null ? null : entity.GetComponent() as Component2;
-                    var w = comp == null ? null : ResolveWalked(comp, owner, byPath);
+                    Component2 matched = null;
+                    var w = comp == null ? null : ResolveWalked(comp, owner, byPath, out matched);
                     if (w != null)
                     {
-                        lift = w.Graph.Transform;
+                        lift = PartLift(comp, w, matched);
                         compId = w.Id;
                     }
                     else if (log != null)
@@ -361,8 +362,9 @@ namespace Peak.Cadder.Sw
                 try
                 {
                     var refComp = me.ReferenceComponent as Component2;
-                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath);
-                    if (w != null) lift = w.Graph.Transform;
+                    Component2 matched = null;
+                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath, out matched);
+                    if (w != null) lift = PartLift(refComp, w, matched);
                 }
                 catch { }
 
@@ -1096,8 +1098,9 @@ namespace Peak.Cadder.Sw
                 try
                 {
                     var refComp = me.ReferenceComponent as Component2;
-                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath);
-                    if (w != null) lift = w.Graph.Transform;
+                    Component2 matched = null;
+                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath, out matched);
+                    if (w != null) lift = PartLift(refComp, w, matched);
                 }
                 catch { }
 
@@ -1250,7 +1253,8 @@ namespace Peak.Cadder.Sw
                     if (ent != null) comp = ent.GetComponent() as Component2;
                 }
                 catch { }
-                var walked = ResolveWalked(comp, owner, byPath);
+                Component2 matched;
+                var walked = ResolveWalked(comp, owner, byPath, out matched);
                 if (walked == null) continue;
 
                 foreach (var ge in gm.Entities)
@@ -1259,7 +1263,7 @@ namespace Peak.Cadder.Sw
                     if (isFreeform)
                     {
                         if (IsPointKind(ge.EntityTypeName)) continue;
-                        AttachSurfacePatch(face, ge, walked.Graph.Transform, gm, log);
+                        AttachSurfacePatch(face, ge, PartLift(comp, walked, matched), gm, log);
                     }
                     else if (isSphere && ge.EntityTypeName == "cone")
                     {
@@ -1986,6 +1990,18 @@ namespace Peak.Cadder.Sw
             Component2 refComp, WalkedComponent owner,
             Dictionary<string, WalkedComponent> byPath)
         {
+            Component2 matched;
+            return ResolveWalked(refComp, owner, byPath, out matched);
+        }
+
+        /// <summary>The same, and the component on the GetParent() chain
+        /// whose name matched: the entity's own component, or the rigid
+        /// subassembly that holds it.</summary>
+        private static WalkedComponent ResolveWalked(
+            Component2 refComp, WalkedComponent owner,
+            Dictionary<string, WalkedComponent> byPath, out Component2 matched)
+        {
+            matched = null;
             for (var c = refComp; c != null; c = SafeParent(c))
             {
                 string name = null;
@@ -2000,11 +2016,58 @@ namespace Peak.Cadder.Sw
                 WalkedComponent hit;
                 for (var anc = owner; anc != null; anc = anc.Parent)
                 {
-                    if (byPath.TryGetValue(anc.Graph.Path + "/" + name, out hit)) return hit;
+                    if (byPath.TryGetValue(anc.Graph.Path + "/" + name, out hit))
+                    {
+                        matched = c;
+                        return hit;
+                    }
                 }
-                if (byPath.TryGetValue(name, out hit)) return hit;
+                if (byPath.TryGetValue(name, out hit))
+                {
+                    matched = c;
+                    return hit;
+                }
             }
             return null;
+        }
+
+        /// <summary>
+        /// The lift for geometry in the frame of the entity's own PART
+        /// (IEdge and sketch curves, GetTessTriangles), where the part is
+        /// <paramref name="refComp"/> and ResolveWalked found it as
+        /// <paramref name="w"/> through <paramref name="matched"/>.
+        ///
+        /// The walked transform alone is right only when the part itself
+        /// was walked. A part inside a rigid subassembly is not: the match
+        /// is the subassembly, whose transform put a rail's edge 90 degrees
+        /// off and a cam's triangles away from the follower. EntityParams
+        /// do not need this, because they are already in assembly space.
+        /// </summary>
+        private static double[,] PartLift(
+            Component2 refComp, WalkedComponent w, Component2 matched)
+        {
+            if (w == null) return null;
+            if (matched == null || ReferenceEquals(matched, refComp)) return w.Graph.Transform;
+            return PartLift(w.Graph.Transform,
+                SwFrames.ComponentWorld(matched), SwFrames.ComponentWorld(refComp));
+        }
+
+        /// <summary>
+        /// The pure half of PartLift: <paramref name="walked"/> is the walked
+        /// component's world transform, <paramref name="matchedPlace"/> and
+        /// <paramref name="partPlace"/> the Transform2 of the matched
+        /// component and of the part, both read in one context. The part's
+        /// place inside the matched component does not depend on the
+        /// context, so the lift is walked x inverse(matched) x part. For a
+        /// walked part the last two cancel. A place that cannot be read
+        /// leaves the walked transform, as before.
+        /// </summary>
+        internal static double[,] PartLift(
+            double[,] walked, double[,] matchedPlace, double[,] partPlace)
+        {
+            if (walked == null || matchedPlace == null || partPlace == null) return walked;
+            return MathOps.Multiply(walked,
+                MathOps.Multiply(MathOps.InvertRigid(matchedPlace), partPlace));
         }
 
         private static Component2 SafeParent(Component2 comp)
