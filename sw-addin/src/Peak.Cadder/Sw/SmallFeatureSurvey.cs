@@ -421,7 +421,7 @@ namespace Peak.Cadder.Sw
                     result.FilledFacetsAfter += before;
                     var lid = SurfaceCap.Build(
                         face, tess, plan.FillHoles[plan.Fill.IndexOf(face)], log);
-                    if (lid != null) result.CapFacets += lid.Count / 3;
+                    result.CapFacets += SurfaceCap.TriangleCount(lid);
                     continue;
                 }
                 result.FilledFacetsAfter += refill.Count / 3;
@@ -452,7 +452,7 @@ namespace Peak.Cadder.Sw
             {
                 result.CappedFaces++;
                 var lid = SurfaceCap.Build(plan.Cap[i], tess, plan.CapHoles[i], log);
-                if (lid != null) result.CapFacets += lid.Count / 3;
+                result.CapFacets += SurfaceCap.TriangleCount(lid);
             }
             return result;
         }

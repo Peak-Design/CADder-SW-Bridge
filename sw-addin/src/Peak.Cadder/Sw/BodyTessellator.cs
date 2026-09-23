@@ -394,11 +394,17 @@ namespace Peak.Cadder.Sw
                     if (rims == null) continue;
                     var cap = SurfaceCap.Build(face, tess, rims, log);
                     if (cap == null) continue;
-                    // A lid is wound from its rim (SurfaceCap.Lid), which
-                    // the normals at a cylinder's end circle cannot check.
-                    for (int t = 0; t + 2 < cap.Count; t += 3)
-                        AddTriangle(state, cap[t], cap[t + 1], cap[t + 2], material,
-                                    asGiven: true);
+                    foreach (var piece in cap)
+                    {
+                        var lid = piece.Flat
+                            ? OwnPoints(state, piece.Triangles, piece.Normal)
+                            : piece.Triangles;
+                        // A lid is wound from its rim (SurfaceCap.Lid), which
+                        // the normals at a cylinder's end circle cannot check.
+                        for (int t = 0; t + 2 < lid.Count; t += 3)
+                            AddTriangle(state, lid[t], lid[t + 1], lid[t + 2], material,
+                                        asGiven: true);
+                    }
                     capped++;
                 }
             }
@@ -432,7 +438,7 @@ namespace Peak.Cadder.Sw
             // gets the same UVs as one SolidWorks drew. It can ADD points,
             // where a closed face had to be cut open along its seam, so the
             // count it hands back is the one the body now has.
-            vertexCount = SurfaceUv.Apply(mesh, baseVertex, vertexCount,
+            vertexCount = SurfaceUv.Apply(mesh, baseVertex, state.VertexCount,
                                           firstTriangle, numbered,
                                           ref state.FaceOf, log);
             state.VertexCount = vertexCount;
@@ -457,7 +463,7 @@ namespace Peak.Cadder.Sw
         /// seven arguments per triangle. The scratch buffers exist so a
         /// million-facet body does not allocate four small arrays per
         /// triangle purely to ask which way it faces.</summary>
-        private sealed class FacetState
+        internal sealed class FacetState
         {
             public ITessellation Tess;
             public IBody2 Body;
@@ -561,6 +567,55 @@ namespace Peak.Cadder.Sw
             s.Mesh.Triangles.Add(s.BaseVertex + c);
             s.Mesh.TriangleMaterials.Add(material);
             s.Stitched++;
+        }
+
+        /// <summary>
+        /// A lid's triangles on copies of its rim points that carry the
+        /// lid's own normal (SurfaceCap.Piece.Flat). Each copy sits exactly
+        /// on the point it came from and keeps its surface parameters, so
+        /// the closure count and the UV map see the rim they saw before.
+        /// The body's vertices are the last block in the mesh until it is
+        /// compacted, so a copy is added at its end. Where that is not so,
+        /// the lid keeps the rim's points.
+        /// </summary>
+        internal static List<int> OwnPoints(
+            FacetState s, List<int> triangles, double[] normal)
+        {
+            if (s.BaseVertex + s.VertexCount != s.Mesh.VertexCount
+                || s.Mesh.Normals.Count != s.Mesh.Positions.Count
+                || s.Mesh.Uvs.Count != s.Mesh.VertexCount * 2)
+                return triangles;
+            var copyOf = new Dictionary<int, int>();
+            var result = new List<int>(triangles.Count);
+            foreach (int v in triangles)
+            {
+                int copy;
+                if (!copyOf.TryGetValue(v, out copy))
+                {
+                    if (v < 0 || v >= s.VertexCount)
+                    {
+                        result.Add(v);          // AddTriangle refuses it
+                        continue;
+                    }
+                    int from = s.BaseVertex + v;
+                    for (int k = 0; k < 3; k++)
+                        s.Mesh.Positions.Add(s.Mesh.Positions[from * 3 + k]);
+                    for (int k = 0; k < 3; k++)
+                        s.Mesh.Normals.Add(normal[k]);
+                    s.Mesh.Uvs.Add(s.Mesh.Uvs[from * 2]);
+                    s.Mesh.Uvs.Add(s.Mesh.Uvs[from * 2 + 1]);
+                    copy = s.VertexCount++;
+                    copyOf[v] = copy;
+                }
+                result.Add(copy);
+            }
+            if (s.FaceOf != null && s.FaceOf.Length < s.VertexCount)
+            {
+                int had = s.FaceOf.Length;
+                Array.Resize(ref s.FaceOf, s.VertexCount);
+                for (int i = had; i < s.FaceOf.Length; i++) s.FaceOf[i] = -1;
+            }
+            return result;
         }
 
         /// <summary>Notes which face these three vertices came from.

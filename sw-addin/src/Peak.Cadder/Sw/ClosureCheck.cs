@@ -90,8 +90,10 @@ namespace Peak.Cadder.Sw
                     var cap = SurfaceCap.Build(face, tess, rims, log);
                     if (cap != null)
                     {
+                        // By position, so a flat lid's copies of the rim
+                        // points count as the points they copy.
                         tris = new List<int>(tris);
-                        tris.AddRange(cap);
+                        foreach (var piece in cap) tris.AddRange(piece.Triangles);
                         how += ", capped";
                     }
                     else how += ", cap refused";

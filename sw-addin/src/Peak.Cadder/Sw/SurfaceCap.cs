@@ -27,15 +27,45 @@ namespace Peak.Cadder.Sw
     /// small feature, and a small rim is flat enough to cut in its own
     /// plane. Parameters would also fail at a seam, where a closed cylinder
     /// gives one vertex two values and can only store one.
+    ///
+    /// One exception to "no new vertex": a rim whose normals do not
+    /// describe the lid. At the end circle of a cylinder the normals are
+    /// radial, square to the lid, and a lid that used them would shade
+    /// dark and wrong. Such a lid is marked Flat, and the tessellator gives
+    /// it its own copies of the rim points with the lid's normal, the same
+    /// as every other face carries its own copies of the points on its
+    /// edges. The copies sit exactly on the rim, so nothing cracks.
     /// </summary>
     public static class SurfaceCap
     {
+        /// <summary>A rim normal further than this from the lid's own
+        /// normal does not describe the lid (cos 60 degrees). A lid over a
+        /// cross hole in a shaft keeps the shaft's normals, and shades as
+        /// the shaft does.</summary>
+        internal const double SameFacing = 0.5;
+
+        /// <summary>One lid to add to a face.</summary>
+        public sealed class Piece
+        {
+            /// <summary>Three body vertex indices per triangle, wound
+            /// against the rim.</summary>
+            public List<int> Triangles;
+
+            /// <summary>The way the lid faces, as its triangles are wound.
+            /// </summary>
+            public double[] Normal;
+
+            /// <summary>True when the lid needs its own copies of the rim
+            /// points, with Normal, because the rim's normals do not
+            /// describe it.</summary>
+            public bool Flat;
+        }
+
         /// <summary>
-        /// The triangles to ADD to this face, three body vertex indices
-        /// each, or null when there is nothing to cap. The face keeps its
-        /// own triangles either way.
+        /// The lids to ADD to this face, or null when there is nothing to
+        /// cap. The face keeps its own triangles either way.
         /// </summary>
-        public static List<int> Build(
+        public static List<Piece> Build(
             IFace2 face, ITessellation tess, IList<PlaneRefill.Hole> gone,
             Action<string> log)
         {
@@ -83,10 +113,11 @@ namespace Peak.Cadder.Sw
             if (loops == null || loops.Count == 0) return null;
 
             var rims = PlaneRefill.Matched(tess, loops, gone);
-            List<int> caps = null;
+            List<Piece> caps = null;
             foreach (int i in rims)
             {
-                var lid = Lid(loops[i], point);
+                double[] facing;
+                var lid = Lid(loops[i], point, out facing);
                 if (lid == null)
                 {
                     if (log != null)
@@ -94,10 +125,46 @@ namespace Peak.Cadder.Sw
                             + "capped, so the face keeps the hole it had");
                     continue;
                 }
-                if (caps == null) caps = new List<int>();
-                caps.AddRange(lid);
+                if (caps == null) caps = new List<Piece>();
+                caps.Add(new Piece
+                {
+                    Triangles = lid,
+                    Normal = facing,
+                    Flat = !RimDescribes(loops[i], normal, facing),
+                });
             }
             return caps;
+        }
+
+        /// <summary>How many triangles the lids add. 0 for none.</summary>
+        public static int TriangleCount(List<Piece> pieces)
+        {
+            int count = 0;
+            if (pieces == null) return count;
+            foreach (var piece in pieces) count += piece.Triangles.Count / 3;
+            return count;
+        }
+
+        /// <summary>
+        /// Whether every normal on the rim is near enough to the lid's own
+        /// normal for the lid to shade with them. A missing normal does
+        /// not describe anything.
+        /// </summary>
+        internal static bool RimDescribes(
+            List<int> ring, Dictionary<int, double[]> normal, double[] facing)
+        {
+            foreach (int v in ring)
+            {
+                double[] n;
+                if (!normal.TryGetValue(v, out n) || n == null || n.Length < 3)
+                    return false;
+                double length = Math.Sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (!(length > 0.0)) return false;
+                double dot = (n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2])
+                    / length;
+                if (dot < SameFacing) return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -107,6 +174,18 @@ namespace Peak.Cadder.Sw
         /// </summary>
         internal static List<int> Lid(List<int> ring, Dictionary<int, double[]> point)
         {
+            double[] facing;
+            return Lid(ring, point, out facing);
+        }
+
+        /// <summary>
+        /// The lid, and the way it faces as its triangles are wound: against
+        /// the ring, so opposite to the ring's own Newell normal.
+        /// </summary>
+        internal static List<int> Lid(
+            List<int> ring, Dictionary<int, double[]> point, out double[] facing)
+        {
+            facing = null;
             if (ring == null || ring.Count < 3) return null;
 
             // Newell: the area-weighted normal of a ring, which is right for
@@ -177,6 +256,10 @@ namespace Peak.Cadder.Sw
                 lid.Add(ring[fill[withRing ? t + 2 : t + 1]]);
                 lid.Add(ring[fill[withRing ? t + 1 : t + 2]]);
             }
+            // The ring runs counterclockwise about n (e1, e2 and n are a
+            // right-handed frame, and ringArea is its signed area), so the
+            // lid, wound against it, faces the other way.
+            facing = ringArea > 0.0 ? new[] { -n[0], -n[1], -n[2] } : n;
             return lid;
         }
 
