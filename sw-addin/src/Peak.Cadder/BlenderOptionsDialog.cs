@@ -364,11 +364,7 @@ namespace Peak.Cadder
             appGroup.Controls.Add(_autoLaunch);
             appGroup.Controls.Add(_focus);
             appGroup.Controls.Add(exeRow);
-            appGroup.Controls.Add(Row("Export files to:", _exportFolder,
-                "Choose where the STEP file and the manifest are written. "
-                + "Each export makes a folder of its own, named after the "
-                + "document. A direct send writes neither file and this has "
-                + "no effect on it"));
+            appGroup.Controls.Add(Row("Export files to:", _exportFolder, ExportFolderTip));
             appGroup.Controls.Add(folderRow);
 
             // ── Lab ─────────────────────────────────────────────────────────
@@ -638,6 +634,15 @@ namespace Peak.Cadder
                 MinimumSize = new Size(84, 26),
                 UseCompatibleTextRendering = false,
             };
+
+        /// <summary>The tooltip of "Export files to". Every send writes
+        /// into this folder (SendToBlenderCommand.ExportDir). Only the two
+        /// advanced commands ask for a file name instead.</summary>
+        internal const string ExportFolderTip =
+            "Choose where a send writes its files. Send to Blender and "
+            + "Refresh Model write the mesh and the manifest here. Each send "
+            + "makes a folder of its own, named after the document. Export "
+            + "STEP+ and Export Rig ask where to write each time";
 
         public static void Run(ISldWorks app)
         {
