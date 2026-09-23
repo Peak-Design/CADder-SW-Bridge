@@ -140,6 +140,64 @@ namespace Peak.Cadder.Tests
             Assert.Null(MateReader.SketchLift(null, null));
         }
 
+        private static List<double[]> Segment(params double[] xs)
+        {
+            var pts = new List<double[]>();
+            foreach (var x in xs) pts.Add(new[] { x, 0.0, 0.0 });
+            return pts;
+        }
+
+        private static double Length(List<double[]> chain)
+        {
+            double sum = 0;
+            for (int i = 1; i < chain.Count; i++)
+                sum += Math.Sqrt(MathOps.Distance2(chain[i - 1], chain[i]));
+            return sum;
+        }
+
+        [Fact]
+        public void ChainTurnsTheFirstSegmentWhenItsStartIsTheJoint()
+        {
+            // A runs 0 to 1, B runs 0 to -1: they meet at A's START. The
+            // chain is B reversed then A, 2 m long, with no jump back.
+            var chain = MateReader.ChainPolylines(new List<List<double[]>>
+            {
+                Segment(0.0, 0.5, 1.0),
+                Segment(0.0, -0.5, -1.0),
+            });
+            Assert.Equal(5, chain.Count);
+            Assert.Equal(2.0, Length(chain), 12);
+            Assert.Equal(1.0, Math.Abs(chain[0][0]), 12);
+            Assert.Equal(1.0, Math.Abs(chain[chain.Count - 1][0]), 12);
+        }
+
+        [Fact]
+        public void ChainGrowsAtBothEndsFromAMiddleSegment()
+        {
+            // The middle segment comes first, and one piece joins each end.
+            var chain = MateReader.ChainPolylines(new List<List<double[]>>
+            {
+                Segment(1.0, 2.0),
+                Segment(3.0, 2.0),
+                Segment(0.0, 1.0),
+            });
+            Assert.Equal(4, chain.Count);
+            Assert.Equal(3.0, Length(chain), 12);
+        }
+
+        [Fact]
+        public void ClosedLoopStartedMidPathClosesOnItself()
+        {
+            // A square of four edges, listed out of order and senses mixed.
+            var a = new List<double[]> { new[] { 0.0, 0.0, 0.0 }, new[] { 1.0, 0.0, 0.0 } };
+            var b = new List<double[]> { new[] { 1.0, 1.0, 0.0 }, new[] { 1.0, 0.0, 0.0 } };
+            var c = new List<double[]> { new[] { 0.0, 1.0, 0.0 }, new[] { 1.0, 1.0, 0.0 } };
+            var d = new List<double[]> { new[] { 0.0, 1.0, 0.0 }, new[] { 0.0, 0.0, 0.0 } };
+            var chain = MateReader.ChainPolylines(new List<List<double[]>> { b, d, a, c });
+            Assert.Equal(4.0, Length(chain), 12);
+            Assert.True(MathOps.Distance2(chain[0], chain[chain.Count - 1]) < 1e-20);
+        }
+
         [Fact]
         public void SampledArcHoldsTheChordTolerance()
         {

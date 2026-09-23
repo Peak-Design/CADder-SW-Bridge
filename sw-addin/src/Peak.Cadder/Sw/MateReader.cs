@@ -860,33 +860,55 @@ namespace Peak.Cadder.Sw
         }
 
         /// <summary>Greedy end-to-end chaining of segment polylines, reversing
-        /// segments as needed. Gaps beyond tolerance are logged and bridged:
-        /// a broken chain that follows the path approximately still beats no
-        /// path at all.</summary>
-        private static List<double[]> ChainPolylines(List<List<double[]>> segments)
+        /// segments as needed. Gaps are bridged: a broken chain that follows
+        /// the path approximately still beats no path at all.
+        ///
+        /// The chain grows at BOTH ends. Edge and sketch-segment senses are
+        /// arbitrary, and the first segment can be a middle one, so a chain
+        /// that only appended at its end jumped from the first segment's end
+        /// back across it to reach a neighbour at its start, and the
+        /// follower rode a chord that is not in the model.</summary>
+        internal static List<double[]> ChainPolylines(List<List<double[]>> segments)
         {
             var chain = new List<double[]>(segments[0]);
             var remaining = new List<List<double[]>>(segments);
             remaining.RemoveAt(0);
             while (remaining.Count > 0)
             {
-                var end = chain[chain.Count - 1];
+                var head = chain[0];
+                var tail = chain[chain.Count - 1];
                 int bestIdx = 0;
-                bool reverse = false;
+                bool atHead = false, reverse = false;
                 double best = double.MaxValue;
                 for (int i = 0; i < remaining.Count; i++)
                 {
-                    double dStart = MathOps.Distance2(end, remaining[i][0]);
-                    double dEnd = MathOps.Distance2(end, remaining[i][remaining[i].Count - 1]);
-                    if (dStart < best) { best = dStart; bestIdx = i; reverse = false; }
-                    if (dEnd < best) { best = dEnd; bestIdx = i; reverse = true; }
+                    var first = remaining[i][0];
+                    var last = remaining[i][remaining[i].Count - 1];
+                    double d;
+                    if ((d = MathOps.Distance2(tail, first)) < best)
+                    { best = d; bestIdx = i; atHead = false; reverse = false; }
+                    if ((d = MathOps.Distance2(tail, last)) < best)
+                    { best = d; bestIdx = i; atHead = false; reverse = true; }
+                    if ((d = MathOps.Distance2(head, last)) < best)
+                    { best = d; bestIdx = i; atHead = true; reverse = false; }
+                    if ((d = MathOps.Distance2(head, first)) < best)
+                    { best = d; bestIdx = i; atHead = true; reverse = true; }
                 }
                 var next = remaining[bestIdx];
                 remaining.RemoveAt(bestIdx);
                 var pts = reverse ? Reversed(next) : next;
                 // Drop the duplicated shared endpoint when the chain is tight.
-                int from = best < 1e-10 ? 1 : 0;
-                for (int i = from; i < pts.Count; i++) chain.Add(pts[i]);
+                bool tight = best < 1e-10;
+                if (atHead)
+                {
+                    int count = tight ? pts.Count - 1 : pts.Count;
+                    chain.InsertRange(0, pts.GetRange(0, count));
+                }
+                else
+                {
+                    int from = tight ? 1 : 0;
+                    for (int i = from; i < pts.Count; i++) chain.Add(pts[i]);
+                }
             }
             return chain;
         }
