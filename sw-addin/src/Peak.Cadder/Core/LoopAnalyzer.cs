@@ -685,6 +685,16 @@ namespace Peak.Cadder.Core
         ///
         /// A joint that sits in a loop is left alone. Its input is the
         /// loop's business, and the two rules would fight over it.
+        ///
+        /// The consumer turns a pair round by giving the old driver the
+        /// coupling, in place of any coupling it had. So a pair is offered
+        /// only when nothing drives its driver, and only when that driver
+        /// heads no other pair. Live corpus 06 parallelogram3: j003 follows
+        /// j001, and j005 follows j003. The pair (j003, j005) was offered
+        /// too, and taking j005 in Blender gave j003 a coupling from j005
+        /// in place of its coupling from j001, so crank one turned alone.
+        /// A gear that drives two others is the same after two switches:
+        /// the second takes the first input's coupling away.
         /// </summary>
         private static void AddCouplingMechanisms(LoopAnalysisResult result)
         {
@@ -696,7 +706,8 @@ namespace Peak.Cadder.Core
             var byId = new Dictionary<string, RigJoint>();
             foreach (var j in result.Joints) byId[j.Id] = j;
 
-            int number = result.Mechanisms.Count + 1;
+            var pairs = new List<RigJoint[]>();
+            var heads = new Dictionary<string, int>();
             foreach (var driven in result.Joints)
             {
                 var c = driven.Coupling;
@@ -708,6 +719,29 @@ namespace Peak.Cadder.Core
                 if (inLoop.Contains(driven.Id) || inLoop.Contains(driver.Id)) continue;
                 if (driven.Type == JointType.Fixed || driver.Type == JointType.Fixed) continue;
                 if (driven.Type == JointType.Free || driver.Type == JointType.Free) continue;
+                if (Driven(driver))
+                {
+                    result.Notes.Add("the coupling of " + driven.Id + " from " + driver.Id
+                        + " is not offered as a pair, " + driver.Id + " follows "
+                        + driver.Coupling.DriverJoint);
+                    continue;
+                }
+                pairs.Add(new[] { driver, driven });
+                int n;
+                heads[driver.Id] = heads.TryGetValue(driver.Id, out n) ? n + 1 : 1;
+            }
+
+            int number = result.Mechanisms.Count + 1;
+            foreach (var pair in pairs)
+            {
+                RigJoint driver = pair[0], driven = pair[1];
+                if (heads[driver.Id] > 1)
+                {
+                    result.Notes.Add("the coupling of " + driven.Id + " from " + driver.Id
+                        + " is not offered as a pair, " + driver.Id + " drives "
+                        + heads[driver.Id] + " joints");
+                    continue;
+                }
 
                 var mech = new RigMechanism();
                 mech.Id = "mech" + number.ToString(
