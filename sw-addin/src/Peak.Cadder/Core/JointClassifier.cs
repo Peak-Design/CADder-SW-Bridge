@@ -1820,10 +1820,17 @@ namespace Peak.Cadder.Core
                 string[] drivenPrefer = new[] { JointType.Revolute };
                 if (rack)
                 {
-                    // The pinion side owns the cylindrical entity; the rack is
-                    // the driven, translating side.
-                    string pinionGroup = CylinderEntityGroup(mate, grouping);
-                    if (pinionGroup != null && pinionGroup == secondGroup)
+                    // The pinion turns and drives. The rack is the driven,
+                    // translating side. SolidWorks takes a face, a datum
+                    // axis or a circular edge for the pinion, so the entity
+                    // TYPE cannot find it: with an axis the rack became the
+                    // driver, and a free rack stayed free. The reader's
+                    // order can (see RackAndPinion).
+                    GraphMateEntity rackEntity, pinionEntity;
+                    RackAndPinion(mate, out rackEntity, out pinionEntity);
+                    string pinionGroup = pinionEntity == null
+                        ? null : GroupOf(pinionEntity, grouping);
+                    if (pinionGroup != firstGroup)
                     {
                         driverGroup = secondGroup;
                         drivenGroup = firstGroup;
@@ -1987,20 +1994,8 @@ namespace Peak.Cadder.Core
             if (!mate.MetersPerRadian.HasValue) return null;
             double value = mate.MetersPerRadian.Value;
 
-            // The reader writes the rack first and the pinion second, as
-            // the mate lists them. A cylinder in the first slot means the
-            // pair arrived the other way round.
-            GraphMateEntity rackSide = null, pinion = null;
-            if (mate.Entities.Count >= 2)
-            {
-                rackSide = mate.Entities[0];
-                pinion = mate.Entities[1];
-                if (rackSide.EntityTypeName == "cylinder"
-                    && pinion.EntityTypeName != "cylinder")
-                {
-                    var swap = rackSide; rackSide = pinion; pinion = swap;
-                }
-            }
+            GraphMateEntity rackSide, pinion;
+            RackAndPinion(mate, out rackSide, out pinion);
 
             if (pinion != null && pinion.Direction != null && driver.Axis != null
                 && MathOps.Dot(driver.Axis, MathOps.Normalized(pinion.Direction)) < 0)
@@ -2158,15 +2153,32 @@ namespace Peak.Cadder.Core
             return false;
         }
 
-        private static string CylinderEntityGroup(GraphMate mate, RigidGroupingResult grouping)
+        /// <summary>
+        /// The rack and the pinion entities of a rack-pinion mate, or nulls
+        /// when it has fewer than two. The reader writes the rack first and
+        /// the pinion second, as the mate lists them (live "rack and
+        /// pinion", 2026-09-16). An entity in the first slot that reads as
+        /// a pinion (a cylinder, a cone or a circular edge) before one that
+        /// does not means the pair arrived the other way round.
+        /// </summary>
+        private static void RackAndPinion(
+            GraphMate mate, out GraphMateEntity rack, out GraphMateEntity pinion)
         {
-            foreach (var e in mate.Entities)
+            rack = null;
+            pinion = null;
+            if (mate.Entities.Count < 2) return;
+            rack = mate.Entities[0];
+            pinion = mate.Entities[1];
+            if (LooksLikeAPinion(rack) && !LooksLikeAPinion(pinion))
             {
-                if (e.EntityTypeName != "cylinder" || e.ComponentId == null) continue;
-                string g;
-                if (grouping.ComponentGroup.TryGetValue(e.ComponentId, out g)) return g;
+                var swap = rack; rack = pinion; pinion = swap;
             }
-            return null;
+        }
+
+        private static bool LooksLikeAPinion(GraphMateEntity e)
+        {
+            return e.EntityTypeName == "cylinder" || e.EntityTypeName == "cone"
+                || (e.EntityTypeName == "edge" && e.Radius > 0.0);
         }
 
         /// <summary>The joint that mounts a group to the rest of the rig:
@@ -2221,15 +2233,10 @@ namespace Peak.Cadder.Core
         {
             if (driven == null || driven.Type != JointType.Free) return;
 
-            GraphMateEntity rackSide = null;
-            foreach (var e in mate.Entities)
-            {
-                if (e.EntityTypeName == "cylinder") continue;
-                if (e.Direction == null || e.Point == null) continue;
-                rackSide = e;
-                break;
-            }
-            if (rackSide == null) return;
+            GraphMateEntity rackSide, pinion;
+            RackAndPinion(mate, out rackSide, out pinion);
+            if (rackSide == null || rackSide.Direction == null || rackSide.Point == null)
+                return;
             var axis = MathOps.Normalized(rackSide.Direction);
             if (axis == null || MathOps.Norm(axis) < 0.5) return;
 

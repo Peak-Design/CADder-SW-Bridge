@@ -193,5 +193,119 @@ namespace Peak.Cadder.Tests
                 if (Unresolved(result, name)) unresolved++;
             Assert.Equal(1, unresolved);
         }
+
+        // ── Rack and pinion ─────────────────────────────────────────────────
+
+        private static GraphMateEntity PinionEntity(string kind)
+        {
+            switch (kind)
+            {
+                case "axis":
+                    return AxisEnt("c002", Z, P(0, 0, 0));
+                case "circle":
+                    var edge = EdgeEnt("c002", Z, P(0, 0, 0));
+                    edge.Radius = 0.01;
+                    return edge;
+                default:
+                    return Cylinder("c002", Z, P(0, 0, 0), radius: 0.01);
+            }
+        }
+
+        private static MateGraph RackOnAFrame(GraphMateEntity rack, GraphMateEntity pinion)
+        {
+            var mate = Mate("RackPinionMate1", "swMateRACKPINION", rack, pinion);
+            mate.MetersPerRadian = 0.01;
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "pinion"),
+                    Comp("c003", "rack"),
+                },
+                Concentric("ConcentricPinion", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("CoincidentPinion", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("CoincidentRackSide", "c001", "c003", Y, P(0, 0.01, 0)),
+                CoincidentPlanes("CoincidentRackFace", "c001", "c003", Z, P(0, 0, 0)),
+                mate);
+        }
+
+        /// <summary>
+        /// SolidWorks takes a datum axis or a circular edge for the pinion
+        /// as well as its face. Only a cylinder was known as the pinion, so
+        /// with an axis or an edge the rack became the driver: the pinion's
+        /// hinge carried a rack coupling driven by the rack, and a free
+        /// rack stayed free. The reader lists the rack first.
+        /// </summary>
+        [Theory]
+        [InlineData("cylinder")]
+        [InlineData("axis")]
+        [InlineData("circle")]
+        public void ThePinionDrivesTheRackWhateverPicksIt(string pinionKind)
+        {
+            var graph = RackOnAFrame(
+                EdgeEnt("c003", X, P(0, 0.01, 0)), PinionEntity(pinionKind));
+
+            var result = Run(graph);
+
+            var pinion = ByChild(result, graph, "c002");
+            var rack = ByChild(result, graph, "c003");
+            Assert.Equal(JointType.Revolute, pinion.Type);
+            Assert.Equal(JointType.Prismatic, rack.Type);
+            Assert.Null(pinion.Coupling);
+            Assert.NotNull(rack.Coupling);
+            Assert.Equal("rack_pinion", rack.Coupling.Kind);
+            Assert.Equal(pinion.Id, rack.Coupling.DriverJoint);
+        }
+
+        /// <summary>A rack held by nothing but a parallel mate gets its
+        /// slide from the rack-pinion mate, also when a datum axis picks the
+        /// pinion.</summary>
+        [Fact]
+        public void AFreeRackOnAnAxisPickedPinionSlides()
+        {
+            var mate = Mate("RackPinionMate1", "swMateRACKPINION",
+                EdgeEnt("c003", X, P(0, 0.01, 0)), AxisEnt("c002", Z, P(0, 0, 0)));
+            mate.MetersPerRadian = 0.01;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "pinion"),
+                    Comp("c003", "rack"),
+                },
+                Concentric("ConcentricPinion", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("CoincidentPinion", "c001", "c002", Z, P(0, 0, 0)),
+                ParallelPlanes("ParallelRack", "c001", "c003", Z, P(0, 0, 0)),
+                mate);
+
+            var result = Run(graph);
+
+            var pinion = ByChild(result, graph, "c002");
+            var rack = ByChild(result, graph, "c003");
+            Assert.Equal(JointType.Prismatic, rack.Type);
+            Assert.Equal(1.0, System.Math.Abs(rack.Axis[0]), 9);
+            Assert.NotNull(rack.Coupling);
+            Assert.Equal(pinion.Id, rack.Coupling.DriverJoint);
+            Assert.DoesNotContain(result.Warnings,
+                w => w.Code == "UNDER_DEFINED" && w.Joints.Contains(rack.Id));
+        }
+
+        /// <summary>A pinion picked by a face or a circular edge in the
+        /// first slot means the pair came the other way round.</summary>
+        [Theory]
+        [InlineData("cylinder")]
+        [InlineData("circle")]
+        public void APinionListedFirstStillDrives(string pinionKind)
+        {
+            var graph = RackOnAFrame(
+                PinionEntity(pinionKind), EdgeEnt("c003", X, P(0, 0.01, 0)));
+
+            var result = Run(graph);
+
+            var pinion = ByChild(result, graph, "c002");
+            var rack = ByChild(result, graph, "c003");
+            Assert.NotNull(rack.Coupling);
+            Assert.Equal(pinion.Id, rack.Coupling.DriverJoint);
+        }
     }
 }
