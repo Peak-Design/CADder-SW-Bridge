@@ -75,6 +75,57 @@ namespace Peak.Cadder.Tests
         }
 
         /// <summary>
+        /// A two-link arm in a flexible subassembly: the first link turns on
+        /// the fixed base about Z at the origin, and the second on the first
+        /// at x = 0.1 in the document. The instance has the first link turned
+        /// a quarter turn, carrying the second with it. The elbow is then at
+        /// y = 0.1, not at x = 0.1 where the document's mates put it, and
+        /// the shoulder, on the part that did not move, stays where it is
+        /// (live 2026-09-23: a four-bar posed flexible had its coupler pins
+        /// 58 and 29 mm off).
+        /// </summary>
+        [Fact]
+        public void AJointOnAFlexedLinkIsWhereTheLinkIs()
+        {
+            var sub = Comp("c000", "arm", isFixed: true);
+            sub.Solving = "flexible";
+            var fixedBase = Comp("c001", "base");
+            fixedBase.ParentId = "c000";
+            fixedBase.FixedInSubassembly = true;
+            var upper = Comp("c002", "upper");
+            upper.ParentId = "c000";
+            upper.MatePoseDelta = RotationAboutZThrough(Math.PI / 2.0, 0.0, 0.0);
+            var lower = Comp("c003", "lower");
+            lower.ParentId = "c000";
+            lower.MatePoseDelta = RotationAboutZThrough(Math.PI / 2.0, 0.0, 0.0);
+
+            var graph = Graph(
+                new[] { sub, fixedBase, upper, lower },
+                Concentric("Concentric1", "c001", "c002", Z, P(0, 0, 0.01)),
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0.01)),
+                Concentric("Concentric2", "c002", "c003", Z, P(0.1, 0, 0.02)),
+                CoincidentPlanes("Coincident2", "c002", "c003", Z, P(0.1, 0, 0.02)));
+
+            var grouping = RigidGrouper.Group(graph);
+            var result = JointClassifier.Classify(graph, grouping);
+
+            Assert.Equal(2, result.Joints.Count);
+            RigJoint shoulder = null, elbow = null;
+            foreach (var j in result.Joints)
+            {
+                if (j.ChildGroup == grouping.ComponentGroup["c002"]) shoulder = j;
+                if (j.ChildGroup == grouping.ComponentGroup["c003"]) elbow = j;
+            }
+            Assert.NotNull(shoulder);
+            Assert.NotNull(elbow);
+            Assert.Equal(0.0, shoulder.Origin[0], 9);
+            Assert.Equal(0.0, shoulder.Origin[1], 9);
+            Assert.Equal(0.0, elbow.Origin[0], 9);
+            Assert.Equal(0.1, elbow.Origin[1], 9);
+            Assert.Equal(1.0, Math.Abs(elbow.Axis[2]), 9);
+        }
+
+        /// <summary>
         /// The flexible hinge of live corpus 07, with its leaf flexed 45
         /// degrees from the document pose, and an angle limit written in the
         /// TOP assembly between the leaf and the baseplate. The reader lifts

@@ -365,6 +365,79 @@ namespace Peak.Cadder.Core
             List<ManifestWarning> warnings, ref int nextId,
             ILimitSignOracle signOracle)
         {
+            var joint = ClassifyEdgeAtMatePose(
+                edge, grouping, groupBoxes, groupAnchors, poseDeltas, components,
+                warnings, ref nextId, signOracle);
+            if (joint != null)
+                MoveToInstancePose(joint, edge, grouping, poseDeltas, components);
+            return joint;
+        }
+
+        /// <summary>
+        /// Moves a joint made from a flexible subassembly's own mates onto
+        /// the instance's pose. Those mates describe the pose of the
+        /// subassembly's DOCUMENT, and a flexible instance can be posed away
+        /// from it (live 2026-09-23: a four-bar placed flexible, with its
+        /// crank turned 151 degrees, exported the two pins of the coupler 58
+        /// and 29 mm from the pins). The joint is on its parent side, so the
+        /// parent's pose delta carries it. A pin is on both sides, and the
+        /// child's delta puts it at the same place. The limits are already
+        /// corrected for the flexed pose (CorrectLimitsForFlexedPose), and a
+        /// limited ball's cone axes are already carried (BallConeAxes). A
+        /// joint that a top-level mate takes part in is read at the instance
+        /// pose, and does not move.
+        /// </summary>
+        private static void MoveToInstancePose(
+            RigJoint joint, GroupEdge edge, RigidGroupingResult grouping,
+            Dictionary<string, double[,]> poseDeltas,
+            Dictionary<string, GraphComponent> components)
+        {
+            if (poseDeltas.Count == 0 || edge.Mates.Count == 0) return;
+            double[,] delta = null;
+            foreach (var m in edge.Mates)
+            {
+                if (DeltasFor(m, poseDeltas, components).Count == 0) return;
+                foreach (var e in m.Entities)
+                {
+                    if (delta != null) break;
+                    if (SideOf(e, joint, grouping) != joint.ParentGroup) continue;
+                    delta = DeltaOf(e.ComponentId, poseDeltas);
+                }
+            }
+            if (delta == null) return;
+
+            if (joint.Origin != null)
+                joint.Origin = MathOps.Threshold(MathOps.TransformPoint(delta, joint.Origin), 1e-11);
+            bool coneCarried = joint.Type == JointType.Ball && joint.RotationLimit != null;
+            if (!coneCarried)
+            {
+                if (joint.Axis != null)
+                    joint.Axis = MathOps.Threshold(
+                        MathOps.Normalized(MathOps.RotateVector(delta, joint.Axis)), 1e-11);
+                if (joint.SecondaryAxis != null)
+                    joint.SecondaryAxis = MathOps.Threshold(
+                        MathOps.Normalized(MathOps.RotateVector(delta, joint.SecondaryAxis)), 1e-11);
+            }
+            if (joint.ResidualRotDir != null)
+                joint.ResidualRotDir = MathOps.Normalized(
+                    MathOps.RotateVector(delta, joint.ResidualRotDir));
+            if (joint.PathPoints != null)
+                for (int i = 0; i < joint.PathPoints.Length; i++)
+                    joint.PathPoints[i] = MathOps.TransformPoint(delta, joint.PathPoints[i]);
+            if (joint.SurfacePoints != null)
+                for (int i = 0; i < joint.SurfacePoints.Length; i++)
+                    joint.SurfacePoints[i] = MathOps.TransformPoint(delta, joint.SurfacePoints[i]);
+        }
+
+        private static RigJoint ClassifyEdgeAtMatePose(
+            GroupEdge edge, RigidGroupingResult grouping,
+            Dictionary<string, double[][]> groupBoxes,
+            Dictionary<string, double[]> groupAnchors,
+            Dictionary<string, double[,]> poseDeltas,
+            Dictionary<string, GraphComponent> components,
+            List<ManifestWarning> warnings, ref int nextId,
+            ILimitSignOracle signOracle)
+        {
             var constraints = new List<GraphMate>();
             var limits = new List<GraphMate>();
             var camMates = new List<GraphMate>();
