@@ -140,7 +140,9 @@ namespace Peak.Cadder.Core
             var tree0 = new HashSet<string>();
             Bfs(groups.Count, adjacency, groupIndex, roots, null, tree0);
             var tree = new HashSet<string>(tree0);
-            var loops = SelectLoops(groups, usable, adjacency, groupIndex, roots, seedDrivers, tree);
+            var mechanismOf = CycleMechanisms(groups.Count, usable, adjacency, groupIndex, roots, tree0);
+            var loops = SelectLoops(groups, usable, adjacency, groupIndex, roots, seedDrivers, tree,
+                                    mechanismOf);
             if (explore)
             {
                 // The configuration with the FEWEST controls wins. A loop
@@ -168,7 +170,6 @@ namespace Peak.Cadder.Core
                 foreach (var lp in loops)
                     foreach (var c in lp.DriverCandidates)
                         if (!inputs.Contains(c.DriverJoint)) inputs.Add(c.DriverJoint);
-                var mechanismOf = MechanismOf(loops);
                 int best = Controls(loops).Count;
                 var seeds = new HashSet<string>();
                 foreach (var alt in inputs)
@@ -178,7 +179,7 @@ namespace Peak.Cadder.Core
                         if (!SameMechanism(mechanismOf, s, alt)) trial.Add(s);
                     var altTree = new HashSet<string>(tree0);
                     var altLoops = SelectLoops(groups, usable, adjacency, groupIndex, roots,
-                                               trial, altTree);
+                                               trial, altTree, mechanismOf);
                     int n = Controls(altLoops).Count;
                     if (n < best)
                     {
@@ -258,11 +259,12 @@ namespace Peak.Cadder.Core
         /// ring read off the tree as it stands, its driver and cut chosen,
         /// the cut swapped into the tree. <paramref name="tree"/> comes in
         /// as the spanning tree to start from and goes out as the final
-        /// one.</summary>
+        /// one. <paramref name="mechanismOf"/> is from CycleMechanisms,
+        /// for DrivenHere.</summary>
         private static List<RigLoop> SelectLoops(
             IList<RigidGroup> groups, List<RigJoint> usable, List<RigJoint>[] adjacency,
             Dictionary<string, int> groupIndex, List<int> roots, ISet<string> seedDrivers,
-            HashSet<string> tree)
+            HashSet<string> tree, Dictionary<string, string> mechanismOf)
         {
             var loops = new List<RigLoop>();
             Walk walk = null;
@@ -401,7 +403,8 @@ namespace Peak.Cadder.Core
                     // hung off ground as siblings, so driving the lead screw
                     // left the cutting head behind.
                     if (PreferFirst(ring.Edges[0], ring.Edges[n - 1],
-                                    ring.Edges[n - 1], ring.Edges[0], chosenDrivers, seed))
+                                    ring.Edges[n - 1], ring.Edges[0], chosenDrivers, seed,
+                                    mechanismOf: mechanismOf))
                     {
                         driver = ring.Edges[0];
                         cut = ring.Edges[n - 1];
@@ -447,7 +450,8 @@ namespace Peak.Cadder.Core
                     if (ReferenceEquals(first, redundant)) driver = last;
                     else if (ReferenceEquals(last, redundant)) driver = first;
                     else driver = PreferFirst(first, ring.Edges[1], last, ring.Edges[n - 2],
-                                              chosenDrivers, seed) ? first : last;
+                                              chosenDrivers, seed, mechanismOf: mechanismOf)
+                        ? first : last;
                     holdsNothing = true;
                     // A weld drives nothing, so it cannot be the ring's
                     // input. Nothing of an open ring is solved, so any
@@ -464,7 +468,8 @@ namespace Peak.Cadder.Core
                          // ... unless a coupling writes the slide: a cam's
                          // follower cannot drive the cam (live cam-follower,
                          // 2026-09-15), so the choice below decides.
-                         && !Driven(IsSlide(ring.Edges[0]) ? ring.Edges[0] : ring.Edges[n - 1]))
+                         && !DrivenHere(IsSlide(ring.Edges[0]) ? ring.Edges[0] : ring.Edges[n - 1],
+                                        mechanismOf))
                 {
                     // ONE anchor edge is a slide that could not be aimed (its
                     // ground half hangs off nothing). It drives: the ring's
@@ -487,7 +492,7 @@ namespace Peak.Cadder.Core
                 }
                 else if (PreferFirst(ring.Edges[0], ring.Edges[1],
                                      ring.Edges[n - 1], ring.Edges[n - 2], chosenDrivers, seed,
-                                     CrankEnd(ring)))
+                                     CrankEnd(ring), mechanismOf))
                 {
                     driver = ring.Edges[0];
                     cut = ring.Edges[1];
@@ -1424,11 +1429,32 @@ namespace Peak.Cadder.Core
             return controls;
         }
 
-        /// <summary>For every joint the loops name, as a member or as a
-        /// candidate, one joint that stands for its mechanism. Loops that
-        /// share a joint are one mechanism, as ComputeMechanisms groups
-        /// them.</summary>
-        private static Dictionary<string, string> MechanismOf(List<RigLoop> loops)
+        /// <summary>For every joint on a cycle of the joint graph, one joint
+        /// that stands for its mechanism. The cycles are the rings of one
+        /// spanning tree's non-tree edges, and rings that share a joint are
+        /// one mechanism, as ComputeMechanisms groups loops. A joint on no
+        /// cycle has no mechanism.</summary>
+        private static Dictionary<string, string> CycleMechanisms(
+            int groupCount, List<RigJoint> usable, List<RigJoint>[] adjacency,
+            Dictionary<string, int> groupIndex, List<int> roots, HashSet<string> tree)
+        {
+            var walk = Bfs(groupCount, adjacency, groupIndex, roots, tree, null);
+            var rings = new List<List<string>>();
+            foreach (var j in usable)
+            {
+                if (tree.Contains(j.Id)) continue;
+                var ring = CycleRing(j, walk, groupIndex);
+                if (ring == null) continue;
+                var ids = new List<string>();
+                foreach (var e in ring.Edges) ids.Add(e.Id);
+                rings.Add(ids);
+            }
+            return MechanismOf(rings);
+        }
+
+        /// <summary>For every id in the sets, one id that stands for all the
+        /// sets it is joined to through shared ids.</summary>
+        private static Dictionary<string, string> MechanismOf(List<List<string>> sets)
         {
             var parent = new Dictionary<string, string>();
             Func<string, string> find = null;
@@ -1441,14 +1467,8 @@ namespace Peak.Cadder.Core
                 parent[x] = p;
                 return p;
             };
-            foreach (var lp in loops)
+            foreach (var ids in sets)
             {
-                var ids = new List<string>(lp.MemberJoints);
-                foreach (var c in lp.DriverCandidates)
-                {
-                    ids.Add(c.DriverJoint);
-                    ids.Add(c.ClosureJoint);
-                }
                 string first = null;
                 foreach (string id in ids)
                 {
@@ -1497,6 +1517,13 @@ namespace Peak.Cadder.Core
         /// relation probe run after the inputs were chosen, so this is a
         /// pass of its own. The chosen configuration (the first input) is
         /// left as it is, with a note: the rig is built from it.
+        ///
+        /// A chosen input that a gear or linear coupling writes from ANOTHER
+        /// mechanism is the input all the same (see DrivenHere): the
+        /// mechanism follows that coupling. It then offers no other input.
+        /// Taken, another input would put the coupled joint in the solved
+        /// chain, where the coupling does nothing (two mirrored four-bars:
+        /// the rocker of the second, taken, left it still).
         /// </summary>
         public static void PruneDrivenInputs(LoopAnalysisResult loops)
         {
@@ -1506,6 +1533,19 @@ namespace Peak.Cadder.Core
                 // it turns the coupling round rather than posing a channel
                 // something else writes (AddCouplingMechanisms).
                 if (mech.CouplingPair) continue;
+                var chosen = mech.Inputs.Count == 0 ? null
+                    : loops.Joints.Find(j => j.Id == mech.Inputs[0].Joint);
+                if (chosen != null && FollowsAnotherMechanism(loops, mech, chosen))
+                {
+                    for (int k = mech.Inputs.Count - 1; k >= 1; k--)
+                    {
+                        loops.Notes.Add(mech.Id + ": input " + mech.Inputs[k].Joint
+                            + " dropped, the mechanism follows " + chosen.Coupling.DriverJoint
+                            + " through the " + chosen.Coupling.Kind + " coupling on " + chosen.Id);
+                        mech.Inputs.RemoveAt(k);
+                    }
+                    continue;
+                }
                 for (int k = mech.Inputs.Count - 1; k >= 0; k--)
                 {
                     var joint = loops.Joints.Find(j => j.Id == mech.Inputs[k].Joint);
@@ -1524,6 +1564,23 @@ namespace Peak.Cadder.Core
                     mech.Inputs.RemoveAt(k);
                 }
             }
+        }
+
+        /// <summary>Whether a gear or linear coupling writes `joint` from a
+        /// joint that no loop of `mech` holds, in any of its options.</summary>
+        private static bool FollowsAnotherMechanism(
+            LoopAnalysisResult loops, RigMechanism mech, RigJoint joint)
+        {
+            if (!Driven(joint)) return false;
+            if (joint.Coupling.Kind != "gear" && joint.Coupling.Kind != "linear_coupler")
+                return false;
+            string driver = joint.Coupling.DriverJoint;
+            foreach (var lp in loops.Loops)
+                if (mech.LoopIds.Contains(lp.Id) && lp.MemberJoints.Contains(driver)) return false;
+            foreach (var option in mech.Inputs)
+                foreach (var lp in option.Loops)
+                    if (lp.MemberJoints.Contains(driver)) return false;
+            return true;
         }
 
         private static bool NamesAnOption(RigMechanism mech, string joint)
@@ -1890,9 +1947,32 @@ namespace Peak.Cadder.Core
             return j.Coupling != null && !string.IsNullOrEmpty(j.Coupling.DriverJoint);
         }
 
+        /// <summary>
+        /// Whether a coupling writes this joint in a way that keeps it from
+        /// driving its loop: a shape (a cam, a table, a mirror), or a ratio
+        /// from a joint of the same mechanism. A gear or linear coupling
+        /// from ANOTHER mechanism does not: its driver is posed or solved
+        /// elsewhere, the coupling sets this joint from it, and the loop is
+        /// then solved from this joint, as from any driver.
+        ///
+        /// Two mirrored loops are coupled that way (SymmetricCoupler), and
+        /// ExportCommand analyzes the loops again once a coupling has a
+        /// driver. Read as driven, the second loop's coupled crank lost the
+        /// loop to the other anchor pin. It then sat in the solved chain,
+        /// where the loop sets it and the coupling does nothing, and the
+        /// second of two mirrored four-bars stood still.
+        /// </summary>
+        private static bool DrivenHere(RigJoint j, Dictionary<string, string> mechanismOf)
+        {
+            if (!Driven(j)) return false;
+            if (j.Coupling.Kind != "gear" && j.Coupling.Kind != "linear_coupler") return true;
+            return mechanismOf == null || SameMechanism(mechanismOf, j.Id, j.Coupling.DriverJoint);
+        }
+
         private static bool PreferFirst(
             RigJoint driverA, RigJoint cutA, RigJoint driverB, RigJoint cutB,
-            HashSet<string> chosen = null, HashSet<string> seed = null, int crank = 0)
+            HashSet<string> chosen = null, HashSet<string> seed = null, int crank = 0,
+            Dictionary<string, string> mechanismOf = null)
         {
             // The input asked for outranks everything: see Choose's seed.
             if (seed != null)
@@ -1913,9 +1993,10 @@ namespace Peak.Cadder.Core
             // anchor, live weldingrobot.sldasm 2026-09-15). Nor can a joint
             // a coupling writes: pushing a cam's follower never turns the
             // cam (live cam-follower, 2026-09-15: the lifter's slide was
-            // chosen over the cam's hinge and the rig would not move).
-            bool fa = driverA.Type == JointType.Fixed || Driven(driverA);
-            bool fb = driverB.Type == JointType.Fixed || Driven(driverB);
+            // chosen over the cam's hinge and the rig would not move). A
+            // ratio from another mechanism is no reason (see DrivenHere).
+            bool fa = driverA.Type == JointType.Fixed || DrivenHere(driverA, mechanismOf);
+            bool fb = driverB.Type == JointType.Fixed || DrivenHere(driverB, mechanismOf);
             if (fa != fb) return !fa;
             bool la = HasLimits(driverA), lb = HasLimits(driverB);
             if (la != lb) return la;

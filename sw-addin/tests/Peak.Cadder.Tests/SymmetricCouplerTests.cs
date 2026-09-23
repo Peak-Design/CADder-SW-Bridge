@@ -566,6 +566,15 @@ namespace Peak.Cadder.Tests
             Assert.Equal("j001", c.DriverJoint);
             Assert.Equal(-1.0, c.Ratio ?? 0.0, 9);
             Assert.Contains(byId["j002"].SourceMates, s => s.SwFeature == "Symmetric54");
+
+            // ExportCommand analyzes the loops again once a coupling has a
+            // driver, and each clamp hinge must still drive its own loop.
+            var again = LoopAnalyzer.Analyze(groups, loops.Joints);
+            var drivers = new List<string>();
+            foreach (var lp in again.Loops) drivers.Add(lp.SuggestedDriverJoint);
+            drivers.Sort(System.StringComparer.Ordinal);
+            Assert.Equal(new[] { "j001", "j002" }, drivers);
+            Assert.Equal("j001", byId["j002"].Coupling.DriverJoint);
         }
 
         /// <summary>Two loops that are not mirror images joint for joint
