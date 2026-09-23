@@ -65,9 +65,23 @@ namespace Peak.Cadder.Sw
             double totalSeconds = 0.0, slowest = 0.0;
             int totalTriangles = 0;
 
+            var filter = PathFilter.For(keepPaths);
+            var shown = new Dictionary<WalkedComponent, bool>();
+            Func<WalkedComponent, bool> visible = p =>
+            {
+                bool drawn;
+                if (!shown.TryGetValue(p, out drawn)) shown[p] = drawn = IsVisible(p.Comp);
+                return drawn;
+            };
+
             int placed = 0;
             foreach (var w in walked)
             {
+                // Tessellation is most of the cost of a direct send and it
+                // only reads the model, so it can stop between any two
+                // components. The bar recorded an Escape here and nothing
+                // read it: the send ran to the end and went to Blender.
+                progress.StopIfCancelled();
                 progress.Step(placed++);
                 if (w == null || w.Comp == null) continue;
                 // A subassembly is a branch of the tree whether or not its
@@ -82,10 +96,11 @@ namespace Peak.Cadder.Sw
                 // SUBASSEMBLY's component id, so the id alone cannot say
                 // which: asking for one part re-tessellated the 78 parts of
                 // the branch it sits on (Conveyor12k-A00, Oscar, 2026-09-17).
-                bool wholeBranch = keepPaths == null
-                    || (w.Graph != null && keepPaths.Contains(w.Graph.Path));
-                if (!wholeBranch && (w.Graph == null
-                        || !Beneath(keepPaths, w.Graph.Path)))
+                // See PathFilter for why a path in the set does not always
+                // bring its whole branch.
+                bool wholeBranch = filter == null
+                    || (w.Graph != null && filter.Wants(w.Graph.Path));
+                if (!wholeBranch && (w.Graph == null || !filter.KeepsBelow(w.Graph.Path)))
                     continue;
                 // A FLEXIBLE subassembly's children are walked in their own
                 // right and become their own instances; the node itself is
@@ -95,7 +110,7 @@ namespace Peak.Cadder.Sw
                 // were already being skipped underneath; a hidden component at
                 // this level was not, so it paid full tessellation to arrive
                 // in Blender as something SolidWorks does not draw.
-                if (!IsVisible(w.Comp)) continue;
+                if (!visible(w) || HiddenAbove(w, visible)) continue;
                 // Suppressed has no geometry to read. The walker keeps such
                 // a component for the manifest, and each one wrote its own
                 // "no geometry" line here: 69 of the 71 in one send (live
@@ -104,7 +119,7 @@ namespace Peak.Cadder.Sw
 
                 foreach (var leaf in Leaves(w, nodes, log))
                 {
-                    if (!wholeBranch && !keepPaths.Contains(leaf.Path)) continue;
+                    if (!wholeBranch && !filter.Wants(leaf.Path)) continue;
                     // The occurrence's assembly-level appearance is part of
                     // what the triangles carry, so it is part of the key.
                     // Two occurrences of one document share one mesh, which
@@ -183,6 +198,9 @@ namespace Peak.Cadder.Sw
                 }
             }
 
+            // An Escape during the last component is read here, before the
+            // scene is written and sent.
+            progress.StopIfCancelled();
             WriteNodes(scene, nodes);
             scene.Tolerance = coarsest;
             if (log != null)
@@ -195,20 +213,85 @@ namespace Peak.Cadder.Sw
             return scene;
         }
 
-        /// <summary>One part occurrence: the live component, what to call it,
-        /// where it sits in the tree, and where it sits in the world.</summary>
-        /// <summary>Whether any wanted path sits under this one.</summary>
-        private static bool Beneath(HashSet<string> paths, string branch)
+        /// <summary>
+        /// Which placements a keep set asks for.
+        ///
+        /// A keep set from Selection.KeepSet holds the picked components,
+        /// everything under each of them, and every ANCESTOR of each, which
+        /// the STEP route needs to keep a pick visible. An ancestor is in
+        /// the set for that reason only, so a path in the set brings its
+        /// whole branch only when nothing below it is in the set too.
+        /// Before, a pick of one part inside a rigid subassembly matched the
+        /// subassembly itself as an ancestor, and all of its parts were
+        /// tessellated and sent. The STEP route of the same export sent the
+        /// one part. A path that names a branch with nothing below it, as a
+        /// Retessellate request does, still brings the whole branch.
+        /// </summary>
+        internal sealed class PathFilter
         {
-            if (paths == null || string.IsNullOrEmpty(branch)) return false;
-            string prefix = branch + "/";
-            foreach (var path in paths)
-                if (path != null
-                        && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    return true;
+            private readonly HashSet<string> _keep;
+
+            /// <summary>Every branch that something in the set lies under.
+            /// </summary>
+            private readonly HashSet<string> _above =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            private PathFilter(HashSet<string> keep)
+            {
+                _keep = keep;
+                foreach (var path in keep)
+                    for (string p = Parent(path); p != null; p = Parent(p))
+                        if (!_above.Add(p)) break;
+            }
+
+            /// <summary>Null for no keep set, which keeps everything.</summary>
+            public static PathFilter For(HashSet<string> keep)
+            {
+                return keep == null ? null : new PathFilter(keep);
+            }
+
+            /// <summary>Whether this placement travels whole: it, or a
+            /// branch above it, is in the set with nothing of its own below
+            /// it in the set.</summary>
+            public bool Wants(string path)
+            {
+                for (string p = path; p != null; p = Parent(p))
+                    if (_keep.Contains(p) && !_above.Contains(p)) return true;
+                return false;
+            }
+
+            /// <summary>Whether something below this branch is kept.</summary>
+            public bool KeepsBelow(string branch)
+            {
+                return branch != null && _above.Contains(branch);
+            }
+
+            private static string Parent(string path)
+            {
+                if (string.IsNullOrEmpty(path)) return null;
+                int slash = path.LastIndexOf('/');
+                return slash > 0 ? path.Substring(0, slash) : null;
+            }
+        }
+
+        /// <summary>
+        /// Whether a walked component sits under a walked subassembly that
+        /// SolidWorks does not draw. The walk goes into every flexible
+        /// subassembly, hidden or not, and SolidWorks leaves out the whole
+        /// branch below a hidden node while its children still report
+        /// themselves visible (Selection). So the parts of a hidden flexible
+        /// subassembly were tessellated and placed in Blender, where the
+        /// STEP route leaves them out.
+        /// </summary>
+        internal static bool HiddenAbove(WalkedComponent w, Func<WalkedComponent, bool> visible)
+        {
+            for (var p = w == null ? null : w.Parent; p != null; p = p.Parent)
+                if (!visible(p)) return true;
             return false;
         }
 
+        /// <summary>One part occurrence: the live component, what to call it,
+        /// where it sits in the tree, and where it sits in the world.</summary>
         private sealed class Leaf
         {
             public IComponent2 Comp;
