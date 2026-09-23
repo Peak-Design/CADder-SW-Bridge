@@ -110,6 +110,48 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void ACopyKeepsTheBodiesOfEveryRepresentation()
+        {
+            // A part with a surface body and a solid body carries them in
+            // two representations, behind two relationships. The surface
+            // one has the lower id. The part is used twice with two colours,
+            // so one use gets a copy.
+            var f = new AppearanceStepFixture();
+            int asm = f.Product("asm");
+            int part = f.Product("shell_and_solid");
+            var surface = f.Bodies(part, "MANIFOLD_SURFACE_SHAPE_REPRESENTATION", "SHELL_BASED_SURFACE_MODEL");
+            var solid = f.Bodies(part, "ADVANCED_BREP_SHAPE_REPRESENTATION", "MANIFOLD_SOLID_BREP");
+            f.Style(surface[0], 0.5, 0.5, 0.5);
+            f.Style(solid[0], 0.5, 0.5, 0.5);
+            int n1 = f.Use(asm, part, 0, 0, 0);
+            int n2 = f.Use(asm, part, 10, 0, 0);
+            string path = f.Write(_tempFiles);
+
+            var rw = new StepRewriter(path, null);
+            var occs = rw.FindOccurrences();
+            rw.ApplyOccurrenceColours(
+                new List<KeyValuePair<OccurrenceAppearance, StepRewriter.OccurrenceRef>>
+                {
+                    Pair(Leaf("part-1", new Rgb(1, 0, 0)), occs.Single(o => o.NauoId == n1)),
+                    Pair(Leaf("part-2", new Rgb(0, 1, 0)), occs.Single(o => o.NauoId == n2)),
+                }, deInstance: true);
+            rw.Save(path);
+
+            var back = new StepRewriter(path, null);
+            var leaves = back.FindOccurrences();
+            var pd1 = leaves.Single(o => o.NauoId == n1);
+            var pd2 = leaves.Single(o => o.NauoId == n2);
+            Assert.NotEqual(pd1.ChildPd, pd2.ChildPd);
+            foreach (var leaf in new[] { pd1, pd2 })
+            {
+                var types = leaf.TargetItems.Select(back.Document.TypeOf).OrderBy(t => t).ToList();
+                Assert.Equal(new[] { "MANIFOLD_SOLID_BREP", "SHELL_BASED_SURFACE_MODEL" }, types);
+            }
+            Assert.Equal(new[] { "0,1,0" }, AppearanceStepFixture.ColoursOn(back.Document,
+                pd2.TargetItems.Single(i => back.Document.TypeOf(i) == "MANIFOLD_SOLID_BREP")));
+        }
+
+        [Fact]
         public void AnOverrideWithTheSameTransparencyIsWrittenInPlace()
         {
             // The chain already holds the transparency, so the colour is

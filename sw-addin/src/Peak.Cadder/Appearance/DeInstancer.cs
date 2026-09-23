@@ -145,21 +145,32 @@ namespace Peak.Cadder.Appearance
                            .FirstOrDefault(r => _step.TypeOf(r) == "SHAPE_REPRESENTATION");
             if (partSr == 0) { _log?.Invoke($"    NAUO #{occ.NauoId}: no part shape_representation"); return null; }
 
-            // shape_representation_relationship joins the SR of the part to
-            // its B-rep.
-            int srr = _step.ByType("SHAPE_REPRESENTATION_RELATIONSHIP")
-                           .FirstOrDefault(s => _step.Refs(s).Contains(partSr));
-            int absr = srr == 0 ? 0 : _step.Refs(srr).FirstOrDefault(
-                           r => _step.TypeOf(r) == "ADVANCED_BREP_SHAPE_REPRESENTATION"
-                             || _step.TypeOf(r) == "MANIFOLD_SURFACE_SHAPE_REPRESENTATION");
-
             // The product chain runs product_definition, formation, product.
             var chain = new List<int> { partPd, pds, sdr, partSr };
-            if (srr != 0) chain.Add(srr);
-            if (absr != 0) chain.Add(absr);
-
             var roots = new List<int> { partSr };
-            if (absr != 0) roots.Add(absr);
+
+            // shape_representation_relationship joins the SR of the part to
+            // its B-rep. A part can have more than one. An
+            // ADVANCED_BREP_SHAPE_REPRESENTATION cannot hold a surface body,
+            // so a part with solid and surface bodies needs a
+            // MANIFOLD_SURFACE_SHAPE_REPRESENTATION too, behind its own
+            // relationship. The copy takes every one, as ResolvePartTarget
+            // and PartGeometryOf read every one. A copy of the first one only
+            // lost the other bodies with no message, because the copy still
+            // had a solid.
+            foreach (var srr in _step.ByType("SHAPE_REPRESENTATION_RELATIONSHIP"))
+            {
+                var linked = _step.Refs(srr);
+                if (!linked.Contains(partSr)) continue;
+                chain.Add(srr);
+                foreach (var rep in linked)
+                {
+                    if (rep == partSr || !_step.Entities.ContainsKey(rep)) continue;
+                    chain.Add(rep);
+                    roots.Add(rep);
+                }
+            }
+
             var toClone = Closure(roots);
             foreach (var c in chain) if (!IsShared(_step.TypeOf(c))) toClone.Add(c);
             // Closure already collects the formation and the product below
