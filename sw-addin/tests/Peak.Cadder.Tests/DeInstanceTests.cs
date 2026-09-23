@@ -152,6 +152,37 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void AnUnmatchedUseKeepsTheSolidWorksColour()
+        {
+            // p-1 is matched and red. p-2 is not matched, so the log says it
+            // keeps the SolidWorks colour. It still uses the original part
+            // in the file, so the red must go on a copy.
+            var f = new AppearanceStepFixture();
+            int asm = f.Product("asm");
+            int part = f.ColouredPart("p", 0.5, 0.5, 0.5);
+            int n1 = f.Use(asm, part, 0, 0, 0);
+            int n2 = f.Use(asm, part, 10, 0, 0);
+            string path = f.Write(_tempFiles);
+
+            var rw = new StepRewriter(path, null);
+            var occs = rw.FindOccurrences();
+            rw.ApplyOccurrenceColours(
+                new List<KeyValuePair<OccurrenceAppearance, StepRewriter.OccurrenceRef>>
+                {
+                    Pair(Leaf("p-1", new Rgb(1, 0, 0)), occs.Single(o => o.NauoId == n1)),
+                    Pair(Leaf("p-2", null), null),
+                }, deInstance: true);
+            rw.Save(path);
+
+            var back = new StepRewriter(path, null);
+            var leaves = back.FindOccurrences();
+            var p1 = leaves.Single(o => o.NauoId == n1);
+            var p2 = leaves.Single(o => o.NauoId == n2);
+            Assert.Equal(new[] { "1,0,0" }, AppearanceStepFixture.ColoursOn(back.Document, p1.TargetItems[0]));
+            Assert.Equal(new[] { "0.5,0.5,0.5" }, AppearanceStepFixture.ColoursOn(back.Document, p2.TargetItems[0]));
+        }
+
+        [Fact]
         public void AnOverrideWithTheSameTransparencyIsWrittenInPlace()
         {
             // The chain already holds the transparency, so the colour is

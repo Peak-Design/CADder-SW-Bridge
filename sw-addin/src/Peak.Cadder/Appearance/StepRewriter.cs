@@ -425,6 +425,18 @@ namespace Peak.Cadder.Appearance
 
             var di = new DeInstancer(_step, _log);
 
+            // Every occurrence entity in the file that uses each part,
+            // matched or not.
+            var usesOfPart = new Dictionary<int, List<int>>();
+            foreach (var nauo in _step.ByType("NEXT_ASSEMBLY_USAGE_OCCURRENCE"))
+            {
+                int child = _step.Refs(nauo).LastOrDefault(r => _step.TypeOf(r) == "PRODUCT_DEFINITION");
+                if (child == 0) continue;
+                if (!usesOfPart.TryGetValue(child, out var list))
+                    usesOfPart[child] = list = new List<int>();
+                list.Add(nauo);
+            }
+
             foreach (var partGroup in matched.GroupBy(p => p.Value.ChildPd))
             {
                 // An occurrence with no override must keep the part exactly as
@@ -433,7 +445,16 @@ namespace Peak.Cadder.Appearance
                 // EVERY overridden group must be a copy. To recolour the shared
                 // geometry would then repaint occurrences that have no
                 // override.
-                bool sharedGeometryTaken = partGroup.Any(p => !p.Key.OverridesPartInternals);
+                //
+                // That includes an occurrence that the matcher could not
+                // match, or that a conflict above left out. The log says it
+                // keeps the SolidWorks colour, and it still uses the original
+                // part in the file. The matched leaves alone do not show it.
+                var overridden = new HashSet<int>(partGroup
+                    .Where(p => p.Key.OverridesPartInternals).Select(p => p.Value.NauoId));
+                bool sharedGeometryTaken = partGroup.Any(p => !p.Key.OverridesPartInternals)
+                    || (usesOfPart.TryGetValue(partGroup.Key, out var allUses)
+                        && allUses.Any(n => !overridden.Contains(n)));
 
                 var buckets = partGroup
                     .Where(p => p.Key.OverridesPartInternals)
