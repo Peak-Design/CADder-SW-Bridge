@@ -629,6 +629,8 @@ namespace Peak.Cadder.Core
         ///   cylinder     →  revolute (its axis, the other side orbits it)
         ///   axis/edge under a COINCIDENT  →  prismatic (a point ON a line
         ///                   slides along it; only an offset contact orbits)
+        ///   straight line against a ball  →  cylindrical (the ball orbits
+        ///                   the line and also slides along it)
         ///   sphere/vertex→  ball (its centre)
         /// chained parent side → carrier → child side. Contacts here are one
         /// TANGENT, one non-limit DISTANCE between curved entities (offset
@@ -819,17 +821,23 @@ namespace Peak.Cadder.Core
                     // vertex's foot on the axis, so the bone sits at the
                     // contact height.
                     var a = MathOps.Normalized(side.Direction);
-                    double along = a[0] * (other.Point[0] - side.Point[0])
-                                 + a[1] * (other.Point[1] - side.Point[1])
-                                 + a[2] * (other.Point[2] - side.Point[2]);
-                    var foot = new[]
-                    {
-                        side.Point[0] + a[0] * along,
-                        side.Point[1] + a[1] * along,
-                        side.Point[2] + a[2] * along,
-                    };
-                    return MakeCarrierJoint(
-                        ref nextId, JointType.Cylindrical, a, foot, contact);
+                    return MakeCarrierJoint(ref nextId, JointType.Cylindrical, a,
+                        FootOnLine(side.Point, a, other.Point), contact);
+                }
+                if (ContactSideKind(other) == "ball" && other.Point != null
+                    && !MateFacts.Is(contact, "COINCIDENT") && IsStraightLine(side))
+                {
+                    // A ball tangent to a tube, or a vertex held at a
+                    // distance from an axis, keeps its distance to the line
+                    // wherever it is along it. So the line side slides as
+                    // well as turns, the same as the vertex on a cylinder
+                    // above. A revolute kept only the orbit at the export
+                    // station. Cones and circular edges stay revolute: a
+                    // ball against those does not keep one radius as it
+                    // moves along the axis.
+                    var a = MathOps.Normalized(side.Direction);
+                    return MakeCarrierJoint(ref nextId, JointType.Cylindrical, a,
+                        FootOnLine(side.Point, a, other.Point), contact);
                 }
                 var apex = ConeApex(side, other);
                 if (apex != null)
@@ -857,6 +865,32 @@ namespace Peak.Cadder.Core
             }
             // ball
             return MakeCarrierJoint(ref nextId, JointType.Ball, null, side.Point, contact);
+        }
+
+        /// <summary>The point on the line through <paramref name="linePoint"/>
+        /// along the unit <paramref name="dir"/> nearest <paramref name="p"/>.
+        /// </summary>
+        private static double[] FootOnLine(double[] linePoint, double[] dir, double[] p)
+        {
+            double along = dir[0] * (p[0] - linePoint[0])
+                         + dir[1] * (p[1] - linePoint[1])
+                         + dir[2] * (p[2] - linePoint[2]);
+            return new[]
+            {
+                linePoint[0] + dir[0] * along,
+                linePoint[1] + dir[1] * along,
+                linePoint[2] + dir[2] * along,
+            };
+        }
+
+        /// <summary>A cylinder, a datum axis or a straight edge. A ball held
+        /// at one distance from such a line can go along its full length. A
+        /// circular edge is also typed "edge", but it carries its radius.
+        /// </summary>
+        private static bool IsStraightLine(GraphMateEntity e)
+        {
+            return e.EntityTypeName == "cylinder" || e.EntityTypeName == "axis"
+                || (e.EntityTypeName == "edge" && e.Radius <= 0.0);
         }
 
         /// <summary>
