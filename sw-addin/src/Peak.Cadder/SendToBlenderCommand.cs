@@ -57,6 +57,13 @@ namespace Peak.Cadder
             // For this send only. Nothing here saves the settings.
             settings.OnlySelected = GeometryFollowsSelection(settings, update);
             var owner = ExportOptionsDialog.ActiveOwner();
+            // A CADder that does not match this add-in is asked about before
+            // the export, which can take minutes, and before anything is sent
+            // (VersionGate). Here when the Blender to send to is already
+            // known, after the choice or the launch below otherwise.
+            if (!VersionGate.Confirm(owner, KnownTarget(update, model.GetPathName()),
+                                     AddIn.Log))
+                return;
             // The export stages run on this thread and can take minutes on a
             // large assembly. The bar says which stage is running, and it
             // closes before the first dialog: SolidWorks draws a message box
@@ -179,7 +186,14 @@ namespace Peak.Cadder
                     return;
                 }
 
-                // ── 3. Launch + send, on a worker under the progress bar ────
+                // ── 3. Launch, check the versions, send ─────────────────────
+                // The launch has a bar of its own, so the versions of the new
+                // Blender are checked before anything goes to it.
+                if (target == null)
+                    target = ProgressDialog.Run(owner, title,
+                        "Launching Blender…", () => BlenderBridge.Launch(exe, AddIn.Log));
+                if (!VersionGate.Confirm(owner, target, AddIn.Log))
+                    return;
                 var payload = BuildPayload(
                     settings, native ? null : stepPath, native ? meshPath : null,
                     manifestPath, update, rigMode,
@@ -187,16 +201,14 @@ namespace Peak.Cadder
                     model.GetPathName());
                 string doing = update
                     ? "Bringing " + baseName + " up to date in Blender…"
-                    : target == null
-                        ? "Launching Blender and importing " + baseName + "…"
-                        : "Importing " + baseName + " in Blender…";
+                    : "Importing " + baseName + " in Blender…";
+                var to = target;
                 var sent = ProgressDialog.Run(owner, title, doing, () =>
                 {
-                    var t = target ?? BlenderBridge.Launch(exe, AddIn.Log);
                     var resp = BlenderBridge.PostImport(
-                        t, payload, 30 * 60 * 1000, AddIn.Log);
+                        to, payload, 30 * 60 * 1000, AddIn.Log);
                     return new KeyValuePair<BlenderInstance,
-                        Dictionary<string, object>>(t, resp);
+                        Dictionary<string, object>>(to, resp);
                 });
 
                 // ── 4. Report ───────────────────────────────────────────────
@@ -231,6 +243,28 @@ namespace Peak.Cadder
                     (int)swMessageBoxBtn_e.swMbOk);
             }
             finally { ExportCommand.CloseBar(bar); }
+        }
+
+        /// <summary>
+        /// The Blender a send goes to, when that is known before the export:
+        /// the only running one (for a refresh, the only one that holds the
+        /// document). Null when there are several (the user chooses after
+        /// the export) or none (one is launched).
+        /// </summary>
+        private static BlenderInstance KnownTarget(bool update, string documentPath)
+        {
+            try
+            {
+                var instances = BlenderBridge.Discover(AddIn.Log);
+                if (update) instances = BlenderBridge.ForRefresh(instances, documentPath);
+                return instances.Count == 1 ? instances[0] : null;
+            }
+            catch (Exception ex)
+            {
+                // Never a reason not to send: the check runs again at the send.
+                AddIn.Log("versions: could not list the running Blenders: " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>

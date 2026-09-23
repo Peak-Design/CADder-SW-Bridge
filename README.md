@@ -46,6 +46,30 @@ The installer is not signed yet, so Windows may show **Windows protected
 your PC**. Click **More info**, then **Run anyway**. To remove the add-in,
 use **Settings > Apps > Installed apps**.
 
+## Versions
+
+CADder Bridge and CADder work together when the first two numbers of their
+versions are the same. The last number is a release of one of the two on
+its own. It fixes or adds something that does not change what goes over
+the link.
+
+| CADder Bridge | CADder | Together |
+|---|---|---|
+| 1.1.0 | 1.1.3 | Yes |
+| 1.1.4 | 1.1.0 | Yes |
+| 1.2.0 | 1.1.3 | No. Update CADder to 1.2 |
+| 1.1.2 | 1.2.0 | No. Update CADder Bridge to 1.2 |
+
+When the two do not match, **Send to Blender** and **Refresh Model** ask
+before they send anything. The dialog gives both versions, which one to
+update and a link to its download. **Continue** sends all the same, and
+SolidWorks does not ask again for those two versions until it closes.
+**Abort** sends nothing. CADder in Blender shows the same warning as soon
+as SolidWorks runs.
+
+CADder Bridge before 1.1.1 and CADder before 1.1.1 do not check. The newer
+one of the two still warns about the older one.
+
 ## Use
 
 <p align="center">

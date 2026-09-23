@@ -12,6 +12,28 @@ normative for shape; this file is normative for meaning.
 they do not know. A major bump may change meaning; consumers must refuse a major
 they do not support. Both halves of the tool declare the range they support.
 
+### Versions of the two halves
+
+The releases have versions of their own, MAJOR.MINOR.PATCH, and the user
+sees those. CADder Bridge and CADder work together when MAJOR.MINOR is the
+same. Both halves check this and warn the user when it is not
+(`VersionMatch` in the add-in, `mismatch_for` in CADder's `bridge.py`).
+
+A release bumps MINOR (or MAJOR) on both halves, and the two go out
+together, when it changes anything that one half reads from the other:
+
+- this manifest: a field that both halves read, or what a field means
+  (`manifest_version` also changes)
+- the payload of a send or of Refresh Model, and the reply
+- the HTTP endpoints of either listener, their requests and their replies
+- the registry files that each half writes and the other reads
+- a behavior that one half relies on in the other (for example, when
+  Refresh Model is offered)
+
+Everything else is a PATCH release of one half, which goes out alone. It
+must work with every release of the other half that has the same
+MAJOR.MINOR. When in doubt, the change is MINOR.
+
 ## Units and frames
 
 - Length metres, angles radians. No millimetres anywhere in the file.

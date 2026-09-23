@@ -19,6 +19,9 @@ namespace Peak.Cadder.Bridge
         public string Token;
         public string BlenderVersion;
         public string AddonVersion;
+        /// <summary>"CADder" or "CADder Pro", as the bridge says. Null for
+        /// a bridge before 1.1.1, which is CADder.</summary>
+        public string AddonName;
         public string BlendFile;
         public string RegistryFile;
 
@@ -251,6 +254,7 @@ namespace Peak.Cadder.Bridge
                 Token = MiniJson.Str(obj, "token"),
                 BlenderVersion = MiniJson.Str(obj, "blender_version"),
                 AddonVersion = MiniJson.Str(obj, "addon_version"),
+                AddonName = MiniJson.Str(obj, "addon_name"),
                 BlendFile = MiniJson.Str(obj, "blend_file"),
                 RegistryFile = path,
                 Documents = BlenderInstance.DocumentsOf(obj),
@@ -296,6 +300,7 @@ namespace Peak.Cadder.Bridge
                 inst.BlendFile = MiniJson.Str(obj, "blend_file", inst.BlendFile);
                 inst.BlenderVersion = MiniJson.Str(obj, "blender_version", inst.BlenderVersion);
                 inst.AddonVersion = MiniJson.Str(obj, "addon_version", inst.AddonVersion);
+                inst.AddonName = MiniJson.Str(obj, "addon_name", inst.AddonName);
                 inst.Documents = BlenderInstance.DocumentsOf(obj) ?? inst.Documents;
                 return PingAnswer.Ok;
             }

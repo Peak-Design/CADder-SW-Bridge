@@ -159,6 +159,21 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void ABlenderSaysWhichCadderItRuns()
+        {
+            // CADder 1.1.1 on writes its name, for the version check
+            // (VersionGate): CADder or CADder Pro.
+            string path = Path.Combine(_dir, "pro.json");
+            File.WriteAllText(path, "{\"pid\": " + Me + ", \"port\": " + AnsweringPort()
+                + ", \"token\": \"t\", \"addon_version\": \"1.2.5\", "
+                + "\"addon_name\": \"CADder Pro\"}");
+            var found = Discover();
+            Assert.Single(found);
+            Assert.Equal("CADder Pro", found[0].AddonName);
+            Assert.Equal("1.2.5", found[0].AddonVersion);
+        }
+
+        [Fact]
         public void TheProcessCheckKnowsBlender()
         {
             Assert.False(BlenderBridge.IsBlender(Me));

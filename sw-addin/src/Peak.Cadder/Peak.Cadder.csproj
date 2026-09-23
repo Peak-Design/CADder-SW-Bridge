@@ -14,7 +14,7 @@
       assembly, the installer reads it off the built DLL, and the release
       script tags from it, so there is exactly one number to bump.
     -->
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Authors>Peak Design</Authors>
     <Product>CADder Bridge for SolidWorks</Product>
     <Description>Exports the assembly's kinematics as a rig manifest next to a STEP file, for the CADder Blender add-on.</Description>
