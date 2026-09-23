@@ -936,7 +936,8 @@ namespace Peak.Cadder
             if (grouping.SubStatusWelds.Count > 0)
                 AddIn.Log("grounding: " + grouping.SubStatusWelds.Count + " component(s) "
                     + "welded to their subassembly because SolidWorks says they cannot "
-                    + "move in it: " + string.Join(", ", grouping.SubStatusWelds.ToArray()));
+                    + "move in it. The DOF probe does not check a weld inside a "
+                    + "subassembly: " + string.Join(", ", grouping.SubStatusWelds.ToArray()));
             foreach (string path in grouping.MergedAwayDofs)
                 AddIn.Log("  WARNING SolidWorks says this can move, but it is "
                     + "welded to the ground: " + path);
