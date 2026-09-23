@@ -41,7 +41,8 @@ namespace Peak.Cadder.Core
         public List<string> StatusWeldIds = new List<string>();
 
         /// <summary>Parts that read fully defined but are held by a cam or
-        /// path mate, and so were not welded on their status.</summary>
+        /// path mate, or moved through a part it holds, and so were not
+        /// welded on their status.</summary>
         public List<string> PoseHeldSkips = new List<string>();
 
         /// <summary>Children of flexible subassemblies welded to their
@@ -188,21 +189,17 @@ namespace Peak.Cadder.Core
             // cam-follower, 2026-09-22: the lifter was welded and the roller
             // ran through the lobe). The DOF probe reads the same pose, so it
             // cannot tell either. Such a part is never welded on its status,
-            // nor is anything the mates alone make one body with it.
+            // nor is anything the mates alone make one body with it, nor
+            // anything the follower moves (see PoseHeldGroups).
             var poseTouched = PoseHeldComponents(graph);
             HashSet<string> poseHeld = null;
             if (poseTouched.Count > 0 && (statusWelds || subStatusWelds))
             {
                 // What the mates alone make one body, with neither status
-                // pass: both passes keep their hands off that whole body.
+                // pass: both passes keep their hands off those bodies.
                 var mateOnly = Group(graph, solverRigidPairs, null,
                     statusWelds: false, subStatusWelds: false);
-                var heldGroups = new HashSet<string>();
-                foreach (string id in poseTouched)
-                {
-                    string g;
-                    if (mateOnly.ComponentGroup.TryGetValue(id, out g)) heldGroups.Add(g);
-                }
+                var heldGroups = PoseHeldGroups(mateOnly, poseTouched);
                 poseHeld = new HashSet<string>();
                 foreach (var kv in mateOnly.ComponentGroup)
                     if (heldGroups.Contains(kv.Value)) poseHeld.Add(kv.Key);
@@ -452,6 +449,60 @@ namespace Peak.Cadder.Core
                     if (e != null && e.ComponentId != null) touched.Add(e.ComponentId);
             }
             return touched;
+        }
+
+        /// <summary>
+        /// The mate-only groups the status passes keep off: the group of each
+        /// part a cam or path mate touches, and every group the mates join
+        /// to it without passing through the ground. At a dwell the follower
+        /// cannot move to first order, so neither can a body whose only
+        /// motion comes through it: a pushrod, and a rocker hinged to the
+        /// frame, read fully defined too. Welding them would take the
+        /// follower's slide with them and freeze the whole train. The ground
+        /// stops the search, because the follower does not move the ground.
+        /// A body kept off here goes back to what the mates say, as in 1.0.1.
+        /// </summary>
+        private static HashSet<string> PoseHeldGroups(
+            RigidGroupingResult mateOnly, ICollection<string> touched)
+        {
+            var grounded = new HashSet<string>();
+            foreach (var g in mateOnly.Groups)
+                if (g.Grounded) grounded.Add(g.Id);
+            var next = new Dictionary<string, List<string>>();
+            foreach (var edge in mateOnly.Edges)
+            {
+                AddNeighbor(next, edge.GroupA, edge.GroupB);
+                AddNeighbor(next, edge.GroupB, edge.GroupA);
+            }
+
+            var held = new HashSet<string>();
+            var queue = new Queue<string>();
+            foreach (string id in touched)
+            {
+                string g;
+                if (mateOnly.ComponentGroup.TryGetValue(id, out g) && held.Add(g))
+                    queue.Enqueue(g);
+            }
+            while (queue.Count > 0)
+            {
+                string g = queue.Dequeue();
+                List<string> list;
+                if (grounded.Contains(g) || !next.TryGetValue(g, out list)) continue;
+                foreach (string n in list)
+                    if (!grounded.Contains(n) && held.Add(n)) queue.Enqueue(n);
+            }
+            return held;
+        }
+
+        private static void AddNeighbor(Dictionary<string, List<string>> next, string from, string to)
+        {
+            List<string> list;
+            if (!next.TryGetValue(from, out list))
+            {
+                list = new List<string>();
+                next[from] = list;
+            }
+            list.Add(to);
         }
 
         private static HashSet<string> MatedComponents(MateGraph graph)
