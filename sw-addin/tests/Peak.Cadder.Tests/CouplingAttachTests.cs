@@ -298,7 +298,7 @@ namespace Peak.Cadder.Tests
 
         /// <summary>
         /// Two pinions on one rack. A rack coupling cannot run the other
-        /// way (it is metres of rack per radian of pinion), so the second
+        /// way (it is meters of rack per radian of pinion), so the second
         /// mate is reported and the first one stays.
         /// </summary>
         [Fact]

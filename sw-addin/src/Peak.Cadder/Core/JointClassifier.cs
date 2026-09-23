@@ -2031,7 +2031,7 @@ namespace Peak.Cadder.Core
                 // without a word. The same wrote over a screw's own lead.
                 // A gear, a coupler or a universal joint can run the other
                 // way at the inverse ratio. A rack cannot: its number is
-                // metres of rack per radian of pinion.
+                // meters of rack per radian of pinion.
                 if (!CanDrive(result.Joints, driver, driven))
                 {
                     if (rack || !CanDrive(result.Joints, driven, driver))
