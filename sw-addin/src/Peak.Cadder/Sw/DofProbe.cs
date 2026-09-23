@@ -394,10 +394,10 @@ namespace Peak.Cadder.Sw
         // ── Verdict mapping ─────────────────────────────────────────────────
 
         /// <summary>
-        /// Names the joint a characterised reading describes. A reading it
+        /// Names the joint a characterized reading describes. A reading it
         /// cannot name ends as Free, and Free here means "I do not know":
-        /// such a verdict is no longer characterised. It stayed
-        /// characterised before, and ApplySolverVerdicts then reported a
+        /// such a verdict is no longer characterized. It stayed
+        /// characterized before, and ApplySolverVerdicts then reported a
         /// correctly classified revolute as disagreeing with the solver
         /// (confidence low, PROBE_DISAGREES) on a reading that said nothing.
         /// </summary>

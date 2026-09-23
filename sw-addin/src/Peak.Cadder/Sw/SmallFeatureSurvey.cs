@@ -560,7 +560,7 @@ namespace Peak.Cadder.Sw
         {
             public bool IsLine;
             public bool IsCircle;
-            /// <summary>Centre (0..2), axis (3..5) and radius (6), as
+            /// <summary>Center (0..2), axis (3..5) and radius (6), as
             /// ICurve.CircleParams gives them.</summary>
             public double[] Circle;
             /// <summary>The ends of the EDGE. A closed edge has one point
@@ -722,7 +722,7 @@ namespace Peak.Cadder.Sw
 
         /// <summary>
         /// The points of a circle furthest along each world axis, both
-        /// ways: the centre plus r times that axis laid into the circle's
+        /// ways: the center plus r times that axis laid into the circle's
         /// plane. The box of these six points is the box of the circle.
         /// An axis along the circle's normal has no extreme, and is left out.
         /// </summary>

@@ -7,7 +7,7 @@ namespace Peak.Cadder.Tests
     /// <summary>
     /// A probe reading that the mapping cannot name ends as Free. Free here
     /// means "I do not know", so it must not stay Characterised: a
-    /// characterised Free verdict against a revolute was reported as the
+    /// characterized Free verdict against a revolute was reported as the
     /// solver disagreeing with the mates, and the joint lost its confidence
     /// on a reading that said nothing.
     /// </summary>

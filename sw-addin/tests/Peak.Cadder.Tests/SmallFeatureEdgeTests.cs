@@ -158,7 +158,7 @@ namespace Peak.Cadder.Tests
         [Fact]
         public void ASlotAlongZHasItsTrueLength()
         {
-            // A slot on a face normal to Y, arc centres 10 mm apart, r 3 mm:
+            // A slot on a face normal to Y, arc centers 10 mm apart, r 3 mm:
             // 16 mm long and 6 mm wide, its middle at z = 5 mm.
             var edges = new[]
             {
