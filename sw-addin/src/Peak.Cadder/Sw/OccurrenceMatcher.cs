@@ -286,7 +286,7 @@ namespace Peak.Cadder.Sw
             foreach (var sw in swKids)
             {
                 // A suppressed, hidden or deselected component is absent
-                // from the STEP file by design; matching it would only claim
+                // from the STEP file by design. Matching it would only claim
                 // someone else's slot.
                 if (!IsExported(sw)) continue;
 

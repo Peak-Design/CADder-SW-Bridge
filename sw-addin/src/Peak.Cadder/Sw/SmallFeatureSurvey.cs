@@ -31,7 +31,7 @@ namespace Peak.Cadder.Sw
     /// The feature behind a loop is found by walking INWARD: cross into the
     /// face on the other side, then keep crossing every edge that is not
     /// itself on a marked loop. A through hole gives one cylinder bounded
-    /// by two marked loops; a blind hole gives the cylinder and its bottom.
+    /// by two marked loops. A blind hole gives the cylinder and its bottom.
     /// A counterbore gives two regions: the counterbore (cylinder and
     /// annulus), and the hole in its floor (cylinder and bottom), which is
     /// walked from the annulus. The planner does this in any face order.
