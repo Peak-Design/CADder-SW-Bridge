@@ -1867,11 +1867,26 @@ namespace Peak.Cadder.Core
                 // Chained couplings are fine. A ring of them is not: the
                 // consumer refuses the whole rig when two joints drive each
                 // other, directly or through others.
-                if (DriverChainReaches(result.Joints, driver, driven))
+                //
+                // A joint takes one coupling. The driven side is the second
+                // entity's, so an idler named second by two gear mates was
+                // driven by the later one, and the earlier mesh vanished
+                // without a word. The same wrote over a screw's own lead.
+                // A gear, a coupler or a universal joint can run the other
+                // way at the inverse ratio. A rack cannot: its number is
+                // metres of rack per radian of pinion.
+                if (!CanDrive(result.Joints, driver, driven))
                 {
-                    WarnCoupling(result, edgeJoint, mate,
-                        "The coupling would make a cycle of joints that drive each other.");
-                    continue;
+                    if (rack || !CanDrive(result.Joints, driven, driver))
+                    {
+                        WarnCoupling(result, edgeJoint, mate,
+                            driven.Coupling != null
+                                ? "The driven joint already has a coupling."
+                                : "The coupling would make a cycle of joints that drive each other.");
+                        continue;
+                    }
+                    var swapJoint = driver; driver = driven; driven = swapJoint;
+                    var swapGroup = driverGroup; driverGroup = drivenGroup; drivenGroup = swapGroup;
                 }
 
                 var coupling = new JointCoupling();
@@ -2275,6 +2290,14 @@ namespace Peak.Cadder.Core
             foreach (var g in grouping.Groups)
                 if (g.Id == groupId) return g.Grounded;
             return false;
+        }
+
+        /// <summary>True when <paramref name="driven"/> has no coupling yet
+        /// and a coupling from <paramref name="driver"/> closes no ring.
+        /// </summary>
+        private static bool CanDrive(List<RigJoint> joints, RigJoint driver, RigJoint driven)
+        {
+            return driven.Coupling == null && !DriverChainReaches(joints, driver, driven);
         }
 
         /// <summary>True when <paramref name="target"/> already drives

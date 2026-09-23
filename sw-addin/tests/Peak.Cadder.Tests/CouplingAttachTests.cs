@@ -194,6 +194,152 @@ namespace Peak.Cadder.Tests
             Assert.Equal(1, unresolved);
         }
 
+        // ── A joint that is already driven ──────────────────────────────────
+
+        private static RigJoint CoupledBy(ClassificationResult result, string feature)
+        {
+            foreach (var j in result.Joints)
+            {
+                if (j.Coupling == null) continue;
+                foreach (var sm in j.SourceMates)
+                    if (sm.SwFeature == feature) return j;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A train of three gears with an idler in the middle. Both mates
+        /// name the idler second, and the second entity's side is the one
+        /// driven, so the second mate wrote over the first: the idler
+        /// followed the third gear, and the first gear turned on its own
+        /// with nothing to say its mesh was dropped. The later mate must
+        /// run the other way round instead, at the inverse ratio.
+        /// </summary>
+        [Fact]
+        public void AnIdlerDrivenTwiceKeepsBothMeshes()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "plate", isFixed: true),
+                    Comp("c002", "gear a"),
+                    Comp("c003", "idler"),
+                    Comp("c004", "gear c"),
+                },
+                Concentric("ConcentricA", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("CoincidentA", "c001", "c002", Z, P(0, 0, 0)),
+                Concentric("ConcentricB", "c001", "c003", Z, P(0.03, 0, 0)),
+                CoincidentPlanes("CoincidentB", "c001", "c003", Z, P(0.03, 0, 0)),
+                Concentric("ConcentricC", "c001", "c004", Z, P(0.07, 0, 0)),
+                CoincidentPlanes("CoincidentC", "c001", "c004", Z, P(0.07, 0, 0)),
+                Gear("GearAB",
+                    Cylinder("c002", Z, P(0, 0, 0), radius: 0.02),
+                    Cylinder("c003", Z, P(0.03, 0, 0), radius: 0.01)),
+                Gear("GearCB",
+                    Cylinder("c004", Z, P(0.07, 0, 0), radius: 0.03),
+                    Cylinder("c003", Z, P(0.03, 0, 0), radius: 0.01)));
+
+            var result = Run(graph);
+
+            AssertNoCouplingCycle(result);
+            Assert.DoesNotContain(result.Warnings, w => w.Code == "COUPLING_UNRESOLVED");
+            var ab = CoupledBy(result, "GearAB");
+            var cb = CoupledBy(result, "GearCB");
+            Assert.NotNull(ab);
+            Assert.NotNull(cb);
+            Assert.NotSame(ab, cb);
+
+            // GearCB states angle(C) : angle(idler) = 0.03 : 0.01. The gear
+            // C side follows at 3, the idler side at 1/3.
+            var gearC = ByChild(result, graph, "c004");
+            double expected = ReferenceEquals(cb, gearC) ? 3.0 : 1.0 / 3.0;
+            Assert.Equal(expected, System.Math.Abs(cb.Coupling.Ratio.Value), 9);
+        }
+
+        /// <summary>
+        /// A gear that drives a lead screw. The screw joint carries its own
+        /// lead as a coupling, and the gear mate wrote over it: the screw
+        /// lost its lead. The screw now drives the gear instead.
+        /// </summary>
+        [Fact]
+        public void AGearOnALeadScrewKeepsTheLead()
+        {
+            var screw = Mate("Screw1", "swMateSCREW",
+                Cylinder("c001", Z, P(0, 0, 0)),
+                Cylinder("c002", Z, P(0, 0, 0)));
+            screw.LeadMPerRev = 0.002;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "screw"),
+                    Comp("c003", "gear"),
+                },
+                Concentric("ConcentricScrew", "c001", "c002", Z, P(0, 0, 0)),
+                screw,
+                Concentric("ConcentricGear", "c001", "c003", Z, P(0.03, 0, 0)),
+                CoincidentPlanes("CoincidentGear", "c001", "c003", Z, P(0.03, 0, 0)),
+                Gear("GearDrive",
+                    Cylinder("c003", Z, P(0.03, 0, 0), radius: 0.02),
+                    Cylinder("c002", Z, P(0, 0, 0), radius: 0.01)));
+
+            var result = Run(graph);
+
+            var lead = ByChild(result, graph, "c002");
+            var gear = ByChild(result, graph, "c003");
+            Assert.Equal(JointType.Screw, lead.Type);
+            Assert.NotNull(lead.Coupling);
+            Assert.Equal("screw", lead.Coupling.Kind);
+            Assert.Equal(0.002, lead.Coupling.LeadMPerRev.Value, 12);
+            Assert.NotNull(gear.Coupling);
+            Assert.Equal("gear", gear.Coupling.Kind);
+            Assert.Equal(lead.Id, gear.Coupling.DriverJoint);
+        }
+
+        /// <summary>
+        /// Two pinions on one rack. A rack coupling cannot run the other
+        /// way (it is metres of rack per radian of pinion), so the second
+        /// mate is reported and the first one stays.
+        /// </summary>
+        [Fact]
+        public void ASecondPinionOnOneRackIsReportedNotWrittenOver()
+        {
+            var first = Mate("RackPinionMate1", "swMateRACKPINION",
+                EdgeEnt("c004", X, P(0, 0.01, 0)),
+                Cylinder("c002", Z, P(0, 0, 0), radius: 0.01));
+            first.MetersPerRadian = 0.01;
+            var second = Mate("RackPinionMate2", "swMateRACKPINION",
+                EdgeEnt("c004", X, P(0.1, 0.01, 0)),
+                Cylinder("c003", Z, P(0.1, 0, 0), radius: 0.01));
+            second.MetersPerRadian = 0.01;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Comp("c002", "pinion one"),
+                    Comp("c003", "pinion two"),
+                    Comp("c004", "rack"),
+                },
+                Concentric("ConcentricOne", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("CoincidentOne", "c001", "c002", Z, P(0, 0, 0)),
+                Concentric("ConcentricTwo", "c001", "c003", Z, P(0.1, 0, 0)),
+                CoincidentPlanes("CoincidentTwo", "c001", "c003", Z, P(0.1, 0, 0)),
+                CoincidentPlanes("CoincidentRackSide", "c001", "c004", Y, P(0, 0.01, 0)),
+                CoincidentPlanes("CoincidentRackFace", "c001", "c004", Z, P(0, 0, 0)),
+                first,
+                second);
+
+            var result = Run(graph);
+
+            var one = ByChild(result, graph, "c002");
+            var two = ByChild(result, graph, "c003");
+            var rack = ByChild(result, graph, "c004");
+            Assert.NotNull(rack.Coupling);
+            Assert.Equal(one.Id, rack.Coupling.DriverJoint);
+            Assert.Null(two.Coupling);
+            Assert.True(Unresolved(result, "RackPinionMate2"));
+        }
+
         // ── Rack and pinion ─────────────────────────────────────────────────
 
         private static GraphMateEntity PinionEntity(string kind)
