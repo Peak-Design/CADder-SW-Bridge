@@ -79,6 +79,7 @@ namespace Peak.Cadder.Core
             DeriveSliderDriverLimits(result);
             result.Mechanisms = ComputeMechanisms(groups, joints, result);
             MoveCutsOffWelds(result);
+            OrientToTheCuts(groups, result);
             SeatClosureOrigins(result);
             AddCouplingMechanisms(result);
             DropStrayCandidates(result);
@@ -123,40 +124,11 @@ namespace Peak.Cadder.Core
             var result = new LoopAnalysisResult();
             foreach (var j in joints) result.Joints.Add(j);
 
-            var groupIndex = new Dictionary<string, int>();
-            for (int i = 0; i < groups.Count; i++) groupIndex[groups[i].Id] = i;
-
-            var adjacency = new List<RigJoint>[groups.Count];
-            for (int i = 0; i < adjacency.Length; i++) adjacency[i] = new List<RigJoint>();
-            var usable = new List<RigJoint>(joints.Count);
-            foreach (var j in joints)
-            {
-                // Free joints are under-mated pairs the consumer never
-                // parents (SCHEMA.md), so they are not graph edges here
-                // either. Counting them made the exporter's spanning tree
-                // disagree with the consumer's: live corpus 06
-                // parallelogram2 (2026-08-22): a redundant parallel mate
-                // exported free but held a tree slot, every real ring joint
-                // became a loop closure, and the Blender side rightly refused
-                // the manifest as disconnected.
-                if (j.Type == JointType.Free) continue;
-                int a, b;
-                if (!groupIndex.TryGetValue(j.ParentGroup, out a)) continue;
-                if (!groupIndex.TryGetValue(j.ChildGroup, out b)) continue;
-                if (a == b) continue;
-                adjacency[a].Add(j);
-                adjacency[b].Add(j);
-                usable.Add(j);
-            }
-            foreach (var list in adjacency)
-                list.Sort((x, y) => string.CompareOrdinal(x.Id, y.Id));
-
-            // The first grounded group roots the main tree; further grounded
-            // groups and stranded islands root their own trees so every joint
-            // still gets an orientation.
-            var roots = new List<int>();
-            for (int i = 0; i < groups.Count; i++) if (groups[i].Grounded) roots.Add(i);
-            for (int i = 0; i < groups.Count; i++) if (!groups[i].Grounded) roots.Add(i);
+            var graph = BuildGraph(groups, joints);
+            var groupIndex = graph.GroupIndex;
+            var adjacency = graph.Adjacency;
+            var usable = graph.Usable;
+            var roots = graph.Roots;
 
             var tree0 = new HashSet<string>();
             Bfs(groups.Count, adjacency, groupIndex, roots, null, tree0);
@@ -207,6 +179,54 @@ namespace Peak.Cadder.Core
             // the limits and the consumer read are the seated ones.
             SeatAimPairMounts(result);
             return result;
+        }
+
+        /// <summary>The joint graph the spanning trees are read from.</summary>
+        private sealed class JointGraph
+        {
+            public Dictionary<string, int> GroupIndex = new Dictionary<string, int>();
+            public List<RigJoint>[] Adjacency;
+            public List<RigJoint> Usable = new List<RigJoint>();
+            public List<int> Roots = new List<int>();
+        }
+
+        /// <summary>Every joint the consumer can parent, listed at both of
+        /// its groups in id order, and the groups that root the trees.</summary>
+        private static JointGraph BuildGraph(IList<RigidGroup> groups, IList<RigJoint> joints)
+        {
+            var graph = new JointGraph();
+            for (int i = 0; i < groups.Count; i++) graph.GroupIndex[groups[i].Id] = i;
+
+            graph.Adjacency = new List<RigJoint>[groups.Count];
+            for (int i = 0; i < graph.Adjacency.Length; i++) graph.Adjacency[i] = new List<RigJoint>();
+            foreach (var j in joints)
+            {
+                // Free joints are under-mated pairs the consumer never
+                // parents (SCHEMA.md), so they are not graph edges here
+                // either. Counting them made the exporter's spanning tree
+                // disagree with the consumer's: live corpus 06
+                // parallelogram2 (2026-08-22): a redundant parallel mate
+                // exported free but held a tree slot, every real ring joint
+                // became a loop closure, and the Blender side rightly refused
+                // the manifest as disconnected.
+                if (j.Type == JointType.Free) continue;
+                int a, b;
+                if (!graph.GroupIndex.TryGetValue(j.ParentGroup, out a)) continue;
+                if (!graph.GroupIndex.TryGetValue(j.ChildGroup, out b)) continue;
+                if (a == b) continue;
+                graph.Adjacency[a].Add(j);
+                graph.Adjacency[b].Add(j);
+                graph.Usable.Add(j);
+            }
+            foreach (var list in graph.Adjacency)
+                list.Sort((x, y) => string.CompareOrdinal(x.Id, y.Id));
+
+            // The first grounded group roots the main tree; further grounded
+            // groups and stranded islands root their own trees so every joint
+            // still gets an orientation.
+            for (int i = 0; i < groups.Count; i++) if (groups[i].Grounded) graph.Roots.Add(i);
+            for (int i = 0; i < groups.Count; i++) if (!groups[i].Grounded) graph.Roots.Add(i);
+            return graph;
         }
 
         /// <summary>The loops of one configuration: every non-tree edge
@@ -705,7 +725,8 @@ namespace Peak.Cadder.Core
         /// tree with it, and the rings that tree finds are what the
         /// narrowing reads: tried inside the choice, the live plunger came
         /// back with both nuts welded to their plates, which SolidWorks
-        /// lets turn.
+        /// lets turn. The cut does move the tree here too, and
+        /// OrientToTheCuts turns the joints to it afterwards.
         /// </summary>
         private static void MoveCutsOffWelds(LoopAnalysisResult result)
         {
@@ -950,6 +971,69 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>
+        /// Turns every joint to the tree the final cuts leave, and says
+        /// again which joints each mechanism option turns round.
+        ///
+        /// A cut moved off a weld puts the weld into the tree and takes
+        /// another member of the ring out, so part of the ring is then
+        /// reached from its other end. Left as the choice oriented them, the
+        /// joints of that part point the old way: a body of the ring has
+        /// two tree parents, and the consumer refuses the whole manifest.
+        /// Two brackets hinged on one axis and bolted together off it show
+        /// it: the ring welds the bolt, the cut moves to the second hinge,
+        /// and the bolt still pointed at the first bracket, which the first
+        /// hinge already carries.
+        ///
+        /// An option is read against the manifest's joints as they finally
+        /// stand, and against the tree the consumer builds when it takes
+        /// that option: the option's own loops, and every other loop as the
+        /// manifest has it.
+        /// </summary>
+        private static void OrientToTheCuts(IList<RigidGroup> groups, LoopAnalysisResult result)
+        {
+            var cuts = new HashSet<string>();
+            foreach (var lp in result.Loops) cuts.Add(lp.ClosureJoint);
+            OrientForCuts(groups, result.Joints, cuts);
+
+            foreach (var mech in result.Mechanisms)
+                foreach (var option in mech.Inputs)
+                {
+                    var optionCuts = new HashSet<string>();
+                    foreach (var lp in option.Loops) optionCuts.Add(lp.ClosureJoint);
+                    foreach (var lp in result.Loops)
+                        if (!mech.LoopIds.Contains(lp.Id)) optionCuts.Add(lp.ClosureJoint);
+                    var turned = new List<RigJoint>(result.Joints.Count);
+                    foreach (var j in result.Joints)
+                        turned.Add(new RigJoint
+                        {
+                            Id = j.Id,
+                            Type = j.Type,
+                            ParentGroup = j.ParentGroup,
+                            ChildGroup = j.ChildGroup,
+                        });
+                    OrientForCuts(groups, turned, optionCuts);
+                    option.FlippedJoints.Clear();
+                    for (int i = 0; i < turned.Count; i++)
+                        if (turned[i].ParentGroup == result.Joints[i].ChildGroup
+                            && turned[i].ChildGroup == result.Joints[i].ParentGroup)
+                            option.FlippedJoints.Add(turned[i].Id);
+                }
+        }
+
+        /// <summary>Orients `joints` for the tree that is left when `cuts`
+        /// are taken out, which is the tree the consumer builds. The rule
+        /// is Orient's.</summary>
+        private static void OrientForCuts(
+            IList<RigidGroup> groups, List<RigJoint> joints, ICollection<string> cuts)
+        {
+            var graph = BuildGraph(groups, joints);
+            var tree = new HashSet<string>();
+            foreach (var j in graph.Usable)
+                if (!cuts.Contains(j.Id)) tree.Add(j.Id);
+            Orient(joints, groups.Count, graph.Adjacency, graph.GroupIndex, graph.Roots, tree);
+        }
+
+        /// <summary>
         /// The mechanisms (loops sharing joints) and every input each can
         /// take, as complete alternatives. The exporter's choice is input
         /// 0; each other input re-runs the choice on a copy of the joints
@@ -1123,10 +1207,8 @@ namespace Peak.Cadder.Core
                         continue;
                     }
                     option.Loops.AddRange(altLoops);
-                    for (int i = 0; i < joints.Count; i++)
-                        if (clones[i].ParentGroup == joints[i].ChildGroup
-                            && clones[i].ChildGroup == joints[i].ParentGroup)
-                            option.FlippedJoints.Add(joints[i].Id);
+                    // The joints the option turns round are read once the
+                    // cuts are final (OrientToTheCuts).
                     // Limits that differ under this input: a stroke limit
                     // derived onto the crank of a slider-crank belongs to the
                     // crank-driven configuration, and the slider-driven one
