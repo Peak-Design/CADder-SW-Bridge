@@ -236,29 +236,45 @@ namespace Peak.Cadder.Bridge
                 output.Write(bytes, 0, bytes.Length);
         }
 
-        /// <summary>Entries left by instances that are gone: a crash or a
-        /// kill never reaches Stop(), and a caller listing the directory would
-        /// otherwise try every corpse first.</summary>
-        private static void PruneRegistry()
+        /// <summary>
+        /// Entries left by instances that are gone: a crash or a kill never
+        /// reaches Stop(), and a caller listing the directory would
+        /// otherwise try every corpse first.
+        ///
+        /// An entry stays only while a process of this program
+        /// (<paramref name="ownName"/>, SLDWORKS) has its process id. After
+        /// a reboot the id of an old entry often belongs to a service or a
+        /// system process. HasExited opens the process and throws "Access
+        /// is denied" for those, which stopped the prune and the registry
+        /// write, so Blender never found this SolidWorks. The name comes
+        /// from the process list and opens nothing. An id that another
+        /// program has now also marks a SolidWorks that is gone, and its
+        /// entry held a dead token that Blender tried first.
+        /// </summary>
+        internal static void PruneRegistry(string dir, string ownName)
         {
             string[] files;
-            try { files = Directory.GetFiles(RegistryDir, "*.json"); }
+            try { files = Directory.GetFiles(dir, "*.json"); }
             catch { return; }
             foreach (var file in files)
             {
                 int pid;
                 if (!int.TryParse(Path.GetFileNameWithoutExtension(file), out pid)) continue;
-                bool alive = false;
-                try
-                {
-                    var proc = System.Diagnostics.Process.GetProcessById(pid);
-                    alive = !proc.HasExited;
-                }
-                catch (ArgumentException) { }
-                catch (InvalidOperationException) { }
-                if (alive) continue;
+                if (IsRunning(pid, ownName)) continue;
                 try { File.Delete(file); } catch { }
             }
+        }
+
+        /// <summary>Whether a process of that name has that process id
+        /// now.</summary>
+        internal static bool IsRunning(int pid, string name)
+        {
+            try
+            {
+                using (var proc = System.Diagnostics.Process.GetProcessById(pid))
+                    return string.Equals(proc.ProcessName, name, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
         }
 
         private static void WriteRegistry(Action<string> log)
@@ -266,7 +282,17 @@ namespace Peak.Cadder.Bridge
             try
             {
                 Directory.CreateDirectory(RegistryDir);
-                PruneRegistry();
+                // A failed prune leaves old entries behind. It must never
+                // stop this instance from writing its own.
+                try
+                {
+                    PruneRegistry(RegistryDir,
+                        System.Diagnostics.Process.GetCurrentProcess().ProcessName);
+                }
+                catch (Exception ex)
+                {
+                    if (log != null) log("sw bridge: registry prune failed: " + ex.Message);
+                }
                 _registryFile = Path.Combine(
                     RegistryDir,
                     System.Diagnostics.Process.GetCurrentProcess().Id + ".json");
