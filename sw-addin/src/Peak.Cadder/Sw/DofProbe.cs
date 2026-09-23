@@ -62,9 +62,10 @@ namespace Peak.Cadder.Sw
     ///
     /// The mate-table classifier is the shipping path; the probe cross-checks
     /// it (welds a pair the mates left open, or names a joint the mates could
-    /// not). It mutates model state, fix flags and mate suppression, which is
-    /// why everything it changes is restored in a finally block, fixed state
-    /// only for components this probe itself fixed.
+    /// not). It mutates model state, fix flags, mate suppression and the
+    /// selection, which is why everything it changes is restored in a
+    /// finally block, fixed state only for components this probe itself
+    /// fixed.
     ///
     /// Hardening over the original:
     ///   * Limit mates. GetRemainingDOFs counts a limit mate as a FIXED
@@ -217,6 +218,16 @@ namespace Peak.Cadder.Sw
                 return verdicts;
             }
 
+            return KeepingSelection(
+                () => SavedSelection.Read(_model),
+                saved => ((SavedSelection)saved).PutBack(_model, _log),
+                () => ReadBatch(parentBody, children, verdicts));
+        }
+
+        private List<ProbeVerdict> ReadBatch(
+            IList<Component2> parentBody, IList<Component2> children,
+            List<ProbeVerdict> verdicts)
+        {
             List<Component2> fixedByProbe = null;
             try
             {
@@ -227,7 +238,14 @@ namespace Peak.Cadder.Sw
                 // play that role: an unfixed ancestor would let the whole
                 // branch drift and the probe would read the branch's freedom
                 // instead of the joint's.
-                fixedByProbe = FixParentSide(parentBody);
+                //
+                // The list of what to unfix is known before the fix, so a
+                // fix that throws half way is still undone.
+                var chain = ParentChain(parentBody);
+                fixedByProbe = NotFixed(chain);
+                SelectComponents(chain);
+                _assembly.FixComponent();
+                _model.ClearSelection2(true);
                 foreach (var child in children)
                     verdicts.Add(child == null
                         ? new ProbeVerdict()
@@ -490,6 +508,95 @@ namespace Peak.Cadder.Sw
             verdict.Type = JointType.Free;
         }
 
+        /// <summary>Runs <paramref name="body"/> with the user's selection
+        /// read before it and put back after it, on every path out. A
+        /// selection that cannot be read does not stop the probe.</summary>
+        internal static T KeepingSelection<T>(
+            Func<object> save, Action<object> restore, Func<T> body)
+        {
+            object saved = null;
+            try { saved = save(); }
+            catch { }
+            try { return body(); }
+            finally
+            {
+                if (saved != null)
+                {
+                    try { restore(saved); }
+                    catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// What the user had selected, in order, with each item's mark.
+        /// The probe selects components to fix and unfix them, and that
+        /// clears the selection. Nothing put it back: the user lost it after
+        /// every export, and with "only the selected components" the next
+        /// update from Blender read an empty selection and exported the
+        /// whole assembly.
+        /// </summary>
+        private sealed class SavedSelection
+        {
+            private readonly List<object> _items = new List<object>();
+            private readonly List<int> _marks = new List<int>();
+
+            public static SavedSelection Read(IModelDoc2 model)
+            {
+                var saved = new SavedSelection();
+                var manager = model.SelectionManager as ISelectionMgr;
+                if (manager == null) return saved;
+                int count = manager.GetSelectedObjectCount2(-1);
+                // The selection list is 1-based, and -1 means every mark.
+                for (int i = 1; i <= count; i++)
+                {
+                    object item = null;
+                    int mark = -1;
+                    try { item = manager.GetSelectedObject6(i, -1); } catch { }
+                    try { mark = manager.GetSelectedObjectMark(i); } catch { }
+                    if (item == null) continue;
+                    saved._items.Add(item);
+                    saved._marks.Add(mark);
+                }
+                return saved;
+            }
+
+            public void PutBack(IModelDoc2 model, Action<string> log)
+            {
+                try { model.ClearSelection2(true); } catch { }
+                if (_items.Count == 0) return;
+                var manager = model.SelectionManager as ISelectionMgr;
+                int lost = 0;
+                for (int i = 0; i < _items.Count; i++)
+                {
+                    SelectData data = null;
+                    try { data = manager == null ? null : manager.CreateSelectData(); } catch { }
+                    if (data != null) data.Mark = _marks[i];
+                    if (!Select(model, _items[i], data, _marks[i])) lost++;
+                }
+                if (lost > 0 && log != null)
+                    log("DOF probe: " + lost + " of the " + _items.Count
+                        + " selected item(s) could not be selected again");
+            }
+
+            private static bool Select(IModelDoc2 model, object item, SelectData data, int mark)
+            {
+                try
+                {
+                    var component = item as Component2;
+                    if (component != null) return component.Select4(true, data, false);
+                    var feature = item as IFeature;
+                    if (feature != null) return feature.Select2(true, mark);
+                    var entity = item as IEntity;
+                    if (entity != null) return entity.Select4(true, data);
+                    return model.Extension.MultiSelect2(
+                        new[] { new System.Runtime.InteropServices.DispatchWrapper(item) },
+                        true, data) > 0;
+                }
+                catch { return false; }
+            }
+        }
+
         private static double DistancePointToLine(double[] p, double[] dir, double[] pointOnLine)
         {
             var foot = MathOps.ClosestPointOnLineToPoint(p, dir, pointOnLine);
@@ -498,11 +605,9 @@ namespace Peak.Cadder.Sw
 
         // ── Fix / suppress / restore ────────────────────────────────────────
 
-        /// <summary>Fixes every component of the parent body and their
-        /// assembly-tree ancestors, returning only the ones that were NOT
-        /// already fixed: the restore must not unfix a component the user
-        /// had fixed.</summary>
-        private List<Component2> FixParentSide(IList<Component2> parentBody)
+        /// <summary>Every component of the parent body and their
+        /// assembly-tree ancestors: what the probe fixes.</summary>
+        private static List<Component2> ParentChain(IList<Component2> parentBody)
         {
             var chain = new List<Component2>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -515,7 +620,13 @@ namespace Peak.Cadder.Sw
                     if (name != null && !seen.Add(name)) break;
                     chain.Add(c);
                 }
+            return chain;
+        }
 
+        /// <summary>The ones that are NOT fixed yet: the restore must not
+        /// unfix a component the user had fixed.</summary>
+        private static List<Component2> NotFixed(List<Component2> chain)
+        {
             var toUnfix = new List<Component2>();
             foreach (var c in chain)
             {
@@ -523,10 +634,6 @@ namespace Peak.Cadder.Sw
                 try { already = c.IsFixed(); } catch { }
                 if (!already) toUnfix.Add(c);
             }
-
-            SelectComponents(chain);
-            _assembly.FixComponent();
-            _model.ClearSelection2(true);
             return toUnfix;
         }
 
