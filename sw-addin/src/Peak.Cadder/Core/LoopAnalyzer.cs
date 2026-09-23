@@ -628,6 +628,17 @@ namespace Peak.Cadder.Core
                 RigJoint cut;
                 if (!byId.TryGetValue(id, out cut)) continue;
                 if (cut.Axis == null || cut.Origin == null) continue;
+                // Only a joint whose origin is free along its axis: a pin,
+                // a screw, or a weld, which holds every point of its bodies
+                // alike (the wrench's cut is one). A ball with an angle
+                // limit carries the axis of its cone, and its origin is its
+                // centre, the one point that defines it: slid to the point
+                // nearest a crank's hinge, it moved 400 mm off the point
+                // where its bodies meet.
+                if (cut.Type != JointType.Revolute
+                    && cut.Type != JointType.Cylindrical
+                    && cut.Type != JointType.Screw
+                    && cut.Type != JointType.Fixed) continue;
 
                 double[] seat = null;
                 bool disagree = false;
