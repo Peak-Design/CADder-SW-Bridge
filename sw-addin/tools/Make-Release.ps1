@@ -60,9 +60,9 @@ $version = $project.Project.PropertyGroup.Version | Where-Object { $_ } | Select
 if (-not $version) { Fail "no <Version> in $csproj" }
 Write-Host "CADder Bridge $version"
 
-if ($Tag -and (git -C $repo tag --list "sw-v$version")) {
-    Fail "tag sw-v$version exists. Bump <Version> in the csproj first."
-}
+. (Join-Path $PSScriptRoot "Release-Checks.ps1")
+$problem = Test-ReleaseVersion -Repo $repo -Version $version -Tag:$Tag -Dirty:([bool]$dirty)
+if ($problem) { Fail $problem }
 
 # ── Copy check ─────────────────────────────────────────────────────────
 # Release notes, the README and every string the add-in shows go out with
