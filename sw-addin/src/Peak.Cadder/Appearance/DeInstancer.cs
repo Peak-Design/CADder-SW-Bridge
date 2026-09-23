@@ -317,7 +317,17 @@ namespace Peak.Cadder.Appearance
             // FILL_AREA_STYLE_COLOUR entities still hold the ORIGINAL colour.
             // That is untidy, and it gives a reader a way to show the colour
             // that this code means to replace.
+            //
+            // The transparency is the exception. The chain that SolidWorks
+            // wrote holds a SURFACE_STYLE_TRANSPARENT or none, and a colour
+            // written in place keeps it. A glass override then came out
+            // opaque, and an opaque override on glass stayed clear, while the
+            // copies of the same part in other groups were correct. When the
+            // chain does not hold the transparency of the override, the item
+            // gets a new chain. The old colour is still written in place, so
+            // the dead chain does not hold the original colour either.
             int count = 0;
+            int newChain = 0;
             foreach (var styled in mine)
             {
                 var colourIds = ColoursUnder(styled);
@@ -328,17 +338,43 @@ namespace Peak.Cadder.Appearance
                     foreach (var c in colourIds)
                         _step.Replace(c, $"#{c}=COLOUR_RGB('',{Part21.Num(colour.R)}," +
                                          $"{Part21.Num(colour.G)},{Part21.Num(colour.B)});");
+                    if (!HoldsTransparency(styled, transparency))
+                    {
+                        if (newChain == 0) newChain = BuildStyleChain(colour, transparency);
+                        PointStyledItemAt(styled, newChain);
+                    }
                     count++;
                 }
                 else
                 {
                     // Another styled item shares this colour and must not
-                    // change. Build a new chain for this item only.
-                    RecolourStyledItem(styled, colour, transparency);
+                    // change. Point this item only at a new chain.
+                    if (newChain == 0) newChain = BuildStyleChain(colour, transparency);
+                    PointStyledItemAt(styled, newChain);
                     count++;
                 }
             }
             return count;
+        }
+
+        /// <summary>True when the style chain of this item already gives the
+        /// transparency: the same SURFACE_STYLE_TRANSPARENT value, or none
+        /// for an opaque override.</summary>
+        private bool HoldsTransparency(int styledItem, double transparency)
+        {
+            var values = StyleEntitiesUnder(styledItem, "SURFACE_STYLE_TRANSPARENT")
+                .Select(t => ReadFirstNumber(_step.ArgsOf(t)))
+                .ToList();
+            if (transparency <= 1e-6) return values.All(v => v <= 1e-6);
+            return values.Count > 0 && values.All(v => Math.Abs(v - transparency) < 1e-4);
+        }
+
+        private static double ReadFirstNumber(string args)
+        {
+            var m = Regex.Match(args ?? "", @"-?\d+\.?\d*(?:[eE][-+]?\d+)?");
+            return m.Success
+                ? double.Parse(m.Value, System.Globalization.CultureInfo.InvariantCulture)
+                : 0.0;
         }
 
         /// <summary>
@@ -408,6 +444,10 @@ namespace Peak.Cadder.Appearance
 
         /// <summary>Every COLOUR_RGB below a styled item.</summary>
         private List<int> ColoursUnder(int styledItem)
+            => StyleEntitiesUnder(styledItem, "COLOUR_RGB");
+
+        /// <summary>Every entity of one type below a styled item.</summary>
+        private List<int> StyleEntitiesUnder(int styledItem, string type)
         {
             var found = new List<int>();
             var seen = new HashSet<int>();
@@ -416,7 +456,7 @@ namespace Peak.Cadder.Appearance
             {
                 int id = stack.Pop();
                 if (!seen.Add(id) || !_step.Entities.ContainsKey(id)) continue;
-                if (_step.TypeOf(id) == "COLOUR_RGB") { found.Add(id); continue; }
+                if (_step.TypeOf(id) == type) { found.Add(id); continue; }
                 // Do not walk into the geometry. A styled item references the
                 // solid that it styles, and that branch holds no colour to
                 // change.
@@ -476,8 +516,12 @@ namespace Peak.Cadder.Appearance
 
         /// <summary>Points one existing styled item at a new colour.</summary>
         public void RecolourStyledItem(int styledItemId, Rgb colour, double transparency)
+            => PointStyledItemAt(styledItemId, BuildStyleChain(colour, transparency));
+
+        /// <summary>Points one existing styled item at an existing
+        /// presentation style assignment.</summary>
+        private void PointStyledItemAt(int styledItemId, int psa)
         {
-            int psa = BuildStyleChain(colour, transparency);
             string args = _step.ArgsOf(styledItemId);
             var m = Regex.Match(args ?? "", @"^\(\s*('(?:[^']|'')*'|\$)\s*,\s*\(([^)]*)\)\s*,\s*#(\d+)");
             if (!m.Success)
