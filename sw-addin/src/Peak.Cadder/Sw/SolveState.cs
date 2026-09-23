@@ -390,7 +390,7 @@ namespace Peak.Cadder.Sw
             try { return feat.IsSuppressed(); } catch { return false; }
         }
 
-        private static string ActiveConfiguration(IModelDoc2 doc)
+        internal static string ActiveConfiguration(IModelDoc2 doc)
         {
             try
             {

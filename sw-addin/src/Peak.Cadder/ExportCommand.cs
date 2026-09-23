@@ -372,6 +372,7 @@ namespace Peak.Cadder
             SolveState limitsOut = null;
             List<string> limitsLeft = new List<string>();
             HashSet<string> statusVetoed = null;
+            HashSet<string> subStatusVetoed = null;
             try
             {
                 if (runDofProbe)
@@ -384,8 +385,10 @@ namespace Peak.Cadder
                 if (runDofProbe)
                 {
                     statusVetoed = VetoStatusWelds(model, walked, graph, grouping);
-                    if (statusVetoed.Count > 0)
-                        grouping = RigidGrouper.Group(graph, null, statusVetoed);
+                    subStatusVetoed = VetoSubStatusWelds(walked, graph, grouping);
+                    if (statusVetoed.Count > 0 || subStatusVetoed.Count > 0)
+                        grouping = RigidGrouper.Group(graph, null, statusVetoed,
+                                                      subStatusVetoed: subStatusVetoed);
                 }
                 verdicts = runDofProbe
                     ? ProbePairs(model, walked, grouping, progress)
@@ -483,7 +486,8 @@ namespace Peak.Cadder
             {
                 AddIn.Log("DOF probe: the solver reads " + solverRigid.Count
                     + " pair(s) as having no relative freedom; regrouping");
-                grouping = RigidGrouper.Group(graph, solverRigid, statusVetoed);
+                grouping = RigidGrouper.Group(graph, solverRigid, statusVetoed,
+                                              subStatusVetoed: subStatusVetoed);
             }
             LogGrounding(grouping);
             // The limit-sign probe only fires when a limit rests at a
@@ -936,8 +940,7 @@ namespace Peak.Cadder
             if (grouping.SubStatusWelds.Count > 0)
                 AddIn.Log("grounding: " + grouping.SubStatusWelds.Count + " component(s) "
                     + "welded to their subassembly because SolidWorks says they cannot "
-                    + "move in it. The DOF probe does not check a weld inside a "
-                    + "subassembly: " + string.Join(", ", grouping.SubStatusWelds.ToArray()));
+                    + "move in it: " + string.Join(", ", grouping.SubStatusWelds.ToArray()));
             foreach (string path in grouping.MergedAwayDofs)
                 AddIn.Log("  WARNING SolidWorks says this can move, but it is "
                     + "welded to the ground: " + path);
@@ -1078,6 +1081,149 @@ namespace Peak.Cadder
             AddIn.Log("status: " + kept + " weld(s) on SolidWorks' status checked by the "
                 + "DOF probe, " + vetoed.Count + " vetoed");
             return vetoed;
+        }
+
+        /// <summary>
+        /// The children of flexible subassemblies that the subassembly status
+        /// would weld to their subassembly, and that the DOF probe finds free
+        /// against the subassembly's grounded body (SubStatusVeto). The probe
+        /// runs in the subassembly's own document, where the status was read
+        /// (SolveState.ReadSubStatus) and where the limit mates are already
+        /// out. The top document reads every pair inside a flexible
+        /// subassembly as fixed.
+        /// </summary>
+        private static HashSet<string> VetoSubStatusWelds(
+            List<WalkedComponent> walked, MateGraph graph, RigidGroupingResult withStatus)
+        {
+            var vetoed = new HashSet<string>();
+            var plans = SubStatusVeto.Plan(graph, withStatus);
+            if (plans.Count == 0) return vetoed;
+
+            var byId = new Dictionary<string, WalkedComponent>();
+            foreach (var w in walked)
+                if (w.Comp != null) byId[w.Id] = w;
+
+            // One reading per document and configuration: two instances of
+            // one subassembly are the same components there.
+            var readings = new Dictionary<string, Dictionary<string, ProbeVerdict>>(
+                StringComparer.OrdinalIgnoreCase);
+            int kept = 0, unread = 0;
+            foreach (var plan in plans)
+            {
+                int welds = 0;
+                foreach (var body in plan.Bodies) welds += body.Count;
+                WalkedComponent sub;
+                IModelDoc2 doc = null;
+                if (byId.TryGetValue(plan.SubId, out sub))
+                    try { doc = sub.Comp.GetModelDoc2() as IModelDoc2; } catch { }
+                string active = doc == null ? null : SolveState.ActiveConfiguration(doc);
+                if (doc == null || !(doc is IAssemblyDoc)
+                    || (!string.IsNullOrEmpty(sub.ReferencedConfiguration)
+                        && !string.Equals(sub.ReferencedConfiguration, active, StringComparison.Ordinal)))
+                {
+                    unread += welds;
+                    continue;
+                }
+
+                string key = (doc.GetPathName() ?? "") + "|" + active;
+                Dictionary<string, ProbeVerdict> verdictOf;
+                if (!readings.TryGetValue(key, out verdictOf))
+                {
+                    verdictOf = ProbeInOwnDocument(doc, plan, byId);
+                    readings[key] = verdictOf;
+                }
+
+                foreach (var body in plan.Bodies)
+                {
+                    ProbeVerdict verdict;
+                    if (!verdictOf.TryGetValue(ChildName(byId, body[0]) ?? "", out verdict))
+                    {
+                        unread += body.Count;
+                        continue;
+                    }
+                    if (!verdict.NamesFreedom) { kept += body.Count; continue; }
+                    foreach (string id in body)
+                    {
+                        vetoed.Add(id);
+                        AddIn.Log("status: " + byId[id].Graph.Path + " reads fully defined in "
+                            + "its subassembly, but the DOF probe finds it free there ["
+                            + verdict.RawStatuses + "], so it is not welded to the subassembly");
+                    }
+                }
+            }
+            AddIn.Log("status: " + kept + " weld(s) inside subassemblies checked by the "
+                + "DOF probe in their own documents, " + vetoed.Count + " vetoed"
+                + (unread > 0 ? ", " + unread + " could not be read and stay welded" : ""));
+            return vetoed;
+        }
+
+        /// <summary>
+        /// Reads one member of each body in <paramref name="plan"/> against
+        /// the grounded body, in the subassembly document <paramref name="doc"/>.
+        /// Keyed by the child's name in that document. Empty when the
+        /// grounded body has no part in it to fix.
+        /// </summary>
+        private static Dictionary<string, ProbeVerdict> ProbeInOwnDocument(
+            IModelDoc2 doc, SubStatusVeto.Probe plan, Dictionary<string, WalkedComponent> byId)
+        {
+            var verdictOf = new Dictionary<string, ProbeVerdict>(StringComparer.OrdinalIgnoreCase);
+            var inDoc = new Dictionary<string, Component2>(StringComparer.OrdinalIgnoreCase);
+            object[] comps = null;
+            try { comps = ((IAssemblyDoc)doc).GetComponents(true) as object[]; } catch { }
+            foreach (var o in comps ?? new object[0])
+            {
+                var c = o as Component2;
+                string name = null;
+                try { name = c == null ? null : c.Name2; } catch { }
+                if (!string.IsNullOrEmpty(name)) inDoc[name] = c;
+            }
+
+            var ground = new List<Component2>();
+            foreach (string id in plan.Ground)
+            {
+                Component2 c;
+                string name = ChildName(byId, id);
+                if (name != null && inDoc.TryGetValue(name, out c)) ground.Add(c);
+            }
+            var names = new List<string>();
+            var reps = new List<Component2>();
+            foreach (var body in plan.Bodies)
+            {
+                Component2 c;
+                string name = ChildName(byId, body[0]);
+                if (name == null || !inDoc.TryGetValue(name, out c)) continue;
+                names.Add(name);
+                reps.Add(c);
+            }
+            if (ground.Count == 0 || reps.Count == 0)
+            {
+                AddIn.Log("status: " + SafeTitle(doc) + " has no grounded part to probe "
+                    + "against, so its welds on status are not checked");
+                return verdictOf;
+            }
+
+            var got = new DofProbe(doc, AddIn.Log).ProbeAgainst(ground, reps);
+            for (int i = 0; i < names.Count && i < got.Count; i++)
+                verdictOf[names[i]] = got[i];
+            return verdictOf;
+        }
+
+        /// <summary>A child's name in its subassembly's own document: the
+        /// last part of its instance path.</summary>
+        private static string ChildName(Dictionary<string, WalkedComponent> byId, string id)
+        {
+            WalkedComponent w;
+            if (!byId.TryGetValue(id, out w)) return null;
+            string name = null;
+            try { name = w.Comp.Name2; } catch { }
+            if (string.IsNullOrEmpty(name)) return null;
+            int slash = name.LastIndexOf('/');
+            return slash >= 0 ? name.Substring(slash + 1) : name;
+        }
+
+        private static string SafeTitle(IModelDoc2 doc)
+        {
+            try { return doc.GetTitle(); } catch { return "a subassembly"; }
         }
 
         private static List<PairVerdict> ProbePairs(

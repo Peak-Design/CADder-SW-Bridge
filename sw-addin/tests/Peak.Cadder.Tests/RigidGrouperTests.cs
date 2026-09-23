@@ -550,6 +550,78 @@ namespace Peak.Cadder.Tests
             Assert.Empty(result.SubStatusWelds);
         }
 
+        /// <summary>A cutting head: the plate is fixed in it, a washer reads
+        /// fully defined in its document while the mates read here leave it
+        /// free in a plane, and a bolt is held rigid to the plate by the
+        /// mates alone.</summary>
+        private static MateGraph HeadWithWasherAndBolt()
+        {
+            var washer = Inside(Comp("c004", "washer"), "c002");
+            washer.SubStatusFree = 3;
+            var bolt = Inside(Comp("c005", "bolt"), "c002");
+            bolt.SubStatusFree = 3;
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Flexible(Comp("c002", "head")),
+                    InSubFixed(Inside(Comp("c003", "plate"), "c002")),
+                    washer,
+                    bolt,
+                },
+                Concentric("Concentric1", "c001", "c003", X, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c003", "c004", Z, P(0, 0, 0.01)),
+                Concentric("Concentric2", "c003", "c005", X, P(0, 0.02, 0)),
+                CoincidentPlanes("Coincident2", "c003", "c005", X, P(0.01, 0, 0)),
+                CoincidentPlanes("Coincident3", "c003", "c005", Y, P(0, 0.03, 0)));
+        }
+
+        /// <summary>A child the DOF probe found free in its subassembly's
+        /// own document is not welded to the subassembly, and the mates
+        /// decide (review, 2026-09-23).</summary>
+        [Fact]
+        public void AChildVetoedInItsSubassemblyIsNotWeldedToIt()
+        {
+            var graph = HeadWithWasherAndBolt();
+
+            var welded = RigidGrouper.Group(graph);
+            var vetoed = RigidGrouper.Group(graph, null, null,
+                subStatusVetoed: new HashSet<string> { "c004" });
+
+            Assert.Contains("c004", welded.SubStatusWeldIds);
+            Assert.Equal(welded.ComponentGroup["c003"], welded.ComponentGroup["c004"]);
+            Assert.DoesNotContain("c004", vetoed.SubStatusWeldIds);
+            Assert.NotEqual(vetoed.ComponentGroup["c003"], vetoed.ComponentGroup["c004"]);
+            Assert.Equal(vetoed.ComponentGroup["c003"], vetoed.ComponentGroup["c005"]);
+        }
+
+        /// <summary>The probe reads the washer against the head's grounded
+        /// body, the plate. The bolt is one body with the plate by the mates
+        /// alone, so its weld does not depend on the status and it is not
+        /// read.</summary>
+        [Fact]
+        public void TheSubassemblyProbeReadsOnlyWeldsTheStatusAloneMakes()
+        {
+            var graph = HeadWithWasherAndBolt();
+            var welded = RigidGrouper.Group(graph);
+
+            var plans = SubStatusVeto.Plan(graph, welded);
+
+            var plan = Assert.Single(plans);
+            Assert.Equal("c002", plan.SubId);
+            Assert.Equal(new[] { "c003", "c005" }, plan.Ground);
+            var body = Assert.Single(plan.Bodies);
+            Assert.Equal(new[] { "c004" }, body);
+        }
+
+        [Fact]
+        public void WithNoWeldsOnSubassemblyStatusNothingIsProbed()
+        {
+            var graph = HeadWithWasherAndBolt();
+            var none = RigidGrouper.Group(graph, subStatusWelds: false);
+            Assert.Empty(SubStatusVeto.Plan(graph, none));
+        }
+
         /// <summary>A part the DOF probe found free is not welded on its
         /// status, and the mates decide (corpus hydraulic assembly,
         /// 2026-09-22: a slider read fully defined with two limits out).

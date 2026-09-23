@@ -51,6 +51,10 @@ namespace Peak.Cadder.Core
         /// </summary>
         public List<string> SubStatusWelds = new List<string>();
 
+        /// <summary>The component ids behind SubStatusWelds, in the same
+        /// order.</summary>
+        public List<string> SubStatusWeldIds = new List<string>();
+
         /// <summary>Mates that touch three or more components and did not
         /// come down to two rigid groups, so the rig cannot use them.
         /// </summary>
@@ -86,10 +90,14 @@ namespace Peak.Cadder.Core
         /// SolidWorks' status calls them fully defined.</param>
         /// <param name="statusWelds">False skips the top-level status pass,
         /// for the grouping the mates alone give.</param>
+        /// <param name="subStatusVetoed">Children of flexible subassemblies
+        /// the subassembly status pass must not weld: the DOF probe, run in
+        /// the subassembly's own document, found them free against its
+        /// grounded body.</param>
         public static RigidGroupingResult Group(
             MateGraph graph, IEnumerable<string[]> solverRigidPairs = null,
             ISet<string> statusVetoed = null, bool statusWelds = true,
-            bool subStatusWelds = true)
+            bool subStatusWelds = true, ISet<string> subStatusVetoed = null)
         {
             var comps = new List<GraphComponent>();
             var indexById = new Dictionary<string, int>();
@@ -206,11 +214,13 @@ namespace Peak.Cadder.Core
             }
             var poseSkips = new List<string>();
             var subStatusWelded = new List<string>();
+            var subStatusWeldedIds = new List<string>();
             for (int i = 0; i < comps.Count && subStatusWelds; i++)
             {
                 var c = comps[i];
                 if (c.ParentId == null || c.SubStatusFree != SwFullyConstrained) continue;
                 if (!mated.Contains(c.Id)) continue;
+                if (subStatusVetoed != null && subStatusVetoed.Contains(c.Id)) continue;
                 // Not only the part the cam touches: a part bolted to the
                 // follower reads fully defined at a dwell too, and welding it
                 // to the subassembly takes the follower with it.
@@ -224,6 +234,7 @@ namespace Peak.Cadder.Core
                 if (Find(parent, i) == Find(parent, p)) continue;
                 Union(parent, i, p);
                 subStatusWelded.Add(c.Path ?? c.Id);
+                subStatusWeldedIds.Add(c.Id);
             }
 
             // Every fixed component belongs to the SAME ground: two things
@@ -373,6 +384,7 @@ namespace Peak.Cadder.Core
             result.StatusWeldIds = statusWeldedIds;
             result.PoseHeldSkips = poseSkips;
             result.SubStatusWelds = subStatusWelded;
+            result.SubStatusWeldIds = subStatusWeldedIds;
             return result;
         }
 
