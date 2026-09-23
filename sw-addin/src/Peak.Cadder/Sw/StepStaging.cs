@@ -104,7 +104,7 @@ namespace Peak.Cadder.Sw
         public void Dispose()
         {
             if (!_staged) return;
-            try { if (File.Exists(WorkingPath)) File.Delete(WorkingPath); }
+            try { RemoveScratch(WorkingPath); }
             catch (Exception ex)
             {
                 if (_log != null)
@@ -126,16 +126,7 @@ namespace Peak.Cadder.Sw
             if (!IsRemote(finalPath)) return null;
             try
             {
-                string dir = Path.Combine(Path.GetTempPath(), "CADder");
-                Directory.CreateDirectory(dir);
-                // The name matters: SolidWorks derives the STEP's own product
-                // names from the file it is asked to write, so the scratch
-                // file keeps the target's base name and only its folder moves.
-                return Path.Combine(
-                    dir,
-                    Path.GetFileNameWithoutExtension(finalPath)
-                        + "." + Guid.NewGuid().ToString("N").Substring(0, 8)
-                        + Path.GetExtension(finalPath));
+                return ScratchIn(finalPath, Path.GetTempPath());
             }
             catch (Exception ex)
             {
@@ -143,6 +134,40 @@ namespace Peak.Cadder.Sw
                     log("STEP staging: no scratch directory (" + ex.Message + ")");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// A scratch path for this target, in a folder of its own under
+        /// <paramref name="tempRoot"/>.
+        ///
+        /// The name matters: SolidWorks names the STEP's root PRODUCT after
+        /// the file it is asked to write, so the scratch file has the
+        /// target's exact name and only its folder moves. A random suffix
+        /// on the name, as before, made every export to a network path a
+        /// different root product ("Rig.3f9a1c2e"). The manifest paths
+        /// started with it, and a refresh in Blender could not pair the
+        /// root with the previous import.
+        /// </summary>
+        internal static string ScratchIn(string finalPath, string tempRoot)
+        {
+            string dir = Path.Combine(tempRoot, "CADder", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, Path.GetFileName(finalPath));
+        }
+
+        /// <summary>Removes a scratch file and the folder ScratchIn made
+        /// for it.</summary>
+        internal static void RemoveScratch(string workingPath)
+        {
+            if (File.Exists(workingPath)) File.Delete(workingPath);
+            string dir = Path.GetDirectoryName(workingPath);
+            // Only the folder of our own layout, CADder\<guid>, and only
+            // when the export left nothing else in it.
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)
+                && string.Equals(Path.GetFileName(Path.GetDirectoryName(dir)), "CADder",
+                                 StringComparison.OrdinalIgnoreCase)
+                && Directory.GetFileSystemEntries(dir).Length == 0)
+                Directory.Delete(dir);
         }
 
         /// <summary>UNC paths and mapped network drives. Anything this cannot
