@@ -11,6 +11,9 @@ namespace Peak.Cadder.Appearance
         /// <summary>The STEP product name. SolidWorks takes it from the part
         /// file name.</summary>
         public string ProductName;
+        /// <summary>The part file name without the configuration, when
+        /// ProductName carries one.</summary>
+        public string BareName;
         public string Name;
         public string Database;
         /// <summary>kg/m^3.</summary>
@@ -140,16 +143,30 @@ namespace Peak.Cadder.Appearance
             }
 
             var byName = new Dictionary<string, PartMaterial>(StringComparer.OrdinalIgnoreCase);
+            var byBareName = new Dictionary<string, List<PartMaterial>>(StringComparer.OrdinalIgnoreCase);
             foreach (var m in materials)
-                if (!string.IsNullOrEmpty(m?.ProductName) && !string.IsNullOrEmpty(m.Name))
-                    byName[m.ProductName] = m;
+            {
+                if (string.IsNullOrEmpty(m?.ProductName) || string.IsNullOrEmpty(m.Name)) continue;
+                byName[m.ProductName] = m;
+                if (string.IsNullOrEmpty(m.BareName)) continue;
+                if (!byBareName.TryGetValue(m.BareName, out var list))
+                    byBareName[m.BareName] = list = new List<PartMaterial>();
+                list.Add(m);
+            }
             if (byName.Count == 0) return 0;
+
+            var productNames = new HashSet<string>(
+                _step.ByType("PRODUCT").Select(p => _step.NameOf(p) ?? ""),
+                StringComparer.OrdinalIgnoreCase);
 
             int applied = 0;
             foreach (var product in _step.ByType("PRODUCT"))
             {
                 string productName = _step.NameOf(product);
-                if (productName == null || !byName.TryGetValue(productName, out var mat)) continue;
+                if (productName == null) continue;
+                if (!byName.TryGetValue(productName, out var mat))
+                    mat = ForBareName(productName, byBareName, productNames);
+                if (mat == null) continue;
 
                 int pd = ProductDefinitionOf(product);
                 if (pd < 0)
@@ -176,6 +193,32 @@ namespace Peak.Cadder.Appearance
                              $"density {mat.Density:F1} kg/m^3");
             }
             return applied;
+        }
+
+        /// <summary>
+        /// The material of a product that carries only the file name, when
+        /// the harvest named its materials 'doc_config'. SolidWorks writes
+        /// one configuration of a part without the suffix, so the bare
+        /// product is the configuration whose 'doc_config' product is not in
+        /// the file. When that leaves several configurations with different
+        /// materials, the product gets none, and the log says so.
+        /// </summary>
+        private PartMaterial ForBareName(string productName,
+            Dictionary<string, List<PartMaterial>> byBareName, HashSet<string> productNames)
+        {
+            if (!byBareName.TryGetValue(productName, out var configurations)) return null;
+            var candidates = configurations.Where(m => !productNames.Contains(m.ProductName)).ToList();
+            if (candidates.Count == 0) return null;
+            var first = candidates[0];
+            bool agree = candidates.All(m =>
+                string.Equals(m.Name, first.Name, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(m.Database ?? "", first.Database ?? "", StringComparison.OrdinalIgnoreCase)
+                && Math.Abs(m.Density - first.Density) < 1e-6);
+            if (agree) return first;
+            _log?.Invoke($"    {productName}: could be any of "
+                       + string.Join(", ", candidates.Select(m => m.ProductName))
+                       + ", which have different materials; no material written");
+            return null;
         }
 
         private void WriteNamed(int productDefinition, int context, string role, string itemEntity)
