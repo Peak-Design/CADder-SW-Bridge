@@ -536,6 +536,10 @@ namespace Peak.Cadder.Sw
             /// </summary>
             public bool HasSpan;
             public double Start, End;
+
+            /// <summary>Sketch space to model space, for a curve of a 2D
+            /// sketch. Null when the curve is in model space already.</summary>
+            public double[,] SketchToModel;
         }
 
         /// <summary>The curves a mate-entity reference can yield: an edge's
@@ -560,7 +564,8 @@ namespace Peak.Cadder.Sw
             {
                 ICurve c = null;
                 try { c = seg.GetCurve() as ICurve; } catch { }
-                if (c != null) yield return new CurveSource { Curve = c };
+                if (c != null)
+                    yield return new CurveSource { Curve = c, SketchToModel = SketchToModel(seg, log) };
                 yield break;
             }
             var refCurve = reference as IReferenceCurve;
@@ -589,6 +594,42 @@ namespace Peak.Cadder.Sw
             }
             var direct = reference as ICurve;
             if (direct != null) yield return new CurveSource { Curve = direct };
+        }
+
+        /// <summary>
+        /// Sketch space to model space for a segment of a 2D sketch, or
+        /// null. A 2D sketch's curve is in the sketch's own space: the API
+        /// example "Evaluate Curves Defined in Sketch Space" maps each
+        /// evaluated point through ModelToSketchTransform.Inverse. A 3D
+        /// sketch's space is model space, which is why the live paths
+        /// (corpus 16 and 17, all 3D sketches) came out right without it.
+        /// </summary>
+        private static double[,] SketchToModel(ISketchSegment seg, Action<string> log)
+        {
+            try
+            {
+                var sketch = seg.GetSketch() as ISketch;
+                if (sketch == null || sketch.Is3D()) return null;
+                var modelToSketch = sketch.ModelToSketchTransform;
+                var inverse = modelToSketch == null ? null : modelToSketch.Inverse() as MathTransform;
+                var m = SwFrames.ToMatrix(inverse);
+                if (m == null && log != null)
+                    log("path curve: a 2D sketch with no sketch transform; its curve is taken as model space");
+                return m;
+            }
+            catch (Exception ex)
+            {
+                if (log != null) log("path curve: sketch transform unreadable: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>The lift for a point of a curve source: the sketch
+        /// frame first, then the component's lift.</summary>
+        internal static double[,] SketchLift(double[,] lift, double[,] sketchToModel)
+        {
+            if (sketchToModel == null) return lift;
+            return lift == null ? sketchToModel : MathOps.Multiply(lift, sketchToModel);
         }
 
         /// <summary>An edge's underlying curve, with the span the edge
@@ -734,7 +775,7 @@ namespace Peak.Cadder.Sw
                 return null;
             }
             var curve = src.Curve;
-            return SampleSpan(t => Evaluate(curve, t), s, e, lift);
+            return SampleSpan(t => Evaluate(curve, t), s, e, SketchLift(lift, src.SketchToModel));
         }
 
         /// <summary>
@@ -1400,12 +1441,13 @@ namespace Peak.Cadder.Sw
                             var dir = new[] { lp[3], lp[4], lp[5] };
                             if (MathOps.Norm(dir) > MathOps.Epsilon)
                             {
+                                var frame = SketchLift(lift, src.SketchToModel);
                                 ge.EntityTypeName = "edge";
                                 ge.Direction = SwFrames.LiftDirection(
-                                    lift, MathOps.Normalized(dir));
+                                    frame, MathOps.Normalized(dir));
                                 if (ge.Point == null)
                                     ge.Point = SwFrames.LiftPoint(
-                                        lift, new[] { lp[0], lp[1], lp[2] });
+                                        frame, new[] { lp[0], lp[1], lp[2] });
                                 if (log != null)
                                     // With the direction: the mate line above
                                     // prints the params as they arrived, and

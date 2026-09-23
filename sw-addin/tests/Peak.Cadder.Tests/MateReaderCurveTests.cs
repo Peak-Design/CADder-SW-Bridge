@@ -106,6 +106,41 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void TwoDSketchCurveIsLiftedThroughItsSketchFrame()
+        {
+            // A 2D sketch on a plane 20 mm off the part's YZ plane: sketch X
+            // runs along model -Z, sketch Y along model Y, and the sketch
+            // origin sits at x = 0.02. Its curve evaluates in sketch space.
+            var sketchToModel = MathOps.GetTransformation(
+                new[] { 0.02, 0.0, 0.0 }, new[] { 0.0, Math.PI / 2.0, 0.0 });
+            // The part sits 1 m along the assembly's X.
+            var part = MathOps.GetTransformation(new[] { 1.0, 0.0, 0.0 }, new[] { 0.0, 0.0, 0.0 });
+
+            var frame = MateReader.SketchLift(part, sketchToModel);
+            var p = SwFrames.LiftPoint(frame, new[] { 0.1, 0.03, 0.0 });
+            var expected = MathOps.TransformPoint(part,
+                MathOps.TransformPoint(sketchToModel, new[] { 0.1, 0.03, 0.0 }));
+            for (int i = 0; i < 3; i++) Assert.Equal(expected[i], p[i], 12);
+            // The sketch point lies on the sketch plane, not on the XY plane.
+            Assert.Equal(1.02, p[0], 12);
+
+            // A recovered line direction turns with the sketch too.
+            var dir = SwFrames.LiftDirection(frame, new[] { 1.0, 0.0, 0.0 });
+            Assert.Equal(-1.0, dir[2], 12);
+        }
+
+        [Fact]
+        public void ModelSpaceCurveKeepsTheComponentLift()
+        {
+            var part = MathOps.GetTransformation(new[] { 1.0, 0.0, 0.0 }, new[] { 0.0, 0.0, 0.3 });
+            Assert.Same(part, MateReader.SketchLift(part, null));
+            var sketch = MathOps.GetTransformation(new[] { 0.0, 0.5, 0.0 }, new[] { 0.0, 0.0, 0.0 });
+            // An assembly-level 2D sketch at the top has no component lift.
+            Assert.Same(sketch, MateReader.SketchLift(null, sketch));
+            Assert.Null(MateReader.SketchLift(null, null));
+        }
+
+        [Fact]
         public void SampledArcHoldsTheChordTolerance()
         {
             var pts = MateReader.SampleSpan(Circle, 0.0, Math.PI, null);
