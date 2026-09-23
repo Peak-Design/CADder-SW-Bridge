@@ -121,7 +121,7 @@ namespace Peak.Cadder.Tests
         public void ASlideStillClosesAtZero()
         {
             // A slide is not a turn, so its end is never rounded to a turn,
-            // even when its last reading is near 2 pi (metres here).
+            // even when its last reading is near 2 pi (in meters here).
             var raw = new List<double[]>();
             for (int k = 0; k <= 72; k++)
             {
