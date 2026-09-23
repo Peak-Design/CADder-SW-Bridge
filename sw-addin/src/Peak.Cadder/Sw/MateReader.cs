@@ -34,20 +34,64 @@ namespace Peak.Cadder.Sw
             /// null for the top document.</summary>
             public readonly WalkedComponent Sub;
 
-            private MateContext(WalkedComponent owner, WalkedComponent sub)
+            /// <summary>The configuration the subassembly instance uses, and
+            /// the one its document shows. Null at the top.</summary>
+            public readonly string Configuration;
+            public readonly string Shown;
+
+            private MateContext(
+                WalkedComponent owner, WalkedComponent sub, string configuration, string shown)
             {
                 Owner = owner;
                 Sub = sub;
+                Configuration = configuration;
+                Shown = shown;
             }
 
             public static MateContext ForTop(WalkedComponent owner)
             {
-                return new MateContext(owner, null);
+                return new MateContext(owner, null, null, null);
             }
 
-            public static MateContext ForSub(WalkedComponent sub)
+            public static MateContext ForSub(WalkedComponent sub, string shown = null)
             {
-                return new MateContext(sub, sub);
+                return new MateContext(sub, sub, sub.ReferencedConfiguration, shown);
+            }
+
+            /// <summary>
+            /// True when the subassembly's document shows another
+            /// configuration than the instance uses. The document then
+            /// describes that other configuration: its components, its
+            /// dimension values and limits, and its error state. SolveState
+            /// does not read such a document for status for that reason.
+            /// </summary>
+            public bool OtherConfiguration
+            {
+                get
+                {
+                    return Sub != null && !string.IsNullOrEmpty(Configuration)
+                        && !string.IsNullOrEmpty(Shown)
+                        && !string.Equals(Configuration, Shown, StringComparison.Ordinal);
+                }
+            }
+
+            /// <summary>The configuration to read a mate's suppression in,
+            /// or null for the one the document shows. Inside a subassembly
+            /// it is the instance's: SolveState takes the mates out in that
+            /// configuration, and the graph must hold the same set.</summary>
+            public string SuppressionConfiguration
+            {
+                get { return Sub == null || string.IsNullOrEmpty(Configuration) ? null : Configuration; }
+            }
+
+            /// <summary>A mate error as the user reads it. An error read in
+            /// another configuration than the instance uses may not be in
+            /// the instance at all, so the text says where it was read.</summary>
+            public string ErrorIn(string error)
+            {
+                if (error == null || !OtherConfiguration) return error;
+                return error + " in configuration " + Shown + " (" + Sub.Graph.Path
+                    + " uses " + Configuration + ")";
             }
 
             /// <summary>
@@ -192,12 +236,14 @@ namespace Peak.Cadder.Sw
         {
             object[] comps = null;
             double unitMetres = 1.0;
+            string shown = null;
             try
             {
                 var asm = sub.Comp.GetModelDoc2() as IAssemblyDoc;
                 if (asm != null) comps = asm.GetComponents(true) as object[];
                 // The sub document states its own mates in its own unit.
                 unitMetres = LinearUnitMetres(asm as IModelDoc2, log);
+                shown = ShownConfiguration(asm as IModelDoc2);
             }
             catch (Exception ex)
             {
@@ -206,7 +252,15 @@ namespace Peak.Cadder.Sw
             }
             if (comps == null) return;
 
-            var ctx = MateContext.ForSub(sub);
+            var ctx = MateContext.ForSub(sub, shown);
+            if (ctx.OtherConfiguration && log != null)
+                // The document is read as it is: there is no configuration
+                // argument for entity geometry, dimension values or errors,
+                // and showing the other configuration would change the
+                // user's model. Suppression has one, and it is used.
+                log("sub-doc mates: " + sub.Graph.Path + " uses configuration " + ctx.Configuration
+                    + ", its document shows " + shown + ". Suppression is read in "
+                    + ctx.Configuration + ". Values, limits and errors are read in " + shown + ".");
             foreach (var o in comps)
             {
                 var comp = o as Component2;
@@ -236,10 +290,11 @@ namespace Peak.Cadder.Sw
             gm.TypeValue = type;
             gm.TypeName = MateTypeName(type);
             gm.FeatureName = feat.Name;
-            try { gm.Suppressed = feat.IsSuppressed(); } catch { }
+            gm.Suppressed = IsSuppressedIn(feat, ctx.SuppressionConfiguration);
             try { gm.Alignment = mate.Alignment; } catch { }
             try { gm.Flipped = mate.Flipped; } catch { }
             ReadErrorState(feat, gm, log);
+            gm.Error = ctx.ErrorIn(gm.Error);
 
             ReadDimensionAndLimits(mate, feat, type, gm);
             ReadCoupling(feat, type, gm, log, unitMetres);
@@ -2209,6 +2264,36 @@ namespace Peak.Cadder.Sw
                     return selectType == (int)swSelectType_e.swSelVERTICES
                         ? "vertex" : "unknown";
             }
+        }
+
+        /// <summary>The feature's suppression in one configuration, or in
+        /// the one the document shows when <paramref name="configuration"/>
+        /// is null. IsSuppressed alone reads only the shown one.</summary>
+        private static bool IsSuppressedIn(IFeature feat, string configuration)
+        {
+            if (configuration != null)
+            {
+                try
+                {
+                    var states = feat.IsSuppressed2(
+                        (int)swInConfigurationOpts_e.swSpecifyConfiguration,
+                        new[] { configuration }) as bool[];
+                    if (states != null && states.Length > 0) return states[0];
+                }
+                catch { }
+            }
+            try { return feat.IsSuppressed(); } catch { return false; }
+        }
+
+        private static string ShownConfiguration(IModelDoc2 doc)
+        {
+            if (doc == null) return null;
+            try
+            {
+                var active = doc.ConfigurationManager.ActiveConfiguration;
+                return active == null ? null : active.Name;
+            }
+            catch { return null; }
         }
 
         private static object SafeDefinition(IFeature feat)

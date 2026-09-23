@@ -97,6 +97,45 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void SubDocumentIsReadInTheConfigurationTheInstanceUses()
+        {
+            // Clamp-1 uses "Closed", and its document shows "Open".
+            var clamp = Walked("c001", "Clamp-1", "flexible");
+            clamp.ReferencedConfiguration = "Closed";
+            var ctx = MateContext.ForSub(clamp, "Open");
+
+            Assert.True(ctx.OtherConfiguration);
+            // Suppression is read in the configuration the instance uses,
+            // as SolveState takes the mates out in it.
+            Assert.Equal("Closed", ctx.SuppressionConfiguration);
+            // An error read in "Open" says so: it may not be in "Closed".
+            var error = ctx.ErrorIn("over-defines the assembly (error)");
+            Assert.Contains("Open", error);
+            Assert.Contains("Clamp-1 uses Closed", error);
+        }
+
+        [Fact]
+        public void SameConfigurationAndTopDocumentKeepTheirReadings()
+        {
+            var clamp = Walked("c001", "Clamp-1", "flexible");
+            clamp.ReferencedConfiguration = "Default";
+            var same = MateContext.ForSub(clamp, "Default");
+            Assert.False(same.OtherConfiguration);
+            Assert.Equal("Default", same.SuppressionConfiguration);
+            Assert.Equal("cannot be solved (error)", same.ErrorIn("cannot be solved (error)"));
+
+            var top = MateContext.ForTop(clamp);
+            Assert.False(top.OtherConfiguration);
+            Assert.Null(top.SuppressionConfiguration);
+            Assert.Null(top.ErrorIn(null));
+
+            // A configuration that cannot be read is not a difference.
+            clamp.ReferencedConfiguration = null;
+            Assert.False(MateContext.ForSub(clamp, "Default").OtherConfiguration);
+            Assert.Null(MateContext.ForSub(clamp, "Default").SuppressionConfiguration);
+        }
+
+        [Fact]
         public void DedupeKeySeparatesTheTopDocumentFromASubDocument()
         {
             var arm = Walked("c001", "Arm-1", "flexible");
