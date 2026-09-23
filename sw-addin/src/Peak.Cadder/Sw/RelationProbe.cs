@@ -122,15 +122,22 @@ namespace Peak.Cadder.Sw
                 foreach (int mode in new[] { 2, 0, 1 })
                 {
                     mover.DragMode = mode;
+                    string refusal = null;
                     try
                     {
-                        table = Sample(mover, byId, grouping, driver, driven, name, log, steps);
+                        table = Sample(mover, byId, grouping, driver, driven, universal, name, log, steps,
+                            out refusal);
                     }
                     catch (Exception ex)
                     {
                         unread[name] = "the drag failed: " + ex.Message;
                         log("relation probe " + name + " failed: " + ex.Message);
                         table = null;
+                    }
+                    if (refusal != null)
+                    {
+                        unread[name] = refusal;
+                        log("relation probe " + name + ": " + refusal);
                     }
                     if (table == null) break;
                     if (!Flat(table)) break;
@@ -168,9 +175,10 @@ namespace Peak.Cadder.Sw
 
         private static JointCoupling Sample(
             ComponentMover mover, Dictionary<string, WalkedComponent> byId,
-            RigidGroupingResult grouping, RigJoint driver, RigJoint driven,
-            string name, Action<string> log, int steps)
+            RigidGroupingResult grouping, RigJoint driver, RigJoint driven, bool universal,
+            string name, Action<string> log, int steps, out string refusal)
         {
+            refusal = null;
             // A parent with no component is the assembly's own geometry
             // (live cam-follower sample, 2026-09-15: no part is fixed, every
             // part hangs off assembly planes). That ground is the world
@@ -203,13 +211,20 @@ namespace Peak.Cadder.Sw
                 axis = MathOps.Normalized(MathOps.RotateVector(parentPoseDelta, axis));
                 origin = MathOps.TransformPoint(parentPoseDelta, origin);
             }
-            var drivenAxis = MathOps.Normalized(
+            // Both channels of the driven joint are read: the turn about its
+            // axis, and the slide along its slide direction (a pin_slot's
+            // secondary axis, per SCHEMA.md). DrivenChannel picks the one
+            // the table holds once the read shows which one moved.
+            var spinAxis = MathOps.Normalized(driven.Axis);
+            var slideAxis = MathOps.Normalized(
                 driven.Type == JointType.PinSlot && driven.SecondaryAxis != null
                     ? driven.SecondaryAxis : driven.Axis);
             var fPoseDelta = fParent == null ? null : fParent.Graph.MatePoseDelta;
             if (fPoseDelta != null)
-                drivenAxis = MathOps.Normalized(MathOps.RotateVector(fPoseDelta, drivenAxis));
-            bool drivenTurns = driven.Type != JointType.Prismatic;
+            {
+                spinAxis = MathOps.Normalized(MathOps.RotateVector(fPoseDelta, spinAxis));
+                slideAxis = MathOps.Normalized(MathOps.RotateVector(fPoseDelta, slideAxis));
+            }
 
             var dP0 = Pose(dParent);
             var dC0 = Pose(dChild);
@@ -218,10 +233,12 @@ namespace Peak.Cadder.Sw
             if (dP0 == null || dC0 == null || fP0 == null || fC0 == null) return null;
 
             var snapshots = ComponentMover.Snapshot(byId.Values);
-            var raw = new List<double[]> { new[] { 0.0, 0.0 } };
+            var rawSpin = new List<double[]> { new[] { 0.0, 0.0 } };
+            var rawSlide = new List<double[]> { new[] { 0.0, 0.0 } };
             double step = 2.0 * Math.PI / steps;
             double driverTotal = 0.0, driverLast = 0.0;
-            double drivenTotal = 0.0, drivenLast = 0.0;
+            double spinTotal = 0.0, spinLast = 0.0;
+            double spinMax = 0.0, slideMax = 0.0;
             try
             {
                 // Until the driver has come all the way round, not a fixed
@@ -239,8 +256,9 @@ namespace Peak.Cadder.Sw
                         break;
                     }
                     double d = Relative(axis, dP0, dC0, dParent, dChild, true);
-                    double f = Relative(drivenAxis, fP0, fC0, fParent, fChild, drivenTurns);
-                    if (double.IsNaN(d) || double.IsNaN(f)) break;
+                    double fSpin = Relative(spinAxis, fP0, fC0, fParent, fChild, true);
+                    double fSlide = Relative(slideAxis, fP0, fC0, fParent, fChild, false);
+                    if (double.IsNaN(d) || double.IsNaN(fSpin) || double.IsNaN(fSlide)) break;
                     double dInc = Wrap(d - driverLast);
                     driverLast = d;
                     if (Math.Abs(dInc) < step / 4.0)
@@ -250,13 +268,12 @@ namespace Peak.Cadder.Sw
                         break;
                     }
                     driverTotal += dInc;
-                    if (drivenTurns)
-                    {
-                        drivenTotal += Wrap(f - drivenLast);
-                        drivenLast = f;
-                    }
-                    else drivenTotal = f;
-                    raw.Add(new[] { driverTotal, drivenTotal });
+                    spinTotal += Wrap(fSpin - spinLast);
+                    spinLast = fSpin;
+                    spinMax = Math.Max(spinMax, Math.Abs(spinTotal));
+                    slideMax = Math.Max(slideMax, Math.Abs(fSlide));
+                    rawSpin.Add(new[] { driverTotal, spinTotal });
+                    rawSlide.Add(new[] { driverTotal, fSlide });
                 }
             }
             finally
@@ -275,12 +292,63 @@ namespace Peak.Cadder.Sw
                             + " m from where it started");
                 }
             }
-            if (raw.Count < 3)
+            if (rawSpin.Count < 3)
             {
-                log("relation probe " + name + ": too few readings (" + raw.Count + ")");
+                log("relation probe " + name + ": too few readings (" + rawSpin.Count + ")");
                 return null;
             }
-            return RelationTable.Build(driver.Id, raw, 2.0 * Math.PI, true, drivenTurns);
+            bool drivenTurns;
+            refusal = DrivenChannel(driven.Type, universal, slideMax, out drivenTurns);
+            log(string.Format(CultureInfo.InvariantCulture,
+                "relation probe {0}: {1} ({2}) turned up to {3:0.####} rad and slid up to {4:0.######} m. "
+                    + "The table holds its {5}",
+                name, driven.Id, driven.Type, spinMax, slideMax,
+                refusal != null ? "neither" : drivenTurns ? "turn" : "slide"));
+            if (refusal != null) return null;
+            return RelationTable.Build(driver.Id, drivenTurns ? rawSpin : rawSlide, 2.0 * Math.PI, true,
+                drivenTurns);
+        }
+
+        /// <summary>A driven slide under this, in metres over the whole
+        /// read, is the drag's noise and not a motion.</summary>
+        private const double SlideMoves = 1e-5;
+
+        /// <summary>
+        /// Which channel of the driven joint the table holds, from how far
+        /// it slid over the read (<paramref name="slide"/>, the largest
+        /// slide along its slide direction). Null with
+        /// <paramref name="turns"/> set, or the reason no table can hold the
+        /// motion.
+        ///
+        /// A revolute joint turns and a prismatic joint slides. A cylindrical
+        /// or pin-in-slot joint does both, and the channel used to be picked
+        /// by type alone: a pin_slot was read as a turn about its slide
+        /// direction, which it locks, and a cam's round plunger as its spin
+        /// instead of its stroke. The consumer drives a table on any joint
+        /// but a prismatic one as a TURN about the joint's axis, so a slide
+        /// on these two joints has no channel to go to, and it is refused
+        /// rather than written as a turn.
+        /// </summary>
+        internal static string DrivenChannel(
+            string drivenType, bool universal, double slide, out bool turns)
+        {
+            turns = drivenType != JointType.Prismatic;
+            if (drivenType != JointType.Cylindrical && drivenType != JointType.PinSlot) return null;
+            // A universal joint's output shaft turns: its slide, if any, is
+            // not the relation.
+            if (universal && drivenType == JointType.Cylindrical) return null;
+            if (Math.Abs(slide) > SlideMoves)
+            {
+                turns = false;
+                return drivenType == JointType.PinSlot
+                    ? "the pin slides in its slot as the driver turns, and a table on a pin-in-slot "
+                      + "joint can only drive its turn"
+                    : "the follower slides along its cylindrical joint as the driver turns, and a "
+                      + "table on a cylindrical joint can only drive its turn";
+            }
+            // It turns, or nothing moved: a flat table then asks for a retry.
+            turns = true;
+            return null;
         }
 
         /// <summary>The child's motion relative to the parent since the
