@@ -29,7 +29,11 @@ EM_DASH = chr(0x2014)
 EN_DASH = chr(0x2013)
 SKIP_DIRS = {".git", "bin", "obj", "node_modules", "__pycache__", "packages",
              ".claude", "test-assemblies", "assets"}
-SUFFIXES = (".cs", ".md", ".py", ".ps1", ".iss", ".json", ".yml", ".yaml", ".txt")
+# Project files and scripts carry comments that are published like any
+# other text. CopyStyleTests.cs reads the same list.
+SUFFIXES = (".cs", ".md", ".py", ".ps1", ".iss", ".json", ".yml", ".yaml", ".txt",
+            ".props", ".targets", ".csproj", ".bat", ".cmd", ".toml",
+            ".cpp", ".h", ".xml")
 
 
 def files(root):

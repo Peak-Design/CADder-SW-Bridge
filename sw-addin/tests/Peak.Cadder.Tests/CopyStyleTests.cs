@@ -20,8 +20,12 @@ namespace Peak.Cadder.Tests
         private const char EmDash = (char)0x2014;
         private const char EnDash = (char)0x2013;
 
+        // Project files and scripts are read too: their comments are
+        // published like any other. The same list is in tools/Check-Copy.py.
         private static readonly string[] Suffixes =
-            { ".cs", ".md", ".py", ".ps1", ".iss", ".json", ".yml", ".yaml" };
+            { ".cs", ".md", ".py", ".ps1", ".iss", ".json", ".yml", ".yaml",
+              ".props", ".targets", ".csproj", ".bat", ".cmd", ".toml",
+              ".cpp", ".h", ".xml" };
 
         // .claude holds the internal notes, and the corpus and assets
         // folders hold working files. Git ignores all three, so none of it

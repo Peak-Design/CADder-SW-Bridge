@@ -31,8 +31,8 @@
   <!-- The interop types are EMBEDDED in the add-in, so they are no longer an
        assembly reference anything can discover at runtime. The lookup-table
        coverage test still has to ask the SDK which mate types exist, so it
-       gets the probed path (and only the path — references off, or the tests
-       would compile against SolidWorks). -->
+       gets the probed path, and only the path. The references are off,
+       or the tests would compile against SolidWorks. -->
   <PropertyGroup>
     <SolidWorksApiReferences>false</SolidWorksApiReferences>
   </PropertyGroup>
