@@ -28,11 +28,15 @@ namespace Peak.Cadder.Core
         /// Builds the coupling. `raw` holds (driverValue, drivenValue) pairs
         /// in the order they were read, driver values UNWRAPPED (a turn
         /// read past 2 pi keeps counting). The first pair is the rest pose
-        /// and both values are taken relative to it. Null when fewer than
+        /// and both values are taken relative to it. `drivenTurns` is true
+        /// when the driven joint turns and its values are unwrapped too (a
+        /// universal joint's output, a rocker): a periodic cycle then
+        /// closes at the nearest whole turn, not at 0. Null when fewer than
         /// two distinct points came back.
         /// </summary>
         public static JointCoupling Build(
-            string driverJoint, IList<double[]> raw, double period, bool driverTurns)
+            string driverJoint, IList<double[]> raw, double period, bool driverTurns,
+            bool drivenTurns = false)
         {
             if (raw == null || raw.Count < 2) return null;
             double x0 = raw[0][0], y0 = raw[0][1];
@@ -54,9 +58,26 @@ namespace Peak.Cadder.Core
                 periodic = reach >= period - period / 36.0;
                 if (periodic)
                 {
+                    // The driven value one period on. A cam follower comes
+                    // back where it started, so that is 0. The output yoke
+                    // of a universal joint makes a whole turn with the
+                    // driver: close its cycle at the whole turns it made.
+                    // A close at 0 made the last segment run from a full
+                    // turn back to 0, and the output spun a turn backwards
+                    // in the last step below the rest pose. The consumer
+                    // repeats the cycle with no offset, so at the seam the
+                    // output jumps by whole turns, which a rotation does
+                    // not show. The reading nearest one period tells the
+                    // turns best.
+                    double end = 0.0;
+                    if (drivenTurns)
+                    {
+                        double turns = points[points.Count - 1][1] / (2.0 * Math.PI);
+                        end = 2.0 * Math.PI * Math.Round(turns);
+                    }
                     // Fold anything past one period onto [0, period) so the
                     // table is one cycle, and the cycle's end matches its
-                    // start.
+                    // start (in whole turns for a turning driven joint).
                     var folded = new List<double[]>();
                     foreach (var p in points)
                     {
@@ -66,7 +87,7 @@ namespace Peak.Cadder.Core
                     }
                     folded.Sort((a, b) => a[0].CompareTo(b[0]));
                     points = folded;
-                    points.Add(new[] { period, 0.0 });
+                    points.Add(new[] { period, end });
                 }
             }
 
@@ -89,8 +110,10 @@ namespace Peak.Cadder.Core
         }
 
         /// <summary>Linear interpolation through the table, for tests and
-        /// for a consumer that has no curve of its own. Periodic tables wrap;
-        /// others clamp to their ends.</summary>
+        /// for a consumer that has no curve of its own. Periodic tables wrap
+        /// with no offset, as the consumer's repeat does, so a turning
+        /// driven joint loses its whole turns at the seam. Others clamp to
+        /// their ends.</summary>
         public static double Evaluate(JointCoupling c, double x)
         {
             var s = c.Samples;

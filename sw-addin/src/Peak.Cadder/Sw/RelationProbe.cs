@@ -280,7 +280,7 @@ namespace Peak.Cadder.Sw
                 log("relation probe " + name + ": too few readings (" + raw.Count + ")");
                 return null;
             }
-            return RelationTable.Build(driver.Id, raw, 2.0 * Math.PI, true);
+            return RelationTable.Build(driver.Id, raw, 2.0 * Math.PI, true, drivenTurns);
         }
 
         /// <summary>The child's motion relative to the parent since the
