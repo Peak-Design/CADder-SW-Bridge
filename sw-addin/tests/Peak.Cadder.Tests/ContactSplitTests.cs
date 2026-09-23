@@ -121,5 +121,61 @@ namespace Peak.Cadder.Tests
             AssertAlong(X, result.Joints[1].Axis);
             AssertVector(new[] { 0.05, 0.0, 0.0 }, result.Joints[1].Origin);
         }
+
+        // ── Contacts with the assembly's own geometry ───────────────────────
+
+        /// <summary>
+        /// A vertex on the assembly's Top Plane. The plane has no component,
+        /// and the grouper already counts it as ground. The split did not,
+        /// found no parent side, and the pair went out free: the body could
+        /// be dragged off the plane in Blender. The same mate on a fixed
+        /// part's face was already planar plus ball.
+        /// </summary>
+        [Fact]
+        public void AVertexOnAnAssemblyPlaneIsPlanarPlusBall()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "base", isFixed: true),
+                    Comp("c002", "pointer"),
+                },
+                Mate("Coincident1", "swMateCOINCIDENT",
+                    PlaneEnt(null, Z, P(0, 0, 0)),
+                    VertexEnt("c002", P(0.01, 0.02, 0))));
+
+            var result = Run(graph);
+
+            Assert.Equal(2, result.Joints.Count);
+            Assert.Equal(JointType.Planar, result.Joints[0].Type);
+            AssertAlong(Z, result.Joints[0].Axis);
+            Assert.Equal(JointType.Ball, result.Joints[1].Type);
+            AssertVector(new[] { 0.01, 0.02, 0.0 }, result.Joints[1].Origin);
+            Assert.DoesNotContain(result.Warnings, w => w.Code == "UNDER_DEFINED");
+        }
+
+        /// <summary>A roller lying on the assembly's Front Plane, and no
+        /// part fixed: planar on the plane, and a spin about the roller's
+        /// own axis.</summary>
+        [Fact]
+        public void ARollerOnAnAssemblyPlaneIsPlanarPlusRevolute()
+        {
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "roller"),
+                },
+                Mate("Tangent1", "swMateTANGENT",
+                    PlaneEnt(null, Z, P(0, 0, 0)),
+                    Cylinder("c001", X, P(0, 0, 0.015), radius: 0.015)));
+
+            var result = Run(graph);
+
+            Assert.Equal(2, result.Joints.Count);
+            Assert.Equal(JointType.Planar, result.Joints[0].Type);
+            Assert.Equal(JointType.Revolute, result.Joints[1].Type);
+            AssertAlong(X, result.Joints[1].Axis);
+            Assert.DoesNotContain(result.Warnings, w => w.Code == "UNDER_DEFINED");
+        }
     }
 }

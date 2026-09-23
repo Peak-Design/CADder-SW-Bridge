@@ -668,10 +668,18 @@ namespace Peak.Cadder.Core
             }
             if (contact == null) return false;
 
+            // An entity with no component is the assembly's own plane or
+            // axis. The grouper counts it as ground, so the edge is
+            // (ground, B), and the split must read it the same way. Left
+            // unmapped, a vertex on the Top Plane found no parent side and
+            // went out free.
+            string ground = null;
+            foreach (var g in grouping.Groups)
+                if (g.Grounded) { ground = g.Id; break; }
             GraphMateEntity ea = null, eb = null;
             foreach (var e in contact.Entities)
             {
-                string g = GroupOf(e, grouping);
+                string g = e.ComponentId == null ? ground : GroupOf(e, grouping);
                 if (g == edge.GroupA) { if (ea == null) ea = e; }
                 else if (g == edge.GroupB) { if (eb == null) eb = e; }
             }
