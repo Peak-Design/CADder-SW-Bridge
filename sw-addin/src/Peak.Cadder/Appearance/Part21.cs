@@ -28,7 +28,6 @@ namespace Peak.Cadder.Appearance
     {
         private static readonly Regex EntityRe =
             new Regex(@"^#(\d+)\s*=\s*([A-Z0-9_]+)?\s*\(", RegexOptions.Compiled);
-        private static readonly Regex RefRe = new Regex(@"#(\d+)", RegexOptions.Compiled);
 
         public string Text { get; }
         public string Path { get; }
@@ -139,9 +138,70 @@ namespace Peak.Cadder.Appearance
             var outIds = new List<int>();
             var args = ArgsOf(id);
             if (args == null) return outIds;
-            foreach (Match m in RefRe.Matches(args))
-                outIds.Add(int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+            ScanRefs(args, (start, length, refId) => outIds.Add(refId));
             return outIds;
+        }
+
+        /// <summary>
+        /// Calls back for each entity reference in an argument text, with
+        /// its position, its length and its id. A quoted string is text and
+        /// is skipped. SolidWorks writes the part file name into the product
+        /// and representation names, and a name such as 'Screw #6' then made
+        /// a reference to entity 6. A copy of the part walked into that
+        /// entity and copied it, and the name of the copy changed to the id
+        /// of the copied entity.
+        /// </summary>
+        private static void ScanRefs(string args, Action<int, int, int> onRef)
+        {
+            bool inStr = false;
+            int n = args.Length;
+            for (int i = 0; i < n; i++)
+            {
+                char c = args[i];
+                if (inStr)
+                {
+                    // Two quote marks escape one, as in Parse.
+                    if (c == '\'')
+                    {
+                        if (i + 1 < n && args[i + 1] == '\'') { i++; continue; }
+                        inStr = false;
+                    }
+                    continue;
+                }
+                if (c == '\'') { inStr = true; continue; }
+                if (c != '#') continue;
+
+                int j = i + 1;
+                int refId = 0;
+                while (j < n && args[j] >= '0' && args[j] <= '9')
+                    refId = checked(refId * 10 + (args[j++] - '0'));
+                if (j == i + 1) continue;
+                onRef(i, j - i, refId);
+                i = j - 1;
+            }
+        }
+
+        /// <summary>
+        /// Rewrites the entity references in an argument text. text returns
+        /// the replacement for a reference, or null to keep it. A quoted
+        /// string stays as it is.
+        /// </summary>
+        public static string ReplaceRefs(string args, Func<int, string> text)
+        {
+            if (string.IsNullOrEmpty(args)) return args;
+            StringBuilder sb = null;
+            int pos = 0;
+            ScanRefs(args, (start, length, refId) =>
+            {
+                string replacement = text(refId);
+                if (replacement == null) return;
+                if (sb == null) sb = new StringBuilder(args.Length + 16);
+                sb.Append(args, pos, start - pos).Append(replacement);
+                pos = start + length;
+            });
+            if (sb == null) return args;
+            sb.Append(args, pos, args.Length - pos);
+            return sb.ToString();
         }
 
         /// <summary>

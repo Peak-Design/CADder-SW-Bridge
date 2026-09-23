@@ -37,8 +37,8 @@ namespace Peak.Cadder.Tests
 
         public readonly int ProductContext;
         public readonly int DefinitionContext;
-        /// <summary>A context with no unit: every reader takes it as
-        /// millimetres.</summary>
+        /// <summary>A geometric context in millimetres, the default for
+        /// every product.</summary>
         public readonly int MmContext;
 
         /// <summary>The representation that the last call to Bodies
@@ -50,7 +50,7 @@ namespace Peak.Cadder.Tests
             int app = Add("APPLICATION_CONTEXT('automotive design')");
             ProductContext = Add($"PRODUCT_CONTEXT('',#{app},'mechanical')");
             DefinitionContext = Add($"PRODUCT_DEFINITION_CONTEXT('part definition',#{app},'design')");
-            MmContext = Add("REPRESENTATION_CONTEXT('','')");
+            MmContext = LengthContext("mm");
         }
 
         public int Add(string entity)

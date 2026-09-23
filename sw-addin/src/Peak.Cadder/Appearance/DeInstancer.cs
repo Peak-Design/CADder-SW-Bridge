@@ -105,12 +105,10 @@ namespace Peak.Cadder.Appearance
             return map;
         }
 
+        /// <summary>Points the references at the copies. A quoted name keeps
+        /// its text, even when it holds a '#' and digits.</summary>
         private static string Remap(string args, Dictionary<int, int> map)
-            => Regex.Replace(args, @"#(\d+)", m =>
-            {
-                int id = int.Parse(m.Groups[1].Value);
-                return map.TryGetValue(id, out var n) ? "#" + n : m.Value;
-            });
+            => Part21.ReplaceRefs(args, id => map.TryGetValue(id, out var n) ? "#" + n : null);
 
         /// <summary>Writes one existing entity again, with new references.</summary>
         private void RewireEntity(int id, Dictionary<int, int> map)

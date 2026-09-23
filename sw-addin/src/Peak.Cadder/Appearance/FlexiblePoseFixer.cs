@@ -514,9 +514,10 @@ namespace Peak.Cadder.Appearance
         private static void SwapIdtReference(Part21 step, int idt, int oldRef, int newRef)
         {
             string args = step.ArgsOf(idt) ?? "";
-            // \b would also match "#12" inside "#123"; the lookahead will not.
-            string swapped = Regex.Replace(args, "#" + oldRef + @"(?!\d)",
-                "#" + newRef);
+            // A whole reference only: never "#12" inside "#123", never a
+            // '#' and digits inside a quoted name.
+            string swapped = Part21.ReplaceRefs(args,
+                id => id == oldRef ? "#" + newRef : null);
             step.Replace(idt, "#" + idt + "=ITEM_DEFINED_TRANSFORMATION" + swapped + ";");
         }
 
@@ -535,8 +536,8 @@ namespace Peak.Cadder.Appearance
                 .Any(t => step.Refs(t).Contains(oldRef));
             string type = step.TypeOf(rep) ?? "";
             string args = step.ArgsOf(rep) ?? "";
-            string listed = Regex.Replace(args, "#" + oldRef + @"(?!\d)",
-                stillUsed ? "#" + oldRef + ",#" + newRef : "#" + newRef);
+            string listed = Part21.ReplaceRefs(args, id => id != oldRef ? null
+                : stillUsed ? "#" + oldRef + ",#" + newRef : "#" + newRef);
             step.Replace(rep, type.StartsWith("COMPLEX:", StringComparison.Ordinal)
                 ? "#" + rep + "=" + listed + ";"
                 : "#" + rep + "=" + type + listed + ";");
