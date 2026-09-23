@@ -244,7 +244,100 @@ namespace Peak.Cadder.Sw
             if (args == null) return null;
             var matches = Regex.Matches(args, @"'((?:[^']|'')*)'");
             if (index < 0 || index >= matches.Count) return null;
-            return matches[index].Groups[1].Value.Replace("''", "'");
+            return Decode(matches[index].Groups[1].Value);
+        }
+
+        /// <summary>
+        /// The text of a Part 21 string, with its escapes read: two quote
+        /// marks are one, \\ is a backslash, \X2\...\X0\ and \X4\...\X0\
+        /// are runs of 4 and 8 hex digit code points, \X\hh is one ISO
+        /// 8859-1 character, \S\c is c plus 128, and a \P?\ code page
+        /// switch is left out.
+        ///
+        /// The Blender side reads names through OCCT, which decodes these.
+        /// This reader did not, so a part whose file name has an accent or
+        /// a diameter sign never matched its SolidWorks name, and under a
+        /// root assembly named that way every occurrence path started with
+        /// the raw escape.
+        /// </summary>
+        internal static string Decode(string raw)
+        {
+            if (string.IsNullOrEmpty(raw) || (raw.IndexOf('\\') < 0 && raw.IndexOf('\'') < 0))
+                return raw;
+            var text = new System.Text.StringBuilder(raw.Length);
+            int i = 0, n = raw.Length;
+            while (i < n)
+            {
+                char c = raw[i];
+                if (c == '\'' && i + 1 < n && raw[i + 1] == '\'')
+                {
+                    text.Append('\'');
+                    i += 2;
+                    continue;
+                }
+                if (c != '\\')
+                {
+                    text.Append(c);
+                    i++;
+                    continue;
+                }
+                if (At(raw, i, "\\\\"))
+                {
+                    text.Append('\\');
+                    i += 2;
+                }
+                else if (At(raw, i, "\\X2\\") || At(raw, i, "\\X4\\"))
+                {
+                    int width = raw[i + 2] == '2' ? 4 : 8;
+                    int end = raw.IndexOf("\\X0\\", i + 4, StringComparison.Ordinal);
+                    if (end < 0) { text.Append(c); i++; continue; }
+                    for (int at = i + 4; at + width <= end; at += width)
+                    {
+                        int code;
+                        if (!int.TryParse(raw.Substring(at, width), NumberStyles.HexNumber,
+                                          CultureInfo.InvariantCulture, out code))
+                            continue;
+                        // \X2\ holds UTF-16 units, so a surrogate pair
+                        // arrives as two of them. \X4\ holds whole code
+                        // points.
+                        if (width == 4) text.Append((char)code);
+                        else if (code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF))
+                            text.Append(char.ConvertFromUtf32(code));
+                    }
+                    i = end + 4;
+                }
+                else if (At(raw, i, "\\X\\") && i + 5 <= n)
+                {
+                    int code;
+                    if (int.TryParse(raw.Substring(i + 3, 2), NumberStyles.HexNumber,
+                                     CultureInfo.InvariantCulture, out code))
+                    {
+                        text.Append((char)code);
+                        i += 5;
+                    }
+                    else { text.Append(c); i++; }
+                }
+                else if (At(raw, i, "\\S\\") && i + 4 <= n)
+                {
+                    text.Append((char)(raw[i + 3] + 128));
+                    i += 4;
+                }
+                else if (i + 3 < n && raw[i + 1] == 'P' && raw[i + 3] == '\\')
+                {
+                    i += 4;                                 // a code page switch
+                }
+                else
+                {
+                    text.Append(c);
+                    i++;
+                }
+            }
+            return text.ToString();
+        }
+
+        private static bool At(string text, int index, string token)
+        {
+            return string.CompareOrdinal(text, index, token, 0, token.Length) == 0;
         }
     }
 }
