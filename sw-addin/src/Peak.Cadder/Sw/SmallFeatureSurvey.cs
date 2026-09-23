@@ -30,8 +30,10 @@ namespace Peak.Cadder.Sw
     /// The feature behind a loop is found by walking INWARD: cross into the
     /// face on the other side, then keep crossing every edge that is not
     /// itself on a marked loop. A through hole gives one cylinder bounded
-    /// by two marked loops; a blind hole gives the cylinder and its bottom;
-    /// a counterbore gives cylinder, annulus, cylinder and bottom.
+    /// by two marked loops; a blind hole gives the cylinder and its bottom.
+    /// A counterbore gives two regions: the counterbore (cylinder and
+    /// annulus), and the hole in its floor (cylinder and bottom), which is
+    /// walked from the annulus. The planner does this in any face order.
     ///
     /// The region is removed only when its WHOLE boundary is marked loops.
     /// A hole running into a fillet, a hole breaking the silhouette, a
@@ -49,33 +51,10 @@ namespace Peak.Cadder.Sw
     /// </summary>
     public static class SmallFeatureSurvey
     {
-        /// <summary>A walk that reaches this many faces has not found a
-        /// pocket, it has found its way out into the body. Abandon it, so a
-        /// pathological shape cannot cost the export.</summary>
-        private const int FaceBudget = 24;
-
         /// <summary>How near two loops must agree before they count as the
         /// same loop seen from its two faces. They share their edges, so
         /// they agree exactly bar floating point.</summary>
         private const double SameLoop = 1e-9;
-
-        /// <summary>
-        /// One small loop that a feature is taken out through: where it is,
-        /// how wide, and the EDGES it is made of.
-        ///
-        /// The edges are what say which faces have to deal with it. A loop
-        /// key cannot: the same rim can be a loop of its own on the flat face
-        /// it breaks into and part of a longer loop on the cylinder beside
-        /// it, so matching whole loops left a cylinder holding a rim nobody
-        /// covered, and the part came back open (drum_pedal bolts, 68 edges).
-        /// </summary>
-        private sealed class Rim
-        {
-            public string Key;
-            public double[] Centre;
-            public double Extent;
-            public List<IEdge> Edges = new List<IEdge>();
-        }
 
         public sealed class Feature
         {
@@ -218,101 +197,83 @@ namespace Peak.Cadder.Sw
             }
             if (faces == null) return plan;
 
-            var marked = new HashSet<string>();
-            var rims = new Dictionary<string, Rim>();
-            var owners = new List<KeyValuePair<IFace2, ILoop2>>();
+            var list = new List<IFace2>();
             foreach (var o in faces)
             {
                 var face = o as IFace2;
-                if (face == null) continue;
-                plan.Faces++;
-                bool plane = IsPlane(face);
-                if (plane) plan.PlanarFaces++;
-                if (!plane && !curved) continue;
-                foreach (var loop in LoopsOf(face))
+                if (face != null) list.Add(face);
+            }
+            var found = new FeaturePlanner<IFace2, ILoop2, IEdge>(new SwTopology())
+                .Choose(list, maxExtent, curved);
+
+            plan.Faces = found.Faces;
+            plan.PlanarFaces = found.PlanarFaces;
+            plan.Gone.AddRange(found.Gone);
+            plan.Fill.AddRange(found.Fill);
+            foreach (var rims in found.FillHoles) plan.FillHoles.Add(Holes(rims));
+            plan.Cap.AddRange(found.Cap);
+            foreach (var rims in found.CapHoles) plan.CapHoles.Add(Holes(rims));
+            foreach (var f in found.Features)
+                plan.Features.Add(new Feature
                 {
-                    bool outer;
-                    try { outer = loop.IsOuter(); }
-                    catch { continue; }
-                    if (outer) continue;
-                    double extent;
-                    string key = LoopKey(loop, out extent);
-                    if (key == null || extent > maxExtent) continue;
-                    marked.Add(key);
-                    if (!rims.ContainsKey(key))
-                    {
-                        var rim = new Rim
-                        {
-                            Key = key,
-                            Extent = extent,
-                            Centre = LoopCentre(loop),
-                        };
-                        foreach (var edge in EdgesOf(loop)) rim.Edges.Add(edge);
-                        if (rim.Centre != null) rims[key] = rim;
-                    }
-                    owners.Add(new KeyValuePair<IFace2, ILoop2>(face, loop));
-                }
-            }
-            if (owners.Count == 0) return plan;
-
-            var claimed = new List<string>();
-            foreach (var pair in owners)
-            {
-                double extent;
-                string key = LoopKey(pair.Value, out extent);
-                if (key == null || claimed.Contains(key)) continue;
-
-                var feature = new Feature { Extent = extent };
-                var region = new List<IFace2>();
-                var bounds = new List<string>();
-                string declined = Walk(pair.Key, pair.Value, marked, region, bounds, log);
-                feature.Faces = region.Count;
-                feature.Loops = bounds.Count;
-                feature.Declined = declined;
-                feature.Region = region;
-                plan.Features.Add(feature);
-                if (declined != null) continue;
-
-                foreach (string b in bounds) if (!claimed.Contains(b)) claimed.Add(b);
-                foreach (var f in region) if (!Contains(plan.Gone, f)) plan.Gone.Add(f);
-            }
-
-            // Every rim that goes has two faces. The one inside the feature
-            // goes with it. The one OUTSIDE has to lose the rim as well, or
-            // the body is left open where the feature was: the faces around
-            // the hole still have triangles that reach its edge and now have
-            // nothing on the other side.
-            //
-            // The faces are taken from the rim's EDGES, which is the only
-            // thing that names them exactly. Two other ways were tried and
-            // both left parts open. Taking the face the rim was found on
-            // misses the case where a rim found from a flat face has a
-            // cylinder on the other side. Sweeping the body for faces holding
-            // a matching LOOP misses the case where the rim is a loop of its
-            // own on one face and part of a longer loop on the next.
-            //
-            // It runs when every region is settled, so a face that is inside
-            // one feature and outside another is seen for what it is. That is
-            // a counterbore: its annulus is in the first region and carries
-            // the rim of the second.
-            //
-            // A flat face is rebuilt from its own boundary, which is exact
-            // and leaves the face simpler as well. A curved one keeps its
-            // triangles, because they are what give it its shape, and has the
-            // rim capped. Capping is not what the curved switch turns on: it
-            // is what closing the body needs, whichever way the switch is set.
-            foreach (string key in claimed)
-            {
-                Rim rim;
-                if (!rims.TryGetValue(key, out rim)) continue;
-                foreach (var edge in rim.Edges)
-                    foreach (var face in BothSides(edge))
-                    {
-                        if (Contains(plan.Gone, face)) continue;
-                        Cover(plan, face, rim);
-                    }
-            }
+                    Extent = f.Extent,
+                    Loops = f.Loops,
+                    Faces = f.Faces,
+                    Declined = f.Declined,
+                    Region = f.Region,
+                });
             return plan;
+        }
+
+        private static List<PlaneRefill.Hole> Holes(
+            List<FeaturePlanner<IFace2, ILoop2, IEdge>.Rim> rims)
+        {
+            var holes = new List<PlaneRefill.Hole>(rims.Count);
+            foreach (var rim in rims)
+                holes.Add(new PlaneRefill.Hole
+                {
+                    Centre = rim.Centre,
+                    Extent = rim.Extent,
+                    Edges = rim.Edges,
+                });
+            return holes;
+        }
+
+        /// <summary>The body's topology as the planner reads it, answered
+        /// from SolidWorks.</summary>
+        private sealed class SwTopology : IFeatureTopology<IFace2, ILoop2, IEdge>
+        {
+            public bool IsPlane(IFace2 face) { return SmallFeatureSurvey.IsPlane(face); }
+
+            public IEnumerable<ILoop2> LoopsOf(IFace2 face) { return SmallFeatureSurvey.LoopsOf(face); }
+
+            public IEnumerable<IEdge> EdgesOf(ILoop2 loop) { return SmallFeatureSurvey.EdgesOf(loop); }
+
+            public IList<IFace2> FacesOf(IEdge edge)
+            {
+                object[] pair = null;
+                try { pair = edge.GetTwoAdjacentFaces2() as object[]; }
+                catch { }
+                var faces = new List<IFace2>();
+                foreach (var o in pair ?? new object[0]) faces.Add(o as IFace2);
+                return faces;
+            }
+
+            public bool Same(IFace2 a, IFace2 b) { return SmallFeatureSurvey.Same(a, b); }
+
+            public bool TryIsOuter(ILoop2 loop, out bool outer)
+            {
+                outer = false;
+                try { outer = loop.IsOuter(); return true; }
+                catch { return false; }
+            }
+
+            public string LoopKey(ILoop2 loop, out double extent)
+            {
+                return SmallFeatureSurvey.LoopKey(loop, out extent);
+            }
+
+            public double[] LoopCentre(ILoop2 loop) { return SmallFeatureSurvey.LoopCentre(loop); }
         }
 
         /// <summary>
@@ -404,123 +365,6 @@ namespace Peak.Cadder.Sw
                 if (lid != null) result.CapFacets += lid.Count / 3;
             }
             return result;
-        }
-
-        // ── The inward walk ────────────────────────────────────────────────
-
-        /// <summary>
-        /// Collects the faces behind one marked loop. Returns null when the
-        /// whole boundary of what it found is marked loops, and the reason
-        /// it gave up otherwise.
-        /// </summary>
-        private static string Walk(
-            IFace2 from, ILoop2 seed, HashSet<string> marked,
-            List<IFace2> region, List<string> bounds, Action<string> log)
-        {
-            var queue = new Queue<IFace2>();
-            foreach (var edge in EdgesOf(seed))
-            {
-                var next = Across(edge, from);
-                if (next == null) return "an edge of the loop has no face behind it";
-                if (Same(next, from)) return "the loop has the same face on both sides";
-                if (!Contains(region, next)) { region.Add(next); queue.Enqueue(next); }
-            }
-            double _;
-            string seedKey = LoopKey(seed, out _);
-            if (seedKey != null) bounds.Add(seedKey);
-
-            while (queue.Count > 0)
-            {
-                if (region.Count > FaceBudget)
-                    return "the walk passed " + FaceBudget + " faces without closing";
-                var face = queue.Dequeue();
-                foreach (var loop in LoopsOf(face))
-                {
-                    double extent;
-                    string key = LoopKey(loop, out extent);
-                    if (key != null && marked.Contains(key))
-                    {
-                        if (!bounds.Contains(key)) bounds.Add(key);
-                        continue;                       // a wall of the pocket
-                    }
-                    foreach (var edge in EdgesOf(loop))
-                    {
-                        var next = Across(edge, face);
-                        if (next == null) return "an edge inside the feature has no face behind it";
-                        // Back at the face the loop is on means the walk has
-                        // gone round the OUTSIDE of the body, not into a
-                        // pocket. Without this a nut block with too few faces
-                        // to trip the budget came back as one feature holding
-                        // every face it had, and the body defeatured to
-                        // nothing at all.
-                        if (Same(next, from))
-                            return "the walk came back to the face it started from";
-                        if (!Contains(region, next))
-                        {
-                            if (region.Count >= FaceBudget)
-                                return "the walk passed " + FaceBudget + " faces without closing";
-                            region.Add(next);
-                            queue.Enqueue(next);
-                        }
-                    }
-                }
-            }
-            if (bounds.Count == 0) return "nothing bounded the region";
-            return null;
-        }
-
-        /// <summary>Both faces of an edge, however many it can answer.</summary>
-        private static IEnumerable<IFace2> BothSides(IEdge edge)
-        {
-            object[] pair = null;
-            try { pair = edge.GetTwoAdjacentFaces2() as object[]; }
-            catch { }
-            foreach (var o in pair ?? new object[0])
-            {
-                var face = o as IFace2;
-                if (face != null) yield return face;
-            }
-        }
-
-        /// <summary>Notes that a surviving face has to lose this rim: rebuilt
-        /// without it when it is flat, capped over it when it is not.</summary>
-        private static void Cover(Plan plan, IFace2 face, Rim rim)
-        {
-            bool plane = IsPlane(face);
-            var into = plane ? plan.Fill : plan.Cap;
-            var holes = plane ? plan.FillHoles : plan.CapHoles;
-            int at = -1;
-            for (int i = 0; i < into.Count && at < 0; i++)
-                if (Same(into[i], face)) at = i;
-            if (at < 0)
-            {
-                into.Add(face);
-                holes.Add(new List<PlaneRefill.Hole>());
-                at = into.Count - 1;
-            }
-            foreach (var had in holes[at])
-                if (had.Extent == rim.Extent && had.Centre[0] == rim.Centre[0]
-                    && had.Centre[1] == rim.Centre[1]
-                    && had.Centre[2] == rim.Centre[2]) return;
-            holes[at].Add(new PlaneRefill.Hole
-            {
-                Centre = rim.Centre,
-                Extent = rim.Extent,
-                Edges = rim.Edges,
-            });
-        }
-
-        /// <summary>The face on the other side of an edge, or null.</summary>
-        private static IFace2 Across(IEdge edge, IFace2 from)
-        {
-            object[] pair = null;
-            try { pair = edge.GetTwoAdjacentFaces2() as object[]; }
-            catch { }
-            if (pair == null || pair.Length < 2) return null;
-            var a = pair[0] as IFace2;
-            var b = pair[1] as IFace2;
-            if (a == null || b == null) return a ?? b;
-            return Same(a, from) ? b : a;
         }
 
         private static bool Same(IFace2 a, IFace2 b)
@@ -828,5 +672,352 @@ namespace Peak.Cadder.Sw
             return Math.Max(1, points + 2 * holes - 2);
         }
 
+    }
+
+    /// <summary>
+    /// What the planner reads from a body. SmallFeatureSurvey answers from
+    /// SolidWorks. The tests answer from a model of a part, so the rules of
+    /// the walk can be checked without SolidWorks.
+    /// </summary>
+    internal interface IFeatureTopology<TFace, TLoop, TEdge>
+        where TFace : class where TLoop : class where TEdge : class
+    {
+        bool IsPlane(TFace face);
+        IEnumerable<TLoop> LoopsOf(TFace face);
+        IEnumerable<TEdge> EdgesOf(TLoop loop);
+
+        /// <summary>The faces of an edge as SolidWorks gives them: two for
+        /// an edge inside a solid. An entry can be null.</summary>
+        IList<TFace> FacesOf(TEdge edge);
+
+        bool Same(TFace a, TFace b);
+
+        /// <summary>False when the loop cannot say.</summary>
+        bool TryIsOuter(TLoop loop, out bool outer);
+
+        /// <summary>A name that both faces of a loop arrive at, and the
+        /// width of the loop. Null when the loop gives no points.</summary>
+        string LoopKey(TLoop loop, out double extent);
+
+        double[] LoopCentre(TLoop loop);
+    }
+
+    /// <summary>
+    /// The rules that decide what a body is sent without, apart from the
+    /// SolidWorks calls that feed them. SmallFeatureSurvey.Choose runs them
+    /// on a live body, and the tests run them on a model of a part.
+    /// </summary>
+    internal sealed class FeaturePlanner<TFace, TLoop, TEdge>
+        where TFace : class where TLoop : class where TEdge : class
+    {
+        /// <summary>A walk that reaches this many faces has not found a
+        /// pocket, it has found its way out into the body. Abandon it, so a
+        /// pathological shape cannot cost the export.</summary>
+        internal const int FaceBudget = 24;
+
+        /// <summary>
+        /// One small loop that a feature is taken out through: where it is,
+        /// how wide, and the EDGES it is made of.
+        ///
+        /// The edges are what say which faces have to deal with it. A loop
+        /// key cannot: the same rim can be a loop of its own on the flat face
+        /// it breaks into and part of a longer loop on the cylinder beside
+        /// it, so matching whole loops left a cylinder holding a rim nobody
+        /// covered, and the part came back open (drum_pedal bolts, 68 edges).
+        /// </summary>
+        internal sealed class Rim
+        {
+            public string Key;
+            public double[] Centre;
+            public double Extent;
+            public List<TEdge> Edges = new List<TEdge>();
+        }
+
+        internal sealed class Feature
+        {
+            public double Extent;
+            public int Loops;
+            public int Faces;
+            public string Declined;
+            public List<TFace> Region = new List<TFace>();
+        }
+
+        internal sealed class Result
+        {
+            public List<TFace> Gone = new List<TFace>();
+            public List<TFace> Fill = new List<TFace>();
+            public List<List<Rim>> FillHoles = new List<List<Rim>>();
+            public List<TFace> Cap = new List<TFace>();
+            public List<List<Rim>> CapHoles = new List<List<Rim>>();
+            public List<Feature> Features = new List<Feature>();
+            public int Faces;
+            public int PlanarFaces;
+        }
+
+        private readonly IFeatureTopology<TFace, TLoop, TEdge> _topo;
+
+        public FeaturePlanner(IFeatureTopology<TFace, TLoop, TEdge> topology)
+        {
+            _topo = topology;
+        }
+
+        /// <summary>See SmallFeatureSurvey.Choose.</summary>
+        public Result Choose(IEnumerable<TFace> faces, double maxExtent, bool curved)
+        {
+            var plan = new Result();
+            var marked = new HashSet<string>();
+            var rims = new Dictionary<string, Rim>();
+            var owners = new List<KeyValuePair<TFace, TLoop>>();
+            foreach (var face in faces)
+            {
+                if (face == null) continue;
+                plan.Faces++;
+                bool plane = _topo.IsPlane(face);
+                if (plane) plan.PlanarFaces++;
+                if (!plane && !curved) continue;
+                foreach (var loop in _topo.LoopsOf(face))
+                {
+                    bool outer;
+                    if (!_topo.TryIsOuter(loop, out outer) || outer) continue;
+                    double extent;
+                    string key = _topo.LoopKey(loop, out extent);
+                    if (key == null || extent > maxExtent) continue;
+                    marked.Add(key);
+                    if (!rims.ContainsKey(key))
+                    {
+                        var rim = new Rim
+                        {
+                            Key = key,
+                            Extent = extent,
+                            Centre = _topo.LoopCentre(loop),
+                        };
+                        foreach (var edge in _topo.EdgesOf(loop)) rim.Edges.Add(edge);
+                        if (rim.Centre != null) rims[key] = rim;
+                    }
+                    owners.Add(new KeyValuePair<TFace, TLoop>(face, loop));
+                }
+            }
+            if (owners.Count == 0) return plan;
+
+            // Two lists, because a loop can be a wall of one region and the
+            // way into another. A walk stops at every marked loop it meets,
+            // so the walk from a counterbore's rim ends at the rim of the
+            // hole in its floor. That rim is a wall of the counterbore, and
+            // it is also where the hole behind it starts. When every wall
+            // counted as walked, the hole was never walked on its own when
+            // the top face came first: its wall and bottom stayed inside the
+            // part, capped, as a closed shell turned inside out.
+            //
+            // So only the loop a walk STARTED from counts as walked, as on
+            // the STEP route (defeature_brep.plan). Every wall of a region
+            // that goes is claimed, which is what the covering below needs.
+            // A loop is not walked when everything behind it has already
+            // gone, which is the far rim of a through hole, and a region
+            // found twice counts once.
+            var walked = new HashSet<string>();
+            var claimed = new List<string>();
+            var removed = new List<List<TFace>>();
+            foreach (var pair in owners)
+            {
+                double extent;
+                string key = _topo.LoopKey(pair.Value, out extent);
+                if (key == null || walked.Contains(key)) continue;
+                if (BehindIsGone(pair.Key, pair.Value, plan.Gone)) continue;
+
+                var region = new List<TFace>();
+                var bounds = new List<string>();
+                string declined = Walk(pair.Key, pair.Value, marked, region, bounds);
+                if (declined == null && FoundBefore(removed, region)) continue;
+                plan.Features.Add(new Feature
+                {
+                    Extent = extent,
+                    Faces = region.Count,
+                    Loops = bounds.Count,
+                    Declined = declined,
+                    Region = region,
+                });
+                if (declined != null) continue;
+
+                walked.Add(key);
+                removed.Add(region);
+                foreach (string b in bounds) if (!claimed.Contains(b)) claimed.Add(b);
+                foreach (var f in region) if (!Contains(plan.Gone, f)) plan.Gone.Add(f);
+            }
+
+            // Every rim that goes has two faces. The one inside the feature
+            // goes with it. The one OUTSIDE has to lose the rim as well, or
+            // the body is left open where the feature was: the faces around
+            // the hole still have triangles that reach its edge and now have
+            // nothing on the other side.
+            //
+            // The faces are taken from the rim's EDGES, which is the only
+            // thing that names them exactly. Two other ways were tried and
+            // both left parts open. Taking the face the rim was found on
+            // misses the case where a rim found from a flat face has a
+            // cylinder on the other side. Sweeping the body for faces holding
+            // a matching LOOP misses the case where the rim is a loop of its
+            // own on one face and part of a longer loop on the next.
+            //
+            // It runs when every region is settled, so a face that is inside
+            // one feature and outside another is seen for what it is. That is
+            // a counterbore: its annulus is in the first region and carries
+            // the rim of the second.
+            //
+            // A flat face is rebuilt from its own boundary, which is exact
+            // and leaves the face simpler as well. A curved one keeps its
+            // triangles, because they are what give it its shape, and has the
+            // rim capped. Capping is not what the curved switch turns on: it
+            // is what closing the body needs, whichever way the switch is set.
+            foreach (string key in claimed)
+            {
+                Rim rim;
+                if (!rims.TryGetValue(key, out rim)) continue;
+                foreach (var edge in rim.Edges)
+                    foreach (var face in BothSides(edge))
+                    {
+                        if (Contains(plan.Gone, face)) continue;
+                        Cover(plan, face, rim);
+                    }
+            }
+            return plan;
+        }
+
+        /// <summary>
+        /// Collects the faces behind one marked loop. Returns null when the
+        /// whole boundary of what it found is marked loops, and the reason
+        /// it gave up otherwise.
+        /// </summary>
+        private string Walk(
+            TFace from, TLoop seed, HashSet<string> marked,
+            List<TFace> region, List<string> bounds)
+        {
+            var queue = new Queue<TFace>();
+            foreach (var edge in _topo.EdgesOf(seed))
+            {
+                var next = Across(edge, from);
+                if (next == null) return "an edge of the loop has no face behind it";
+                if (_topo.Same(next, from)) return "the loop has the same face on both sides";
+                if (!Contains(region, next)) { region.Add(next); queue.Enqueue(next); }
+            }
+            double _;
+            string seedKey = _topo.LoopKey(seed, out _);
+            if (seedKey != null) bounds.Add(seedKey);
+
+            while (queue.Count > 0)
+            {
+                if (region.Count > FaceBudget)
+                    return "the walk passed " + FaceBudget + " faces without closing";
+                var face = queue.Dequeue();
+                foreach (var loop in _topo.LoopsOf(face))
+                {
+                    double extent;
+                    string key = _topo.LoopKey(loop, out extent);
+                    if (key != null && marked.Contains(key))
+                    {
+                        if (!bounds.Contains(key)) bounds.Add(key);
+                        continue;                       // a wall of the pocket
+                    }
+                    foreach (var edge in _topo.EdgesOf(loop))
+                    {
+                        var next = Across(edge, face);
+                        if (next == null) return "an edge inside the feature has no face behind it";
+                        // Back at the face the loop is on means the walk has
+                        // gone round the OUTSIDE of the body, not into a
+                        // pocket. Without this a nut block with too few faces
+                        // to trip the budget came back as one feature holding
+                        // every face it had, and the body defeatured to
+                        // nothing at all.
+                        if (_topo.Same(next, from))
+                            return "the walk came back to the face it started from";
+                        if (!Contains(region, next))
+                        {
+                            if (region.Count >= FaceBudget)
+                                return "the walk passed " + FaceBudget + " faces without closing";
+                            region.Add(next);
+                            queue.Enqueue(next);
+                        }
+                    }
+                }
+            }
+            if (bounds.Count == 0) return "nothing bounded the region";
+            return null;
+        }
+
+        /// <summary>Whether every face across this loop has gone already:
+        /// the region behind it was taken out from its other end.</summary>
+        private bool BehindIsGone(TFace owner, TLoop loop, List<TFace> gone)
+        {
+            if (gone.Count == 0) return false;
+            bool any = false;
+            foreach (var edge in _topo.EdgesOf(loop))
+            {
+                var next = Across(edge, owner);
+                if (next == null || !Contains(gone, next)) return false;
+                any = true;
+            }
+            return any;
+        }
+
+        /// <summary>Whether a region that goes already holds exactly these
+        /// faces.</summary>
+        private bool FoundBefore(List<List<TFace>> removed, List<TFace> region)
+        {
+            foreach (var had in removed)
+            {
+                if (had.Count != region.Count) continue;
+                bool same = true;
+                foreach (var f in region)
+                    if (!Contains(had, f)) { same = false; break; }
+                if (same) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Both faces of an edge, however many it can answer.</summary>
+        private IEnumerable<TFace> BothSides(TEdge edge)
+        {
+            foreach (var face in _topo.FacesOf(edge) ?? new List<TFace>())
+                if (face != null) yield return face;
+        }
+
+        /// <summary>Notes that a surviving face has to lose this rim: rebuilt
+        /// without it when it is flat, capped over it when it is not.</summary>
+        private void Cover(Result plan, TFace face, Rim rim)
+        {
+            bool plane = _topo.IsPlane(face);
+            var into = plane ? plan.Fill : plan.Cap;
+            var holes = plane ? plan.FillHoles : plan.CapHoles;
+            int at = -1;
+            for (int i = 0; i < into.Count && at < 0; i++)
+                if (_topo.Same(into[i], face)) at = i;
+            if (at < 0)
+            {
+                into.Add(face);
+                holes.Add(new List<Rim>());
+                at = into.Count - 1;
+            }
+            foreach (var had in holes[at])
+                if (had.Extent == rim.Extent && had.Centre[0] == rim.Centre[0]
+                    && had.Centre[1] == rim.Centre[1]
+                    && had.Centre[2] == rim.Centre[2]) return;
+            holes[at].Add(rim);
+        }
+
+        /// <summary>The face on the other side of an edge, or null.</summary>
+        private TFace Across(TEdge edge, TFace from)
+        {
+            var pair = _topo.FacesOf(edge);
+            if (pair == null || pair.Count < 2) return null;
+            var a = pair[0];
+            var b = pair[1];
+            if (a == null || b == null) return a ?? b;
+            return _topo.Same(a, from) ? b : a;
+        }
+
+        private bool Contains(List<TFace> faces, TFace face)
+        {
+            foreach (var f in faces) if (_topo.Same(f, face)) return true;
+            return false;
+        }
     }
 }
