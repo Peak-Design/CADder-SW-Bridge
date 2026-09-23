@@ -37,7 +37,8 @@ namespace Peak.Cadder.Sw
     ///
     /// Restoration: the nudge is reversed by the ACHIEVED amount (a blocked
     /// nudge must not be "reversed" into free territory), then every walked
-    /// transform snapshot is re-written and the model rebuilt.
+    /// transform snapshot is re-written, and ComponentMover.RestoreAll drags
+    /// back each component that the write did not put back.
     /// </summary>
     public sealed class LimitSignProbe : ILimitSignOracle
     {
@@ -57,7 +58,7 @@ namespace Peak.Cadder.Sw
             _assembly = model as IAssemblyDoc;
             _grouping = grouping;
             _log = log ?? delegate { };
-            _mover = new ComponentMover(app, model);
+            _mover = new ComponentMover(app, model, _log);
             foreach (var w in walked)
                 if (w.Comp != null) _byId[w.Id] = w;
         }
@@ -239,19 +240,13 @@ namespace Peak.Cadder.Sw
             {
                 try
                 {
-                    RestoreAll(snapshots);
-                    var back = SwFrames.ToMatrix(mover.Comp.Transform2);
-                    if (back != null)
-                    {
-                        double drift = Math.Sqrt(
-                            (back[0, 3] - m0[0, 3]) * (back[0, 3] - m0[0, 3])
-                            + (back[1, 3] - m0[1, 3]) * (back[1, 3] - m0[1, 3])
-                            + (back[2, 3] - m0[2, 3]) * (back[2, 3] - m0[2, 3]));
-                        if (drift > 1e-6)
-                            _log("limit sign probe " + joint.Id + ": " + mover.Id
-                                + " rests " + drift.ToString("0.0e0", CultureInfo.InvariantCulture)
-                                + " m from where it started");
-                    }
+                    // Every component the probe could have moved is checked,
+                    // turn and origin both, and dragged back when the write
+                    // alone did not put it back. The mover names any it
+                    // could not. The old check read the mover's origin only:
+                    // a leaf whose origin is on its pin read as back while
+                    // it stayed turned.
+                    RestoreAll(snapshots, "limit sign probe " + joint.Id);
                 }
                 catch (Exception ex)
                 {
@@ -384,9 +379,9 @@ namespace Peak.Cadder.Sw
             return ComponentMover.Snapshot(_byId.Values);
         }
 
-        private void RestoreAll(List<KeyValuePair<Component2, MathTransform>> snaps)
+        private void RestoreAll(List<KeyValuePair<Component2, MathTransform>> snaps, string who)
         {
-            _mover.RestoreAll(snaps);
+            _mover.RestoreAll(snaps, who);
         }
 
     }
