@@ -21,8 +21,9 @@ namespace Peak.Cadder.Bridge
     /// export, send, read the mates, suppress a mate, set a dimension,
     /// rebuild, take a screenshot, quit. Those change the open model, so
     /// they run only in a Debug build with AppSettings.LabOps on, and
-    /// NOTHING here ever
-    /// saves a document: a lab session leaves every file as it found it.
+    /// nothing here saves a document the user or the corpus owns: a lab
+    /// session leaves every such file as it found it. The two operations
+    /// that make test models (LabCompose) save only under the temp folder.
     /// A request that cannot be honoured comes back as ok:false rather than
     /// changing anything.
     ///
@@ -69,6 +70,9 @@ namespace Peak.Cadder.Bridge
                 case "dimension": return Lab(request, () => Dimension(app, request));
                 case "quit": return Lab(request, () => Quit(app));
                 case "status_probe": return Lab(request, () => StatusProbe(app, request));
+                case "compose": return Lab(request, () => LabCompose.Compose(app, request));
+                case "configure":
+                    return Lab(request, () => LabCompose.Configure(app, request, ModelFor(app, request)));
                 default:
                     return Fail("unknown op " + (string.IsNullOrEmpty(op) ? "(none)" : op));
             }
