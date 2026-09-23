@@ -1580,12 +1580,27 @@ namespace Peak.Cadder.Core
                     ? joint.SecondaryAxis : joint.Axis;
                 var rel = RelativePoseDelta(translationSource, joint, grouping, poseDeltas);
                 if (rel != null && slideAxis != null)
-                    // The rotation part of a delta about the slide axis moves
-                    // nothing along it, so the translation row is the whole
-                    // dimension change.
-                    joint.TranslationLimit.ValueAtRest +=
-                        slideAxis[0] * rel[0, 3] + slideAxis[1] * rel[1, 3] + slideAxis[2] * rel[2, 3];
+                    joint.TranslationLimit.ValueAtRest += SlideOf(joint, slideAxis, rel);
             }
+        }
+
+        /// <summary>
+        /// How far a rigid delta moves the joint along its slide: the travel
+        /// of the joint's origin, projected on the slide axis. The delta's
+        /// translation column alone is right only when the turn is about
+        /// the slide axis (prismatic, cylindrical, screw), because such a
+        /// turn moves no point along that axis. A pin-slot turns about the
+        /// pin, across the slide, and then the column holds (I - R) p. A
+        /// quarter turn of spin with no slide moved the rest value by the
+        /// pin's distance from the world origin.
+        /// </summary>
+        private static double SlideOf(RigJoint joint, double[] slideAxis, double[,] rel)
+        {
+            var o = joint.Origin ?? new double[3];
+            var moved = MathOps.TransformPoint(rel, o);
+            return slideAxis[0] * (moved[0] - o[0])
+                 + slideAxis[1] * (moved[1] - o[1])
+                 + slideAxis[2] * (moved[2] - o[2]);
         }
 
         /// <summary>D(parent side)⁻¹ × D(child side) for the mate's entity
@@ -1700,8 +1715,7 @@ namespace Peak.Cadder.Core
                 var slideAxis = joint.Type == JointType.PinSlot
                     ? joint.SecondaryAxis : joint.Axis;
                 if (slideAxis == null) return 0;
-                delta = slideAxis[0] * rel[0, 3] + slideAxis[1] * rel[1, 3]
-                      + slideAxis[2] * rel[2, 3];
+                delta = SlideOf(joint, slideAxis, rel);
             }
 
             double span = Math.Abs(limit.Max - limit.Min);
