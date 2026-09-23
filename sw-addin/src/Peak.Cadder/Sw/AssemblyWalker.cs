@@ -157,17 +157,16 @@ namespace Peak.Cadder.Sw
             // Fixed inside a flexible subassembly means rigid to the SUB's
             // frame, never to the world: it must not ground a group. The
             // fixedInSub flag comes from the subassembly's own tree (see the
-            // recursion below); IsFixed on the top-context handle is also
-            // remapped defensively in case some SolidWorks version reports
-            // the sub-document state through it.
+            // recursion below), and only from there. IsFixed on the
+            // top-context handle is true for EVERY child of a flexible
+            // subassembly that is fixed itself (live 2026-09-23: the
+            // hydraulic assembly and a hinge, each placed fixed and
+            // flexible, came out as one rigid body with no joints).
             if (parent != null)
             {
                 g.ParentId = parent.Id;
-                if (g.IsFixed || fixedInSub)
-                {
-                    g.IsFixed = false;
-                    g.FixedInSubassembly = true;
-                }
+                g.IsFixed = false;
+                g.FixedInSubassembly = fixedInSub;
             }
 
             // Solving returns -1 for part components (API help,
