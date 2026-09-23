@@ -47,9 +47,14 @@ def find_assemblies(paths):
 
 def key_for(path, roots):
     """A folder name that keeps two assemblies with one file name apart."""
+    # Both absolute: a folder given as a relative path never matched, and
+    # every key fell back to the file name, so two assemblies of one name
+    # wrote into one folder.
+    full = os.path.abspath(path)
     for r in roots:
-        if os.path.isdir(r) and os.path.normcase(path).startswith(os.path.normcase(os.path.abspath(r))):
-            rel = os.path.relpath(path, r)
+        root = os.path.abspath(r)
+        if os.path.isdir(root) and os.path.normcase(full).startswith(os.path.normcase(root)):
+            rel = os.path.relpath(full, root)
             break
     else:
         rel = os.path.basename(path)
