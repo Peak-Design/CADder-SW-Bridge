@@ -314,6 +314,7 @@ namespace Peak.Cadder.Core
             // AlignSlides renames a plane's pair so the answers line up with
             // this joint's own freedoms one for one.
             AlignSlides(own, ring, j.Origin);
+            if (j.Type == JointType.Ball && survives == 1) AlignTurns(own, ring, j.Origin);
             bool[] loose = LooseWhenNudged(j, peers, own);
 
             var live = new bool[own.Count];
@@ -469,7 +470,8 @@ namespace Peak.Cadder.Core
                         // kept.Count == survives here, and every twist in a
                         // ball's span turns about its own centre, so the
                         // survivor is a named axis through the origin, which
-                        // is exactly a revolute.
+                        // is exactly a revolute. AlignTurns made it one of
+                        // the ball's own axes, wherever it points.
                         if (j.RotationLimit != null)
                             Note(j, "Its swing-cone limit measured rotations "
                                     + "the ring has removed, so it is not "
@@ -525,7 +527,9 @@ namespace Peak.Cadder.Core
         /// pose was hiding without giving back the one the ring really
         /// holds. Slides are pure translations and do not depend on where
         /// the joint sits, so the aligned pair stands in for the seed pair
-        /// at every nudged pose and the flags name the same freedoms.
+        /// at every nudged pose and the flags name the same freedoms. A
+        /// ball's aligned turns are read about its nudged center, for the
+        /// same reason.
         /// </summary>
         private static bool[] LooseWhenNudged(
             RigJoint j, List<RigJoint> peers, List<double[]> own)
@@ -539,9 +543,15 @@ namespace Peak.Cadder.Core
                     if (!AppendTwists(p, nudged, seed)) return loose;
                 var mine = new List<double[]>();
                 if (!AppendTwists(j, mine, seed)) return loose;
-                for (int i = 0; i < count && i < mine.Count; i++)
-                    if (IsSlide(mine[i]) && IsSlide(own[i])) mine[i] = own[i];
                 var at = Where(j, seed);
+                for (int i = 0; i < count && i < mine.Count; i++)
+                {
+                    if (IsSlide(mine[i]) && IsSlide(own[i])) mine[i] = own[i];
+                    // A ball's turns may be aligned too (AlignTurns): the
+                    // same directions, read about the nudged center.
+                    else if (j.Type == JointType.Ball)
+                        mine[i] = Turn(new[] { own[i][0], own[i][1], own[i][2] }, at);
+                }
                 for (int i = 0; i < count && i < mine.Count; i++)
                     if (Spans(nudged, mine[i], at)) loose[i] = true;
             }
@@ -936,6 +946,32 @@ namespace Peak.Cadder.Core
             own[b] = Slide(new[] { -y * du[0] + x * dv[0],
                                    -y * du[1] + x * dv[1],
                                    -y * du[2] + x * dv[2] });
+        }
+
+        /// <summary>
+        /// A ball's three turns come from Basis(), so they are a frame fixed
+        /// to the WORLD, like a plane's two slides (see AlignSlides). When
+        /// the ring leaves the ball one rotation about a line that is not a
+        /// world axis, none of the three turns lies in the ring's span, and
+        /// the ball was exported whole with a note. The same mechanism on a
+        /// world axis became a revolute. So turn the frame to the ring
+        /// first: the first turn is about the line the ring leaves, and the
+        /// other two are square to it. Same ball, same intersection. Only
+        /// the names change, and the checks that follow (the nudged pose
+        /// included) read the aligned turns as they read the world ones.
+        /// </summary>
+        private static void AlignTurns(List<double[]> own, List<double[]> ring, double[] at)
+        {
+            if (own.Count != 3) return;
+            var t = IntersectionTwist(ring, own, at);
+            if (t == null) return;
+            var w = new[] { t[0], t[1], t[2] };
+            if (MathOps.Norm(w) <= Tol) return;
+            w = MathOps.Normalized(w);
+            var u = AnyPerpendicular(w);
+            own[0] = Turn(w, at);
+            own[1] = Turn(u, at);
+            own[2] = Turn(MathOps.Cross(w, u), at);
         }
 
         private static IEnumerable<double[]> InPlane(double[] normal)
