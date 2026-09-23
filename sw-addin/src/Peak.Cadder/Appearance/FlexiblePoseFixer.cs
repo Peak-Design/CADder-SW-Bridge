@@ -105,11 +105,7 @@ namespace Peak.Cadder.Appearance
                 return;
             }
 
-            // The file writes placements in its own length unit; SolidWorks
-            // thinks in metres. Both mm and m are tried, the scale that lets
-            // every instance find a use within tolerance wins.
-            double scale;
-            var byInstance = MatchInstancesToUses(instances, uses, out scale);
+            var byInstance = MatchInstancesToUses(instances, uses);
             if (byInstance == null)
             {
                 Fail(outcome, instances, log, docName + ": could not match the "
@@ -150,7 +146,7 @@ namespace Peak.Cadder.Appearance
                 List<FlexInstanceLayout> fileClass = null;
                 foreach (var cls in classes)
                 {
-                    var a = AssignChildren(cls[0], fileChildren, scale);
+                    var a = AssignChildren(cls[0], fileChildren);
                     if (a == null) continue;
                     if (best == null || a.Cost < best.Cost) best = a;
                     // Assignment errors are already in metres, whatever the
@@ -212,7 +208,7 @@ namespace Peak.Cadder.Appearance
                         outcome.FixedPaths.Add(inst.Path);
                     }
 
-                    RetargetAll(step, fileChildren, cls[0], keyOf, scale, map, outcome,
+                    RetargetAll(step, fileChildren, cls[0], keyOf, map, outcome,
                         clonedKids);
                     log?.Invoke("    " + docName + ": cloned the definition ("
                         + map.Count + " entities, geometry shared) and reposed it "
@@ -224,7 +220,7 @@ namespace Peak.Cadder.Appearance
                 // would leak the keeper's placements into every clone.
                 if (fileClass == null)
                 {
-                    RetargetAll(step, fileChildren, keeperClass[0], keyOf, scale,
+                    RetargetAll(step, fileChildren, keeperClass[0], keyOf,
                         null, outcome);
                     log?.Invoke("    " + docName + ": original definition reposed "
                         + "in place for " + Describe(keeperClass));
@@ -234,24 +230,27 @@ namespace Peak.Cadder.Appearance
 
         // ── Instance ↔ use matching ─────────────────────────────────────────
 
+        /// <summary>
+        /// Every length in this class is in millimetres, and SolidWorks gives
+        /// metres. The occurrence tables are already in millimetres whatever
+        /// the unit of the file (StepRewriter.ReadOccurrencePlacement), and
+        /// FindPlacement converts the child placements the same way. Only
+        /// AppendPlacement goes back to the unit of the file.
+        ///
+        /// An earlier version tried a scale of 1000 and then 1 on the raw
+        /// file values. After the tables changed to millimetres, the scale
+        /// always came out as 1000. In a metre or inch file the fix then
+        /// compared raw metres with millimetres, and wrote millimetres into a
+        /// metre context: the leaves came out 1000 times too far out.
+        /// </summary>
+        private const double MmPerM = 1000.0;
+
         private static Dictionary<FlexInstanceLayout, StepRewriter.OccurrenceRef>
             MatchInstancesToUses(
                 List<FlexInstanceLayout> instances,
-                List<StepRewriter.OccurrenceRef> uses, out double scale)
+                List<StepRewriter.OccurrenceRef> uses)
         {
-            foreach (var s in new[] { 1000.0, 1.0 })
-            {
-                var match = TryMatch(instances, uses, s);
-                if (match != null) { scale = s; return match; }
-            }
-            scale = 1000.0;
-            return null;
-        }
-
-        private static Dictionary<FlexInstanceLayout, StepRewriter.OccurrenceRef>
-            TryMatch(List<FlexInstanceLayout> instances,
-                     List<StepRewriter.OccurrenceRef> uses, double scale)
-        {
+            const double scale = MmPerM;
             var candidates = new List<KeyValuePair<double,
                 KeyValuePair<FlexInstanceLayout, StepRewriter.OccurrenceRef>>>();
             foreach (var inst in instances)
@@ -297,7 +296,12 @@ namespace Peak.Cadder.Appearance
             public StepRewriter.OccurrenceRef Occ;
             public int IdtId;
             public int MovingId;
-            public double[] Loc;         // file units
+            public int RelId;
+            /// <summary>Millimetres per unit of the representation that
+            /// lists the placement. A new placement is written in this
+            /// unit.</summary>
+            public double UnitMm;
+            public double[] Loc;         // millimetres
             public double[,] Rot;        // 3x3
         }
 
@@ -344,12 +348,18 @@ namespace Peak.Cadder.Appearance
                     if (loc == null) continue;
                     double[] axis = refs.Count > 1 ? ReadTriple(step, refs[1]) : null;
                     double[] rd = refs.Count > 2 ? ReadTriple(step, refs[2]) : null;
+                    // The same unit that StepRewriter applies to the
+                    // occurrence tables: the one of the parent
+                    // representation.
+                    double mm = step.PlacementUnitMm(rel, placement);
                     return new FileChild
                     {
                         Occ = c,
                         IdtId = idt,
                         MovingId = placement,
-                        Loc = loc,
+                        RelId = rel,
+                        UnitMm = mm,
+                        Loc = new[] { loc[0] * mm, loc[1] * mm, loc[2] * mm },
                         Rot = RotFromAxes(axis, rd),
                     };
                 }
@@ -369,8 +379,9 @@ namespace Peak.Cadder.Appearance
         }
 
         private static Assignment AssignChildren(
-            FlexInstanceLayout layout, List<FileChild> fileChildren, double scale)
+            FlexInstanceLayout layout, List<FileChild> fileChildren)
         {
+            const double scale = MmPerM;
             if (layout.Children.Count != fileChildren.Count) return null;
             var pairs = new List<KeyValuePair<double,
                 KeyValuePair<FlexChildPose, FileChild>>>();
@@ -430,7 +441,7 @@ namespace Peak.Cadder.Appearance
         /// shared entities and are never edited.</summary>
         private static void RetargetAll(
             Part21 step, List<FileChild> fileChildren, FlexInstanceLayout layout,
-            Dictionary<FileChild, string> keyOf, double scale,
+            Dictionary<FileChild, string> keyOf,
             Dictionary<int, int> map, FlexFixOutcome outcome,
             List<StepRewriter.OccurrenceRef> clonedKids = null)
         {
@@ -444,15 +455,20 @@ namespace Peak.Cadder.Appearance
 
                 int idt = map == null ? fc.IdtId : map[fc.IdtId];
                 int moving = map == null ? fc.MovingId : map[fc.MovingId];
-                int placement = AppendPlacement(step, pose.LocalM, scale);
+                int rel = fc.RelId;
+                if (map != null && !map.TryGetValue(fc.RelId, out rel)) rel = fc.RelId;
+                int rep = step.RepresentationListing(rel, moving);
+
+                int placement = AppendPlacement(step, pose.LocalM, fc.UnitMm);
                 SwapIdtReference(step, idt, moving, placement);
+                if (rep != 0) ListInRepresentation(step, rep, moving, placement);
                 outcome.PlacementsRetargeted++;
 
                 var newLoc = new[]
                 {
-                    pose.LocalM[0, 3] * scale,
-                    pose.LocalM[1, 3] * scale,
-                    pose.LocalM[2, 3] * scale,
+                    pose.LocalM[0, 3] * MmPerM,
+                    pose.LocalM[1, 3] * MmPerM,
+                    pose.LocalM[2, 3] * MmPerM,
                 };
                 if (map == null)
                 {
@@ -467,8 +483,12 @@ namespace Peak.Cadder.Appearance
             }
         }
 
-        private static int AppendPlacement(Part21 step, double[,] localM, double scale)
+        /// <summary>A new placement in the unit of the representation that
+        /// lists it: unitMm is millimetres per unit of that
+        /// representation.</summary>
+        private static int AppendPlacement(Part21 step, double[,] localM, double unitMm)
         {
+            double scale = MmPerM / (unitMm > 0 ? unitMm : 1.0);
             int pt = step.NextId();
             step.Append(string.Format(CultureInfo.InvariantCulture,
                 "#{0}=CARTESIAN_POINT('',({1},{2},{3}));", pt,
@@ -498,6 +518,28 @@ namespace Peak.Cadder.Appearance
             string swapped = Regex.Replace(args, "#" + oldRef + @"(?!\d)",
                 "#" + newRef);
             step.Replace(idt, "#" + idt + "=ITEM_DEFINED_TRANSFORMATION" + swapped + ";");
+        }
+
+        /// <summary>
+        /// Lists the new placement in the representation that listed the old
+        /// one. A reader finds the unit of a placement through this list
+        /// (Part21.PlacementUnitMm, and the copy in the rig matcher). A
+        /// placement that no representation lists falls back to
+        /// millimetres, and in a metre file the reader then takes a wrong
+        /// value as correct. The old placement stays in the list while
+        /// another transformation still uses it.
+        /// </summary>
+        private static void ListInRepresentation(Part21 step, int rep, int oldRef, int newRef)
+        {
+            bool stillUsed = step.ByType("ITEM_DEFINED_TRANSFORMATION")
+                .Any(t => step.Refs(t).Contains(oldRef));
+            string type = step.TypeOf(rep) ?? "";
+            string args = step.ArgsOf(rep) ?? "";
+            string listed = Regex.Replace(args, "#" + oldRef + @"(?!\d)",
+                stillUsed ? "#" + oldRef + ",#" + newRef : "#" + newRef);
+            step.Replace(rep, type.StartsWith("COMPLEX:", StringComparison.Ordinal)
+                ? "#" + rep + "=" + listed + ";"
+                : "#" + rep + "=" + type + listed + ";");
         }
 
         // ── Small math / parsing helpers ────────────────────────────────────

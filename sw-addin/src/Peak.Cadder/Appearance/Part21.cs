@@ -244,6 +244,26 @@ namespace Peak.Cadder.Appearance
             return 1.0;
         }
 
+        /// <summary>
+        /// The representation, among those that a relationship joins, that
+        /// lists this item among its items. 0 when none does. PlacementUnitMm
+        /// reads the unit of this representation, so a new placement must
+        /// go into its item list.
+        /// </summary>
+        public int RepresentationListing(int relationship, int item)
+        {
+            foreach (int rep in Refs(relationship))
+            {
+                string t = TypeOf(rep) ?? "";
+                if (t.IndexOf("REPRESENTATION", StringComparison.OrdinalIgnoreCase) < 0
+                    || t.IndexOf("RELATIONSHIP", StringComparison.OrdinalIgnoreCase) >= 0
+                    || t.IndexOf("TRANSFORMATION", StringComparison.OrdinalIgnoreCase) >= 0)
+                    continue;
+                if (Refs(rep).Contains(item)) return rep;
+            }
+            return 0;
+        }
+
         /// <summary>The first quoted string in the arguments of an entity. This
         /// is its name.</summary>
         public string NameOf(int id)
