@@ -15,7 +15,7 @@ namespace Peak.Cadder.Sw
     /// reflections of one another, and a rig that ignores that lets the two
     /// halves of a mirrored mechanism drift apart.
     ///
-    /// The feature names the SOURCE components and the mirror plane; it does
+    /// The feature names the SOURCE components and the mirror plane. It does
     /// not name the instances it created. So the feature supplies the
     /// candidates and the plane, and the GEOMETRY supplies the pairing.
     ///
@@ -179,8 +179,8 @@ namespace Peak.Cadder.Sw
 
         /// <summary>The instance paths of the components this feature
         /// mirrors (both alignment modes and the opposite-hand list), and its
-        /// plane. Selection properties need selection access; the release is
-        /// unconditional.</summary>
+        /// plane. Selection properties need selection access, and the release
+        /// is unconditional.</summary>
         private static FeatureRead ReadFeature(
             IModelDoc2 model, IFeature feature, Action<string> log)
         {

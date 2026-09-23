@@ -747,7 +747,7 @@ namespace Peak.Cadder.Sw
         /// the edge's span, or over the curve's own range. GetTessPts needs
         /// trim endpoints this code does not always have. A line's own range
         /// is the whole representable axis (its API doc says so verbatim),
-        /// which no path is; such segments are skipped with a log line
+        /// which no path is. Such segments are skipped with a log line
         /// rather than sampled absurd.</summary>
         private static List<double[]> SampleCurve(CurveSource src, double[,] lift, Action<string> log)
         {
