@@ -104,6 +104,10 @@ Copy-Item (Join-Path $root "LICENSE") $stage
 Copy-Item (Join-Path $root "THIRD-PARTY-NOTICES.md") $stage
 Copy-Item (Join-Path $root "README.md") $stage
 Copy-Item (Join-Path $root "src\Peak.Cadder\Register-Addin.bat") $stage
+# The README's own install steps are for the installer and for a build from
+# source, with the script under src\. The zip holds the script next to the
+# DLL, so it carries steps of its own.
+Copy-Item (Join-Path $root "tools\INSTALL-zip.txt") (Join-Path $stage "INSTALL.txt")
 
 $zip = "$stage.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }

@@ -7,6 +7,9 @@ REM   Register-Addin.bat            register the Release build
 REM   Register-Addin.bat Debug      register the Debug build, which is the
 REM                                 only one that carries the test harness
 REM   Register-Addin.bat /u         unregister
+REM
+REM In the release zip the DLL sits next to this script, with no bin
+REM folder, and the script registers that DLL.
 
 setlocal
 set CONFIG=Release
@@ -17,13 +20,24 @@ for %%A in (%*) do (
     if /I "%%~A"=="/u" set ACTION=unregister
 )
 set DLL=%~dp0bin\%CONFIG%\Peak.Cadder.dll
+if not exist "%DLL%" if exist "%~dp0Peak.Cadder.dll" set DLL=%~dp0Peak.Cadder.dll
 set REGASM=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe
 
-REM Self-elevate if not already running as administrator.
+REM Self-elevate if not already running as administrator. PowerShell
+REM refuses an empty -ArgumentList, so a double-click, which gives no
+REM arguments, must not pass one.
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo Requesting administrator rights...
-    powershell -Command "Start-Process '%~f0' -ArgumentList '%*' -Verb RunAs"
+    if "%~1"=="" (
+        powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    ) else (
+        powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '%*' -Verb RunAs"
+    )
+    if errorlevel 1 (
+        echo ERROR: The script did not get administrator rights. It registered nothing.
+        pause
+    )
     exit /b
 )
 

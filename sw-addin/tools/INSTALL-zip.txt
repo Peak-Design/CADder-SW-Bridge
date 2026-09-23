@@ -1,0 +1,20 @@
+CADder Bridge for SolidWorks: install from the zip
+
+The installer (CADder-Bridge-<version>-setup.exe) is the usual way to
+install the add-in. Use these steps when you cannot use the installer.
+
+1. Close SolidWorks.
+2. Extract the zip to a folder that you will keep. The registration points
+   to the DLL in this folder. If you move the folder, register again.
+3. Double-click Register-Addin.bat.
+4. When Windows asks for administrator rights, click Yes.
+5. Start SolidWorks.
+6. Open Tools > Add-Ins.
+7. Select CADder Bridge in both columns.
+
+To remove the add-in, open a command prompt in the folder and type:
+
+    Register-Addin.bat /u
+
+README.md tells you what the add-in does. Its install steps are for the
+installer and for a build from the source code.
