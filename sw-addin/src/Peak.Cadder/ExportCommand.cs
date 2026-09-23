@@ -728,12 +728,40 @@ namespace Peak.Cadder
         /// Couplings stay in: a gear reads under-defined with its gear mate
         /// in, and the DOF probe's reading of a coupled pair depends on it.
         /// </summary>
+        /// <summary>
+        /// Why the status read with the limits out cannot be used, or null
+        /// when it can. The reading means something only when every limit
+        /// is out and the solver has taken that in. With a limit still in,
+        /// a part behind it reads fully defined while it moves, and it was
+        /// welded. The DOF probe counts a limit as fixed too, so it cannot
+        /// veto that weld.
+        /// </summary>
+        internal static string StatusSkipReason(IList<string> notTakenOut, bool rebuilt)
+        {
+            if (notTakenOut != null && notTakenOut.Count > 0)
+                return "not read, because these limit mates could not be taken out: "
+                    + string.Join(", ", new List<string>(notTakenOut).ToArray())
+                    + ". Nothing is welded on the status";
+            if (!rebuilt)
+                return "not read, because the rebuild after taking the limits out "
+                    + "failed. Nothing is welded on the status";
+            return null;
+        }
+
         private static SolveState TakeLimitsOut(
             IModelDoc2 model, List<WalkedComponent> walked)
         {
             var state = SolveState.Suppress(model, walked, false, AddIn.Log);
-            if (state.Count > 0 && !SolveState.Rebuild(model, "edit"))
+            bool rebuilt = state.Count == 0 || SolveState.Rebuild(model, "edit");
+            if (!rebuilt)
                 AddIn.Log("solve state: the rebuild after taking the limits out failed");
+            // StatusFree and SubStatusFree stay 0, which welds nothing.
+            string skip = StatusSkipReason(state.NotTakenOut, rebuilt);
+            if (skip != null)
+            {
+                AddIn.Log("status: " + skip);
+                return state;
+            }
             foreach (var w in walked)
             {
                 if (w.Graph == null || w.Comp == null || w.Graph.Suppressed) continue;

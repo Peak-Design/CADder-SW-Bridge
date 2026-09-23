@@ -51,6 +51,10 @@ namespace Peak.Cadder.Sw
         /// <summary>How many mates are out.</summary>
         public int Count { get { return _held.Count; } }
 
+        /// <summary>The mates SolidWorks would not suppress, as "document:
+        /// mate". They are still in.</summary>
+        public readonly List<string> NotTakenOut = new List<string>();
+
         /// <summary>The mates that are out, as "document: mate (kind)".</summary>
         public List<string> Describe()
         {
@@ -270,9 +274,13 @@ namespace Peak.Cadder.Sw
                             Feature = feat, Document = Path.GetFileName(docPath),
                             Name = name, Configuration = config, Kind = kind,
                         });
-                    else if (_log != null)
-                        _log("solve state: " + name + " (" + kind + ") in "
-                            + Path.GetFileName(docPath) + " could not be suppressed");
+                    else
+                    {
+                        NotTakenOut.Add(Path.GetFileName(docPath) + ": " + name);
+                        if (_log != null)
+                            _log("solve state: " + name + " (" + kind + ") in "
+                                + Path.GetFileName(docPath) + " could not be suppressed");
+                    }
                 }
             }
         }
