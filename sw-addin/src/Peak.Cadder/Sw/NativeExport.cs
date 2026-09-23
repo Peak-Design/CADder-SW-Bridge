@@ -42,6 +42,7 @@ namespace Peak.Cadder.Sw
             if (assembly != null)
             {
                 var walked = AssemblyWalker.Walk(assembly, log);
+                defeature = ForThisWalk(model, walked, defeature, log);
                 if (progress != null)
                     progress.Stage("Building the geometry of " + walked.Count
                         + " component(s)", 0, 100, walked.Count);
@@ -55,6 +56,28 @@ namespace Peak.Cadder.Sw
             // long, which keeps the consumer from needing a second case.
             return BuildSinglePart(
                 model, fineness, log, separateSolids, appearance, defeature);
+        }
+
+        /// <summary>
+        /// The defeature rows keyed by the ids of THIS walk. A row names the
+        /// component by the id of the export the scene was built from, and
+        /// an edit to the assembly moves those ids. Where the row also
+        /// carries the persistent id, that finds the part it is about.
+        /// </summary>
+        internal static DefeatureOptions ForThisWalk(
+            IModelDoc2 model, List<WalkedComponent> walked, DefeatureOptions defeature,
+            Action<string> log)
+        {
+            if (defeature == null || !defeature.NamesPersistent) return defeature;
+            var present = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var w in walked)
+                if (w != null && w.Graph != null)
+                    present[w.Id] = ComponentIdentity.PersistIdBase64(model, w.Comp);
+            var resolved = defeature.ResolvedAgainst(present);
+            if (resolved.Dropped > 0 && log != null)
+                log("native export: " + resolved.Dropped + " defeature request(s) name a "
+                    + "part the assembly no longer holds, so nothing was defeatured for them");
+            return resolved;
         }
 
         /// <summary>The plan for what to leave out of one body, or null

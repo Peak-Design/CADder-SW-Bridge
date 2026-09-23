@@ -1680,6 +1680,8 @@ namespace Peak.Cadder.Bridge
                     if (w.Graph != null)
                         persistent[w.Id] = ComponentIdentity.PersistIdBase64(model, w.Comp);
                 selection = Selection(request, persistent);
+                // A defeature row finds its part the way the selection does.
+                defeature = defeature.ResolvedAgainst(persistent);
                 // The consumer may name the PLACEMENTS it wants as well as
                 // the components. A component id is the rig body's, which
                 // for a rigid subassembly is every part of it, so the paths

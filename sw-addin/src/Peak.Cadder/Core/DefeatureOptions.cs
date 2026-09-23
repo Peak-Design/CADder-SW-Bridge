@@ -53,11 +53,28 @@ namespace Peak.Cadder.Core
     /// A component the request does not name travels as it is. That is the
     /// safe way round: a scene that says nothing gets the geometry it has
     /// always got.
+    ///
+    /// A row names the component by the id of the export the scene was
+    /// built from. That number is NOT stable across an edit: the walk
+    /// numbers by instance name, so a part added in front of another moves
+    /// every id after it. A row can also carry the persistent id, which
+    /// survives the edit, and ResolvedAgainst uses it to find the part the
+    /// row is about. Before that, a Refresh after such an edit defeatured
+    /// the part that took over the number and gave the chosen part its
+    /// holes back, with no message.
     /// </summary>
     public sealed class DefeatureOptions
     {
+        private sealed class Row
+        {
+            public string Component;
+            public string Persistent;
+            public DefeatureSpec Spec;
+        }
+
         private readonly Dictionary<string, DefeatureSpec> _byComponent =
             new Dictionary<string, DefeatureSpec>(StringComparer.Ordinal);
+        private readonly List<Row> _rows = new List<Row>();
         private DefeatureSpec _first;
 
         public static readonly DefeatureOptions None = new DefeatureOptions();
@@ -67,10 +84,34 @@ namespace Peak.Cadder.Core
 
         public int Count { get { return _byComponent.Count; } }
 
+        /// <summary>Rows that ResolvedAgainst could not give to a part the
+        /// assembly holds now: the part was deleted, or its number now
+        /// belongs to another part.</summary>
+        public int Dropped { get; private set; }
+
+        /// <summary>Whether any row names its part by persistent id. Only
+        /// then is it worth reading the persistent ids of the walk.</summary>
+        public bool NamesPersistent
+        {
+            get
+            {
+                foreach (var row in _rows)
+                    if (!string.IsNullOrEmpty(row.Persistent)) return true;
+                return false;
+            }
+        }
+
         public void Set(string componentId, DefeatureSpec spec)
         {
-            if (string.IsNullOrEmpty(componentId) || spec == null || !spec.Any) return;
-            _byComponent[componentId] = spec;
+            Set(componentId, null, spec);
+        }
+
+        public void Set(string componentId, string persistentId, DefeatureSpec spec)
+        {
+            if (spec == null || !spec.Any) return;
+            if (string.IsNullOrEmpty(componentId) && string.IsNullOrEmpty(persistentId)) return;
+            _rows.Add(new Row { Component = componentId, Persistent = persistentId, Spec = spec });
+            if (!string.IsNullOrEmpty(componentId)) _byComponent[componentId] = spec;
             if (_first == null) _first = spec;
         }
 
@@ -88,6 +129,65 @@ namespace Peak.Cadder.Core
             return _byComponent.TryGetValue(componentId, out spec) ? spec : null;
         }
 
+        /// <summary>
+        /// The same rows, keyed by the ids of the walk just made.
+        /// <paramref name="present"/> maps each component id of that walk
+        /// to its persistent id (null where SolidWorks gave none). It is the
+        /// same map that ComponentSelection resolves a selection with.
+        ///
+        /// The persistent id of a row decides first. The component id of the
+        /// row is used only when it cannot contradict that: the row has no
+        /// persistent id (an older consumer), or the component that has the
+        /// number now has none. When both have one and they differ, the
+        /// number belongs to another part, and the row is dropped. A part
+        /// that keeps its holes is easy to see and to put right. A part that
+        /// loses holes that nobody chose is not.
+        /// </summary>
+        public DefeatureOptions ResolvedAgainst(IDictionary<string, string> present)
+        {
+            if (present == null) return this;
+            var byPersistent = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var kv in present)
+                if (!string.IsNullOrEmpty(kv.Value) && !byPersistent.ContainsKey(kv.Value))
+                    byPersistent[kv.Value] = kv.Key;
+
+            var resolved = new DefeatureOptions { _first = _first };
+            var answered = new HashSet<string>(StringComparer.Ordinal);
+            var waiting = new List<Row>();
+            foreach (var row in _rows)
+            {
+                string id;
+                if (!string.IsNullOrEmpty(row.Persistent)
+                    && byPersistent.TryGetValue(row.Persistent, out id))
+                {
+                    resolved._byComponent[id] = row.Spec;
+                    answered.Add(id);
+                }
+                else waiting.Add(row);
+            }
+            int dropped = 0;
+            foreach (var row in waiting)
+            {
+                string now;
+                if (string.IsNullOrEmpty(row.Component)
+                    || !present.TryGetValue(row.Component, out now))
+                {
+                    dropped++;
+                    continue;
+                }
+                // A persistent id already said which spec this part gets.
+                if (answered.Contains(row.Component)) continue;
+                if (!string.IsNullOrEmpty(row.Persistent) && !string.IsNullOrEmpty(now))
+                {
+                    dropped++;
+                    continue;
+                }
+                resolved._byComponent[row.Component] = row.Spec;
+            }
+            resolved.Dropped = dropped;
+            return resolved;
+        }
+
         public string KeyFor(string componentId)
         {
             var spec = For(componentId);
@@ -96,8 +196,9 @@ namespace Peak.Cadder.Core
 
         /// <summary>
         /// Reads the "defeature" array of a bridge request: one entry per
-        /// component, each naming the component, the size and whether curved
-        /// faces are included.
+        /// component, each naming the component (and its persistent id when
+        /// the consumer has it), the size and whether curved faces are
+        /// included.
         /// </summary>
         public static DefeatureOptions From(Dictionary<string, object> request)
         {
@@ -115,7 +216,8 @@ namespace Peak.Cadder.Core
                     Size = size,
                     Curved = MiniJson.Flag(entry, "curved", false),
                 };
-                options.Set(MiniJson.Str(entry, "component", null), spec);
+                options.Set(MiniJson.Str(entry, "component", null),
+                            MiniJson.Str(entry, "persistent_id", null), spec);
             }
             return options;
         }
