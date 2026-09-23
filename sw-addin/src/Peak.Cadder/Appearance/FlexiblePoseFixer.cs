@@ -92,10 +92,19 @@ namespace Peak.Cadder.Appearance
             string docName = instances[0].SubDocName;
 
             // Every use of a matching sub-assembly definition in the file.
-            var uses = occurrences
+            // The exact document name comes first. The 'doc_config' form
+            // also matches another document such as 'hinge_assy' next to
+            // 'hinge', and its uses made the count wrong, so the prefix form
+            // counts only when the exact name alone does not account for
+            // every instance.
+            var subUses = occurrences
                 .Where(o => childrenByParentPd.ContainsKey(o.ChildPd)
                             && NameMatches(o.ProductName, docName))
                 .ToList();
+            var uses = subUses
+                .Where(o => string.Equals(o.ProductName, docName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (uses.Count != instances.Count) uses = subUses;
             if (uses.Count != instances.Count)
             {
                 Fail(outcome, instances, log, string.Format(CultureInfo.InvariantCulture,
