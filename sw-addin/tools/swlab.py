@@ -20,6 +20,9 @@
     python swlab.py activate <title>
     python swlab.py quit
     python swlab.py raw '{"op": "...", ...}'
+    python swlab.py raw '{"op": "compose", ...}'     build a test assembly
+    python swlab.py raw '{"op": "configure", ...}'   add a configuration
+                                              (recipes: Bridge/LabCompose.cs)
 
 The listener is found through the registry files the add-in writes under
 %LOCALAPPDATA%\\PeakDesign\\CADder\\solidworks (one per live instance,
