@@ -2136,16 +2136,10 @@ namespace Peak.Cadder.Core
             var byId = new Dictionary<string, RigJoint>();
             foreach (var j in result.Joints) byId[j.Id] = j;
 
-            var closures = new HashSet<string>();
-            foreach (var lp in result.Loops) closures.Add(lp.ClosureJoint);
-
             // Each group's TREE parent joint: the mount whose origin is the
             // point that body swings about, and the point the other half of
             // the pair will be aimed at.
-            var mountOf = new Dictionary<string, RigJoint>();
-            foreach (var j in result.Joints)
-                if (!closures.Contains(j.Id) && !mountOf.ContainsKey(j.ChildGroup))
-                    mountOf[j.ChildGroup] = j;
+            var mountOf = TreeMounts(result);
 
             var seated = new HashSet<string>();
             foreach (var lp in result.Loops)
@@ -2166,6 +2160,30 @@ namespace Peak.Cadder.Core
                     SeatOnSlide(mount, slide);
                 }
             }
+        }
+
+        /// <summary>
+        /// Each group's joint in the tree, by the group it carries. A
+        /// closure is in no tree, and neither is a free joint: it is an
+        /// under-mated pair that the consumer never parents. Orient gives a
+        /// free joint a child all the same, and listed first it was taken
+        /// for that body's mount. On the TongRig with a free joint to the
+        /// ram's body, the body's pin was not seated on the ram, and a
+        /// stroke was never carried onto the driver, because a free joint
+        /// has no origin.
+        /// </summary>
+        private static Dictionary<string, RigJoint> TreeMounts(LoopAnalysisResult result)
+        {
+            var closures = new HashSet<string>();
+            foreach (var lp in result.Loops) closures.Add(lp.ClosureJoint);
+            var mountOf = new Dictionary<string, RigJoint>();
+            foreach (var j in result.Joints)
+            {
+                if (j.Type == JointType.Free || closures.Contains(j.Id)) continue;
+                if (j.ChildGroup == null || j.ParentGroup == j.ChildGroup) continue;
+                if (!mountOf.ContainsKey(j.ChildGroup)) mountOf[j.ChildGroup] = j;
+            }
+            return mountOf;
         }
 
         /// <summary>Slides a pin's origin along its OWN axis to the point
@@ -2226,15 +2244,9 @@ namespace Peak.Cadder.Core
             var byId = new Dictionary<string, RigJoint>();
             foreach (var j in result.Joints) byId[j.Id] = j;
 
-            var closures = new HashSet<string>();
-            foreach (var lp in result.Loops) closures.Add(lp.ClosureJoint);
-
             // Each group's TREE parent joint: the mount whose origin is the
             // point that body swings about.
-            var mountOf = new Dictionary<string, RigJoint>();
-            foreach (var j in result.Joints)
-                if (!closures.Contains(j.Id) && !mountOf.ContainsKey(j.ChildGroup))
-                    mountOf[j.ChildGroup] = j;
+            var mountOf = TreeMounts(result);
 
             foreach (var lp in result.Loops)
             {
