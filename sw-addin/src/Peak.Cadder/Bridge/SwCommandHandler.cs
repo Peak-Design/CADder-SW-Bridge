@@ -1140,13 +1140,8 @@ namespace Peak.Cadder.Bridge
             {
                 if (w.Graph == null) continue;
                 if (!selection.Everything && !selection.Ids.Contains(w.Id)) continue;
-                poses.Add(new Dictionary<string, object>
-                {
-                    { "id", w.Id },
-                    { "sw_path", w.Graph.Path },
-                    { "sw_persistent_id", persistent[w.Id] },
-                    { "transform", Flatten(w.Graph.Transform) },
-                });
+                poses.Add(PoseRow(w.Id, w.Graph.Path, persistent[w.Id],
+                    w.Graph.Transform, selection));
             }
             if (!selection.Everything && poses.Count == 0)
                 return Fail("none of those components are in the open assembly");
@@ -1158,6 +1153,28 @@ namespace Peak.Cadder.Bridge
                 { "components", poses },
                 { "missing", selection.Missing },
             };
+        }
+
+        /// <summary>One row of the poses answer. "id" is the number the
+        /// walk gives the component NOW, which an edit to the assembly
+        /// moves. So the row also carries its persistent id, and the
+        /// persistent id the request used for it ("requested_id"), and
+        /// Blender puts the row on the part by those.</summary>
+        internal static Dictionary<string, object> PoseRow(
+            string id, string path, string persistentId, double[,] transform,
+            ComponentSelection selection)
+        {
+            var row = new Dictionary<string, object>
+            {
+                { "id", id },
+                { "sw_path", path },
+                { "sw_persistent_id", persistentId },
+                { "transform", Flatten(transform) },
+            };
+            string requested;
+            if (selection != null && selection.RequestedBy.TryGetValue(id, out requested))
+                row["requested_id"] = requested;
+            return row;
         }
 
         /// <summary>The tessellation of one face with the texture
@@ -1476,6 +1493,10 @@ namespace Peak.Cadder.Bridge
             if (selection.Missing.Count > 0)
                 AddIn.Log("sw bridge: " + selection.Missing.Count
                     + " requested component(s) are not in the assembly");
+            if (selection.StaleComponents.Count > 0)
+                AddIn.Log("sw bridge: " + selection.StaleComponents.Count
+                    + " component number(s) now name other parts and were left out: "
+                    + string.Join(", ", selection.StaleComponents.ToArray()));
             return selection;
         }
 
