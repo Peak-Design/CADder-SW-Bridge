@@ -494,9 +494,9 @@ namespace Peak.Cadder.Sw
                 }
                 catch { }
 
-                foreach (var curve in CurvesOf(reference, log))
+                foreach (var src in CurvesOf(reference, true, log))
                 {
-                    var pts = SampleCurve(curve, lift, log);
+                    var pts = SampleCurve(src, lift, log);
                     if (pts != null && pts.Count >= 2) polylines.Add(pts);
                 }
             }
@@ -521,18 +521,38 @@ namespace Peak.Cadder.Sw
                     + "," + a[2].ToString("G6", CultureInfo.InvariantCulture) + "]");
         }
 
-        /// <summary>The ICurves a mate-entity reference can yield: an edge's
+        /// <summary>One curve a mate entity yields, and the span of it to
+        /// sample.</summary>
+        private sealed class CurveSource
+        {
+            public ICurve Curve;
+
+            /// <summary>
+            /// The parameter span an EDGE covers. IEdge.GetCurve gives the
+            /// edge's underlying curve ("Gets the underlying curve for this
+            /// edge", API help), whose own range is the whole circle of an
+            /// arc and the unbounded line of a straight edge. False means:
+            /// sample the curve's own range.
+            /// </summary>
+            public bool HasSpan;
+            public double Start, End;
+        }
+
+        /// <summary>The curves a mate-entity reference can yield: an edge's
         /// curve, a sketch segment's curve (line/arc/ellipse/spline/parabola
         /// only, per its API doc), a reference curve's segments, or the
-        /// object already being a curve.</summary>
-        private static IEnumerable<ICurve> CurvesOf(object reference, Action<string> log)
+        /// object already being a curve. <paramref name="edgeSpans"/> keeps
+        /// an edge to its own extent, which is what a path mate rides. A
+        /// coincident mate onto an edge rides the extended curve, so the
+        /// recovery pass sets it false.</summary>
+        private static IEnumerable<CurveSource> CurvesOf(
+            object reference, bool edgeSpans, Action<string> log)
         {
             var edge = reference as IEdge;
             if (edge != null)
             {
-                ICurve c = null;
-                try { c = edge.GetCurve() as ICurve; } catch { }
-                if (c != null) yield return c;
+                var src = EdgeSource(edge, edgeSpans, log);
+                if (src != null) yield return src;
                 yield break;
             }
             var seg = reference as ISketchSegment;
@@ -540,24 +560,132 @@ namespace Peak.Cadder.Sw
             {
                 ICurve c = null;
                 try { c = seg.GetCurve() as ICurve; } catch { }
-                if (c != null) yield return c;
+                if (c != null) yield return new CurveSource { Curve = c };
                 yield break;
             }
             var refCurve = reference as IReferenceCurve;
             if (refCurve != null)
             {
+                // The segments are EDGES: GetFirstSegment is the "First edge
+                // for the segment", and the API example reads each one with
+                // IEdge.GetCurve. A cast to ICurve found nothing, so a
+                // composite curve gave no path at all.
                 object[] segs = null;
                 try { segs = refCurve.GetSegments() as object[]; } catch { }
                 if (segs != null)
                     foreach (var o in segs)
                     {
+                        var segEdge = o as IEdge;
+                        if (segEdge != null)
+                        {
+                            var src = EdgeSource(segEdge, edgeSpans, log);
+                            if (src != null) yield return src;
+                            continue;
+                        }
                         var c = o as ICurve;
-                        if (c != null) yield return c;
+                        if (c != null) yield return new CurveSource { Curve = c };
                     }
                 yield break;
             }
             var direct = reference as ICurve;
-            if (direct != null) yield return direct;
+            if (direct != null) yield return new CurveSource { Curve = direct };
+        }
+
+        /// <summary>An edge's underlying curve, with the span the edge
+        /// covers when <paramref name="span"/> asks for it. An edge whose
+        /// span cannot be read keeps the curve's own range, as before, with
+        /// a log line.</summary>
+        private static CurveSource EdgeSource(IEdge edge, bool span, Action<string> log)
+        {
+            ICurve c = null;
+            try { c = edge.GetCurve() as ICurve; } catch { }
+            if (c == null) return null;
+            var src = new CurveSource { Curve = c };
+            if (!span) return src;
+
+            // GetCurve comes first: GetCurveParams3 reads the curve data
+            // that GetCurve makes (API help, IEdge~GetCurveParams3).
+            ICurveParamData data = null;
+            try { data = edge.GetCurveParams3(); } catch { }
+            double s, e;
+            bool matched;
+            if (data != null
+                && EdgeSpan(data.UMinValue, data.UMaxValue, data.Sense,
+                    data.StartPoint as double[], data.EndPoint as double[],
+                    t => Evaluate(c, t), out s, out e, out matched))
+            {
+                src.HasSpan = true;
+                src.Start = s;
+                src.End = e;
+                if (!matched && log != null)
+                    log("path edge span " + s.ToString("R", CultureInfo.InvariantCulture) + ".."
+                        + e.ToString("R", CultureInfo.InvariantCulture)
+                        + " does not meet the edge's end points. The documented span is used.");
+            }
+            else if (log != null)
+                log("path edge: no parameter span, the whole underlying curve is sampled");
+            return src;
+        }
+
+        /// <summary>
+        /// The parameter span of an edge on its underlying curve, from
+        /// ICurveParamData. When the edge runs against the curve (Sense
+        /// false), the API help says the U values come negated: an edge
+        /// from 10 to 5 reads -10 and -5, and the span is 5 to 10. That is
+        /// a convention nothing else here can check, so each reading is
+        /// checked against the edge's end points, and the one that meets
+        /// them wins. When neither does, or the points are missing, the
+        /// documented reading is taken and <paramref name="matched"/> is
+        /// false. False when the U values are not a span.
+        /// </summary>
+        internal static bool EdgeSpan(
+            double uMin, double uMax, bool sense, double[] startPoint, double[] endPoint,
+            Func<double, double[]> evaluate,
+            out double start, out double end, out bool matched)
+        {
+            start = end = 0;
+            matched = false;
+            if (double.IsNaN(uMin) || double.IsNaN(uMax)
+                || double.IsInfinity(uMin) || double.IsInfinity(uMax))
+                return false;
+
+            // The documented reading first, then the other one.
+            var spans = sense
+                ? new[] { new[] { uMin, uMax }, new[] { -uMax, -uMin } }
+                : new[] { new[] { -uMax, -uMin }, new[] { uMin, uMax } };
+            if (spans[0][1] - spans[0][0] <= 0) return false;
+
+            if (startPoint != null && startPoint.Length >= 3
+                && endPoint != null && endPoint.Length >= 3)
+            {
+                foreach (var span in spans)
+                {
+                    if (span[1] - span[0] <= 0) continue;
+                    if (!EndsMeet(evaluate, span[0], span[1], startPoint, endPoint)) continue;
+                    start = span[0];
+                    end = span[1];
+                    matched = true;
+                    return true;
+                }
+            }
+            start = spans[0][0];
+            end = spans[0][1];
+            return true;
+        }
+
+        /// <summary>The curve at <paramref name="a"/> and
+        /// <paramref name="b"/> meets the two end points, in either order
+        /// (StartPoint follows the curve, not the edge, when they run
+        /// apart).</summary>
+        private static bool EndsMeet(
+            Func<double, double[]> evaluate, double a, double b, double[] p, double[] q)
+        {
+            const double tol2 = 1e-6 * 1e-6;
+            var pa = evaluate(a);
+            var pb = evaluate(b);
+            if (pa == null || pb == null || pa.Length < 3 || pb.Length < 3) return false;
+            return (MathOps.Distance2(pa, p) <= tol2 && MathOps.Distance2(pb, q) <= tol2)
+                || (MathOps.Distance2(pa, q) <= tol2 && MathOps.Distance2(pb, p) <= tol2);
         }
 
         /// <summary>
@@ -575,26 +703,28 @@ namespace Peak.Cadder.Sw
         private const int PathMaxSamples = 2048;
 
         /// <summary>One curve to one polyline, assembly space. Evaluate2 over
-        /// the parameter range. GetTessPts needs trim endpoints this code
-        /// does not always have. A line's range is the whole representable
-        /// axis (its API doc says so verbatim), which no path is; such
-        /// segments are skipped with a log line rather than sampled absurd.
-        ///
-        /// Sampling is ADAPTIVE: a fixed count cannot hold a tolerance across
-        /// the range of paths a real assembly holds (48 uniform samples left
-        /// a live 0.9 m spline 78 um off its own mate vertex, corpus 17,
-        /// 2026-08-23, and would leave a cable run far worse), so intervals
-        /// bisect until the curve's midpoint sits within tolerance of the
-        /// chord.</summary>
-        private static List<double[]> SampleCurve(ICurve curve, double[,] lift, Action<string> log)
+        /// the edge's span, or over the curve's own range. GetTessPts needs
+        /// trim endpoints this code does not always have. A line's own range
+        /// is the whole representable axis (its API doc says so verbatim),
+        /// which no path is; such segments are skipped with a log line
+        /// rather than sampled absurd.</summary>
+        private static List<double[]> SampleCurve(CurveSource src, double[,] lift, Action<string> log)
         {
             double s = 0, e = 0;
-            bool closed = false, periodic = false;
-            try
+            if (src.HasSpan)
             {
-                if (!curve.GetEndParams(out s, out e, out closed, out periodic)) return null;
+                s = src.Start;
+                e = src.End;
             }
-            catch { return null; }
+            else
+            {
+                bool closed = false, periodic = false;
+                try
+                {
+                    if (!src.Curve.GetEndParams(out s, out e, out closed, out periodic)) return null;
+                }
+                catch { return null; }
+            }
             if (double.IsNaN(s) || double.IsNaN(e) || double.IsInfinity(s) || double.IsInfinity(e))
                 return null;
             if (Math.Abs(e - s) > 1e8)
@@ -603,23 +733,41 @@ namespace Peak.Cadder.Sw
                     log("path curve segment skipped: unbounded parameter range (an untrimmed line?)");
                 return null;
             }
+            var curve = src.Curve;
+            return SampleSpan(t => Evaluate(curve, t), s, e, lift);
+        }
 
+        /// <summary>
+        /// The pure half of SampleCurve: <paramref name="evaluate"/> over
+        /// [<paramref name="s"/>, <paramref name="e"/>], lifted. Null when
+        /// the curve stops evaluating.
+        ///
+        /// Sampling is ADAPTIVE: a fixed count cannot hold a tolerance across
+        /// the range of paths a real assembly holds (48 uniform samples left
+        /// a live 0.9 m spline 78 um off its own mate vertex, corpus 17,
+        /// 2026-08-23, and would leave a cable run far worse), so intervals
+        /// bisect until the curve's midpoint sits within tolerance of the
+        /// chord.
+        /// </summary>
+        internal static List<double[]> SampleSpan(
+            Func<double, double[]> evaluate, double s, double e, double[,] lift)
+        {
             // A seed coarse enough to be cheap on a straight edge and fine
             // enough that refinement never has to reach across a full period
             // of a wavy spline (whose chord midpoint can land back ON the
             // curve and stop refinement early).
             const int seed = 16;
             var pts = new List<double[]>();
-            double[] prev = EvaluatePoint(curve, s, lift);
+            double[] prev = EvaluatePoint(evaluate, s, lift);
             if (prev == null) return null;
             pts.Add(prev);
             for (int i = 0; i < seed; i++)
             {
                 double a = s + (e - s) * i / seed;
                 double b = s + (e - s) * (i + 1) / seed;
-                double[] pb = EvaluatePoint(curve, b, lift);
+                double[] pb = EvaluatePoint(evaluate, b, lift);
                 if (pb == null) return null;
-                if (!RefineSpan(curve, lift, a, prev, b, pb, 0, pts)) return null;
+                if (!RefineSpan(evaluate, lift, a, prev, b, pb, 0, pts)) return null;
                 prev = pb;
             }
             return pts;
@@ -629,13 +777,14 @@ namespace Peak.Cadder.Sw
         /// within tolerance of the chord, appending every point AFTER the
         /// span's start. False means the curve stopped evaluating.</summary>
         private static bool RefineSpan(
-            ICurve curve, double[,] lift, double ta, double[] pa, double tb, double[] pb,
+            Func<double, double[]> evaluate, double[,] lift,
+            double ta, double[] pa, double tb, double[] pb,
             int depth, List<double[]> pts)
         {
             if (depth < 7 && pts.Count < PathMaxSamples)
             {
                 double tm = 0.5 * (ta + tb);
-                double[] pm = EvaluatePoint(curve, tm, lift);
+                double[] pm = EvaluatePoint(evaluate, tm, lift);
                 if (pm == null) return false;
                 double dx = pm[0] - 0.5 * (pa[0] + pb[0]);
                 double dy = pm[1] - 0.5 * (pa[1] + pb[1]);
@@ -643,21 +792,30 @@ namespace Peak.Cadder.Sw
                 if (dx * dx + dy * dy + dz * dz
                         > PathChordToleranceM * PathChordToleranceM)
                 {
-                    return RefineSpan(curve, lift, ta, pa, tm, pm, depth + 1, pts)
-                        && RefineSpan(curve, lift, tm, pm, tb, pb, depth + 1, pts);
+                    return RefineSpan(evaluate, lift, ta, pa, tm, pm, depth + 1, pts)
+                        && RefineSpan(evaluate, lift, tm, pm, tb, pb, depth + 1, pts);
                 }
             }
             pts.Add(pb);
             return true;
         }
 
-        private static double[] EvaluatePoint(ICurve curve, double t, double[,] lift)
+        private static double[] EvaluatePoint(Func<double, double[]> evaluate, double t, double[,] lift)
+        {
+            var p = evaluate(t);
+            if (p == null || p.Length < 3) return null;
+            p = new[] { p[0], p[1], p[2] };
+            return lift == null ? p : SwFrames.LiftPoint(lift, p);
+        }
+
+        /// <summary>The curve's point at <paramref name="t"/>, in its own
+        /// frame, or null.</summary>
+        private static double[] Evaluate(ICurve curve, double t)
         {
             double[] ev = null;
             try { ev = curve.Evaluate2(t, 0) as double[]; } catch { }
             if (ev == null || ev.Length < 3) return null;
-            var p = new[] { ev[0], ev[1], ev[2] };
-            return lift == null ? p : SwFrames.LiftPoint(lift, p);
+            return new[] { ev[0], ev[1], ev[2] };
         }
 
         /// <summary>Greedy end-to-end chaining of segment polylines, reversing
@@ -1226,8 +1384,11 @@ namespace Peak.Cadder.Sw
                 }
                 catch { }
 
-                foreach (var curve in CurvesOf(reference, log))
+                // The extended curve, not the edge's extent: a point
+                // coincident with an edge may leave the edge's ends.
+                foreach (var src in CurvesOf(reference, false, log))
                 {
+                    var curve = src.Curve;
                     bool isLine = false;
                     try { isLine = curve.IsLine(); } catch { }
                     if (isLine)
@@ -1259,7 +1420,7 @@ namespace Peak.Cadder.Sw
                         }
                         continue;
                     }
-                    var pts = SampleCurve(curve, lift, log);
+                    var pts = SampleCurve(src, lift, log);
                     if (pts != null && pts.Count >= 2)
                     {
                         polylines.Add(pts);
