@@ -619,11 +619,19 @@ namespace Peak.Cadder.Tests
 
         /// <summary>In-sub ball geometry describes the sub DOCUMENT's pose;
         /// a flexed instance transports the measured directions and the rest
-        /// angle is recomputed as the actual angle between them.</summary>
+        /// angle is recomputed as the actual angle between them. Both parts
+        /// sit in the flexible subassembly, as only such a mate describes
+        /// the document pose.</summary>
         [Fact]
         public void FlexedBallConeRestFollowsTheInstancePose()
         {
+            var sub = Comp("c000", "ball joint", isFixed: true);
+            sub.Solving = "flexible";
+            var socket = Comp("c001", "socket base");
+            socket.ParentId = "c000";
+            socket.FixedInSubassembly = true;
             var stud = Comp("c002", "ball stud");
+            stud.ParentId = "c000";
             double tilt = 0.3;
             var rx = MathOps.Identity4();
             rx[1, 1] = Math.Cos(tilt); rx[1, 2] = -Math.Sin(tilt);
@@ -633,7 +641,8 @@ namespace Peak.Cadder.Tests
             var graph = Graph(
                 new[]
                 {
-                    Comp("c001", "socket base", isFixed: true),
+                    sub,
+                    socket,
                     stud,
                 },
                 Mate("Concentric1", "swMateCONCENTRIC",

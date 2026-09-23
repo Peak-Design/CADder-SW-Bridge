@@ -55,6 +55,9 @@ namespace Peak.Cadder.Core
             var poseDeltas = new Dictionary<string, double[,]>();
             foreach (var c in graph.Components)
                 if (c.MatePoseDelta != null) poseDeltas[c.Id] = c.MatePoseDelta;
+            var components = new Dictionary<string, GraphComponent>();
+            foreach (var c in graph.Components)
+                if (c.Id != null) components[c.Id] = c;
             var jointByEdge = new List<RigJoint>();
             int nextId = 1;
             int nextGroupId = NextGroupNumber(grouping.Groups);
@@ -68,14 +71,14 @@ namespace Peak.Cadder.Core
                     continue;
                 }
                 var joint = ClassifyEdge(
-                    edge, grouping, groupBoxes, groupAnchors, poseDeltas,
+                    edge, grouping, groupBoxes, groupAnchors, poseDeltas, components,
                     result.Warnings, ref nextId, signOracle);
                 jointByEdge.Add(joint);
                 if (joint != null) result.Joints.Add(joint);
             }
 
             BorrowFixedLines(
-                grouping, groupBoxes, groupAnchors, poseDeltas, result,
+                grouping, groupBoxes, groupAnchors, poseDeltas, components, result,
                 jointByEdge, signOracle);
 
             for (int i = 0; i < grouping.Edges.Count; i++)
@@ -118,6 +121,7 @@ namespace Peak.Cadder.Core
             Dictionary<string, double[][]> groupBoxes,
             Dictionary<string, double[]> groupAnchors,
             Dictionary<string, double[,]> poseDeltas,
+            Dictionary<string, GraphComponent> components,
             ClassificationResult result,
             List<RigJoint> jointByEdge,
             ILimitSignOracle signOracle)
@@ -217,7 +221,7 @@ namespace Peak.Cadder.Core
                 int scratch = 1;
                 var trial = new List<ManifestWarning>();
                 var better = ClassifyEdge(
-                    wider, grouping, groupBoxes, groupAnchors, poseDeltas,
+                    wider, grouping, groupBoxes, groupAnchors, poseDeltas, components,
                     trial, ref scratch, signOracle);
                 if (better == null || better.Type == JointType.Free) continue;
 
@@ -357,6 +361,7 @@ namespace Peak.Cadder.Core
             Dictionary<string, double[][]> groupBoxes,
             Dictionary<string, double[]> groupAnchors,
             Dictionary<string, double[,]> poseDeltas,
+            Dictionary<string, GraphComponent> components,
             List<ManifestWarning> warnings, ref int nextId,
             ILimitSignOracle signOracle)
         {
@@ -607,14 +612,18 @@ namespace Peak.Cadder.Core
                 }
             }
 
+            var rotationDeltas = DeltasFor(rotationLimitSource, poseDeltas, components);
+            var translationDeltas = DeltasFor(translationLimitSource, poseDeltas, components);
+
             if (type == JointType.Ball && joint.RotationLimit != null
                 && rotationLimitSource != null)
-                BallConeAxes(joint, rotationLimitSource, grouping, poseDeltas);
+                BallConeAxes(joint, rotationLimitSource, grouping, rotationDeltas);
 
             ReconcileLimitSigns(joint, rotationLimitSource, translationLimitSource,
-                grouping, poseDeltas, signOracle);
+                grouping, rotationDeltas, translationDeltas, signOracle);
             CorrectLimitsForFlexedPose(
-                joint, rotationLimitSource, translationLimitSource, grouping, poseDeltas);
+                joint, rotationLimitSource, translationLimitSource, grouping,
+                rotationDeltas, translationDeltas);
 
             if (screwMate != null && type == JointType.Screw)
             {
@@ -1431,7 +1440,8 @@ namespace Peak.Cadder.Core
         private static void ReconcileLimitSigns(
             RigJoint joint, GraphMate rotationSource, GraphMate translationSource,
             RigidGroupingResult grouping,
-            Dictionary<string, double[,]> poseDeltas, ILimitSignOracle oracle)
+            Dictionary<string, double[,]> rotationDeltas,
+            Dictionary<string, double[,]> translationDeltas, ILimitSignOracle oracle)
         {
             if (joint.Axis == null) return;
             // A ball's limit is an UNSIGNED swing band about the cone axis
@@ -1442,7 +1452,7 @@ namespace Peak.Cadder.Core
             if (rotationSource != null && joint.RotationLimit != null)
             {
                 int s = ResolveSignLadder(joint, rotationSource, grouping,
-                                          poseDeltas, oracle, rotational: true);
+                                          rotationDeltas, oracle, rotational: true);
                 if (s < 0) MirrorLimit(joint.RotationLimit);
                 else if (s == 0)
                 {
@@ -1462,7 +1472,7 @@ namespace Peak.Cadder.Core
             if (translationSource != null && joint.TranslationLimit != null)
             {
                 int s = ResolveSignLadder(joint, translationSource, grouping,
-                                          poseDeltas, oracle, rotational: false);
+                                          translationDeltas, oracle, rotational: false);
                 if (s < 0) MirrorLimit(joint.TranslationLimit);
                 else if (s == 0)
                 {
@@ -1563,14 +1573,14 @@ namespace Peak.Cadder.Core
         /// </summary>
         private static void CorrectLimitsForFlexedPose(
             RigJoint joint, GraphMate rotationSource, GraphMate translationSource,
-            RigidGroupingResult grouping, Dictionary<string, double[,]> poseDeltas)
+            RigidGroupingResult grouping,
+            Dictionary<string, double[,]> rotationDeltas,
+            Dictionary<string, double[,]> translationDeltas)
         {
-            if (poseDeltas.Count == 0) return;
-
             if (joint.RotationLimit != null && rotationSource != null && joint.Axis != null
                 && joint.Type != JointType.Ball)    // a ball's rest is the swing
             {                                       // angle, set by BallConeAxes
-                var rel = RelativePoseDelta(rotationSource, joint, grouping, poseDeltas);
+                var rel = RelativePoseDelta(rotationSource, joint, grouping, rotationDeltas);
                 if (rel != null)
                     joint.RotationLimit.ValueAtRest += RotationAbout(joint.Axis, rel);
             }
@@ -1578,7 +1588,7 @@ namespace Peak.Cadder.Core
             {
                 var slideAxis = joint.Type == JointType.PinSlot
                     ? joint.SecondaryAxis : joint.Axis;
-                var rel = RelativePoseDelta(translationSource, joint, grouping, poseDeltas);
+                var rel = RelativePoseDelta(translationSource, joint, grouping, translationDeltas);
                 if (rel != null && slideAxis != null)
                     joint.TranslationLimit.ValueAtRest += SlideOf(joint, slideAxis, rel);
             }
@@ -1601,6 +1611,52 @@ namespace Peak.Cadder.Core
             return slideAxis[0] * (moved[0] - o[0])
                  + slideAxis[1] * (moved[1] - o[1])
                  + slideAxis[2] * (moved[2] - o[2]);
+        }
+
+        private static readonly Dictionary<string, double[,]> NoDeltas =
+            new Dictionary<string, double[,]>();
+
+        /// <summary>
+        /// The pose deltas that apply to a limit mate's geometry: all of
+        /// them for a mate that may live in a flexible subassembly's
+        /// document, none for a mate that cannot. The reader lifts only a
+        /// mate that lives in such a document, and only that mate describes
+        /// the document pose. A mate of the top assembly is read at the
+        /// instance pose, so a delta moved its geometry, and its rest
+        /// value, by the flex a second time.
+        ///
+        /// A document mate names only that subassembly and what sits in it.
+        /// So a mate that names the top assembly's own geometry, or parts
+        /// that share no flexible subassembly, is a top-level mate. A mate
+        /// that names only one subassembly and its parts may be either, and
+        /// keeps the deltas as before.
+        /// </summary>
+        private static Dictionary<string, double[,]> DeltasFor(
+            GraphMate mate, Dictionary<string, double[,]> poseDeltas,
+            Dictionary<string, GraphComponent> components)
+        {
+            if (mate == null || poseDeltas.Count == 0) return poseDeltas;
+            HashSet<string> shared = null;
+            foreach (var e in mate.Entities)
+            {
+                if (e.ComponentId == null) return NoDeltas;
+                GraphComponent c;
+                if (!components.TryGetValue(e.ComponentId, out c)) continue;
+                // The flexible subassemblies this entity sits on or in.
+                var subs = new HashSet<string>();
+                if (c.Solving == "flexible") subs.Add(c.Id);
+                var seen = new HashSet<string>();
+                for (var up = c.ParentId; up != null && seen.Add(up);)
+                {
+                    subs.Add(up);
+                    GraphComponent parent;
+                    up = components.TryGetValue(up, out parent) ? parent.ParentId : null;
+                }
+                if (shared == null) shared = subs;
+                else shared.IntersectWith(subs);
+                if (shared.Count == 0) return NoDeltas;
+            }
+            return poseDeltas;
         }
 
         /// <summary>D(parent side)⁻¹ × D(child side) for the mate's entity
