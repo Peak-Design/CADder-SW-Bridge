@@ -154,27 +154,41 @@ namespace Peak.Cadder.Core
                 // drive from the pin the slider's chain solves, one
                 // control. Every input the loops name is tried; the
                 // choice above stands unless one of them does better.
+                //
+                // Each mechanism keeps its own seed. Mechanisms share no
+                // joints, and a seed only decides the rings it is a member
+                // of, so an input is tried with the seeds already taken for
+                // the OTHER mechanisms, and the count can only change in its
+                // own. With one seed for the whole model, two copies of the
+                // plunger could not both improve: the second copy's seed
+                // put the first copy back to its first choice, the total
+                // stayed the same, and the second copy shipped with more
+                // controls than freedoms.
                 var inputs = new List<string>();
                 foreach (var lp in loops)
                     foreach (var c in lp.DriverCandidates)
                         if (!inputs.Contains(c.DriverJoint)) inputs.Add(c.DriverJoint);
+                var mechanismOf = MechanismOf(loops);
                 int best = Controls(loops).Count;
-                string chosenSeed = null;
+                var seeds = new HashSet<string>();
                 foreach (var alt in inputs)
                 {
+                    var trial = new HashSet<string> { alt };
+                    foreach (string s in seeds)
+                        if (!SameMechanism(mechanismOf, s, alt)) trial.Add(s);
                     var altTree = new HashSet<string>(tree0);
                     var altLoops = SelectLoops(groups, usable, adjacency, groupIndex, roots,
-                                               new HashSet<string> { alt }, altTree);
+                                               trial, altTree);
                     int n = Controls(altLoops).Count;
                     if (n < best)
                     {
                         best = n;
                         loops = altLoops;
                         tree = altTree;
-                        chosenSeed = alt;
+                        seeds = trial;
                     }
                 }
-                if (chosenSeed != null) result.Seeds.Add(chosenSeed);
+                result.Seeds.UnionWith(seeds);
             }
             result.Loops.AddRange(loops);
 
@@ -1374,6 +1388,52 @@ namespace Peak.Cadder.Core
                 if (!controls.Contains(lp.SuggestedDriverJoint)) controls.Add(lp.SuggestedDriverJoint);
             }
             return controls;
+        }
+
+        /// <summary>For every joint the loops name, as a member or as a
+        /// candidate, one joint that stands for its mechanism. Loops that
+        /// share a joint are one mechanism, as ComputeMechanisms groups
+        /// them.</summary>
+        private static Dictionary<string, string> MechanismOf(List<RigLoop> loops)
+        {
+            var parent = new Dictionary<string, string>();
+            Func<string, string> find = null;
+            find = x =>
+            {
+                string p;
+                if (!parent.TryGetValue(x, out p)) { parent[x] = x; return x; }
+                if (p == x) return x;
+                p = find(p);
+                parent[x] = p;
+                return p;
+            };
+            foreach (var lp in loops)
+            {
+                var ids = new List<string>(lp.MemberJoints);
+                foreach (var c in lp.DriverCandidates)
+                {
+                    ids.Add(c.DriverJoint);
+                    ids.Add(c.ClosureJoint);
+                }
+                string first = null;
+                foreach (string id in ids)
+                {
+                    if (id == null) continue;
+                    string r = find(id);
+                    if (first == null) first = r;
+                    else if (r != first) parent[r] = first;
+                }
+            }
+            var of = new Dictionary<string, string>();
+            foreach (string id in new List<string>(parent.Keys)) of[id] = find(id);
+            return of;
+        }
+
+        private static bool SameMechanism(Dictionary<string, string> mechanismOf, string a, string b)
+        {
+            string ma, mb;
+            return mechanismOf.TryGetValue(a, out ma) && mechanismOf.TryGetValue(b, out mb)
+                && ma == mb;
         }
 
         /// <summary>What a configuration IS, ids aside: every loop's driver,

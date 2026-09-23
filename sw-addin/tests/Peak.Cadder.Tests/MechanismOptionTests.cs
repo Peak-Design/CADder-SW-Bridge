@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.IO;
 using Peak.Cadder.Core;
 using Peak.Cadder.Core.Model;
 using Xunit;
@@ -134,6 +135,78 @@ namespace Peak.Cadder.Tests
             Assert.Equal(j009.RotationLimit.Min, stop.Min, 12);
             Assert.Equal(j009.RotationLimit.Max, stop.Max, 12);
             Assert.Empty(ConsumerRigCheck.EveryOption(groups, result));
+        }
+
+        /// <summary>
+        /// Two copies of the SolidWorks 2022 tutorial plunger.sldasm on one
+        /// ground. Met as they come, each copy's slider mechanism needs more
+        /// controls than it has freedoms, and re-chosen from one input it
+        /// needs one (live plunger.sldasm, 2026-09-15). The choice took the
+        /// better input for the first copy only. For the second, the same
+        /// input gave the same total count, because the first copy then went
+        /// back to its first choice, and "not fewer" was refused. Two copies
+        /// of one mechanism must be rigged the same way.
+        /// </summary>
+        [Fact]
+        public void EveryMechanismTakesTheInputThatServesItBest()
+        {
+            var graph = LogReplay.FromLog(
+                File.ReadAllText(LogReplay.FixturePath("plunger", "manifest.rig.json")),
+                File.ReadAllLines(LogReplay.FixturePath("plunger", "mates.log")),
+                new LogReplay.Options());
+            foreach (var c in graph.Components) if (c.Path == "base_plunger-1") c.IsFixed = true;
+            var grouping = RigidGrouper.Group(graph);
+            var classification = JointClassifier.Classify(graph, grouping);
+            var groups = new List<RigidGroup>(grouping.Groups);
+            groups.AddRange(classification.VirtualGroups);
+            string ground = groups.Find(g => g.Grounded).Id;
+
+            // The second copy: every moving group and joint again, on the
+            // same ground, with ids that sort after the first copy's.
+            string Copy(string gid) => gid == ground ? gid : gid + "b";
+            string CopyId(string jid) => "j1" + jid.Substring(1);
+            var all = new List<RigidGroup>(groups);
+            foreach (var g in groups)
+                if (!g.Grounded) all.Add(new RigidGroup { Id = Copy(g.Id), Name = g.Name + " copy" });
+            var joints = new List<RigJoint>(classification.Joints);
+            foreach (var j in classification.Joints)
+                joints.Add(new RigJoint
+                {
+                    Id = CopyId(j.Id),
+                    Type = j.Type,
+                    ParentGroup = Copy(j.ParentGroup),
+                    ChildGroup = Copy(j.ChildGroup),
+                    Origin = (double[])j.Origin?.Clone(),
+                    Axis = (double[])j.Axis?.Clone(),
+                    SecondaryAxis = (double[])j.SecondaryAxis?.Clone(),
+                    RotationLimit = j.RotationLimit,
+                    TranslationLimit = j.TranslationLimit,
+                    ResidualKnown = j.ResidualKnown,
+                    ResidualRot = j.ResidualRot,
+                    ResidualRotDir = j.ResidualRotDir,
+                });
+            var firstCopy = new HashSet<string>();
+            foreach (var j in classification.Joints) firstCopy.Add(j.Id);
+
+            var result = LoopAnalyzer.Analyze(all, joints);
+
+            var first = new List<string>();
+            var second = new List<string>();
+            foreach (var lp in result.Loops)
+            {
+                if (firstCopy.Contains(lp.ClosureJoint))
+                    first.Add(CopyId(lp.SuggestedDriverJoint) + "/" + CopyId(lp.ClosureJoint)
+                              + "/" + lp.ClosureKind);
+                else
+                    second.Add(lp.SuggestedDriverJoint + "/" + lp.ClosureJoint + "/" + lp.ClosureKind);
+            }
+            first.Sort(System.StringComparer.Ordinal);
+            second.Sort(System.StringComparer.Ordinal);
+            Assert.NotEmpty(first);
+            Assert.Equal(first, second);
+            foreach (var j in classification.Joints)
+                Assert.Equal(j.Type, result.Joints.Find(k => k.Id == CopyId(j.Id)).Type);
+            Assert.Empty(ConsumerRigCheck.EveryOption(all, result));
         }
     }
 }
