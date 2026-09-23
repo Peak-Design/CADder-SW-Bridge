@@ -263,28 +263,55 @@ namespace Peak.Cadder.Core
                 || (inputB.ParentGroup != common && inputB.ChildGroup != common))
                 return false;
 
-            // Every joint of one loop has its mirror image in the other.
-            if (loopA.MemberJoints.Count != loopB.MemberJoints.Count) return false;
-            var used = new HashSet<string>();
-            foreach (string idA in loopA.MemberJoints)
+            // Every joint of one loop has its mirror image in the other, and
+            // the two drivers are each other's. Matched greedily in id order,
+            // a second slide of loop A, parallel to its driver, took loop B's
+            // driver first when its id was lower, loop A's driver found no
+            // match, and the mirror fell back to the mounts inside the loops.
+            // So every member may take any member that mirrors it, and the
+            // match is made for the whole loop at once.
+            int n = loopA.MemberJoints.Count;
+            if (loopB.MemberJoints.Count != n) return false;
+            var sideA = new List<RigJoint>();
+            var sideB = new List<RigJoint>();
+            foreach (string id in loopA.MemberJoints) sideA.Add(JointById(joints, id));
+            foreach (string id in loopB.MemberJoints) sideB.Add(JointById(joints, id));
+            if (sideA.Contains(null) || sideB.Contains(null)) return false;
+            var fits = new List<int>[n];
+            for (int i = 0; i < n; i++)
             {
-                var a = JointById(joints, idA);
-                if (a == null) return false;
-                RigJoint match = null;
-                foreach (string idB in loopB.MemberJoints)
+                fits[i] = new List<int>();
+                for (int k = 0; k < n; k++)
                 {
-                    if (used.Contains(idB)) continue;
-                    var b = JointById(joints, idB);
-                    if (b == null || b.Type != a.Type) continue;
-                    if (a == inputA && b != inputB) continue;
+                    RigJoint a = sideA[i], b = sideB[k];
+                    if (b.Type != a.Type) continue;
+                    if ((a == inputA) != (b == inputB)) continue;
                     if (!LineMirrors(a, b, planePoint, planeNormal)) continue;
-                    match = b;
-                    break;
+                    fits[i].Add(k);
                 }
-                if (match == null) return false;
-                used.Add(match.Id);
             }
+            var matchOfB = new int[n];
+            for (int k = 0; k < n; k++) matchOfB[k] = -1;
+            for (int i = 0; i < n; i++)
+                if (!Match(i, fits, matchOfB, new bool[n])) return false;
             return true;
+        }
+
+        /// <summary>Finds member i of loop A a member of loop B, moving earlier
+        /// matches to another member where they can go (augmenting paths).</summary>
+        private static bool Match(int i, List<int>[] fits, int[] matchOfB, bool[] tried)
+        {
+            foreach (int k in fits[i])
+            {
+                if (tried[k]) continue;
+                tried[k] = true;
+                if (matchOfB[k] < 0 || Match(matchOfB[k], fits, matchOfB, tried))
+                {
+                    matchOfB[k] = i;
+                    return true;
+                }
+            }
+            return false;
         }
 
         /// <summary>The one loop the rig closes that holds `mount` and not
