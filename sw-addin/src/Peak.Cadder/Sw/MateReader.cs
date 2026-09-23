@@ -17,6 +17,73 @@ namespace Peak.Cadder.Sw
     public static class MateReader
     {
         /// <summary>
+        /// The document a mate is read in: the top document, or the document
+        /// of one flexible subassembly. The caller knows which, so it says
+        /// so. The reader used to infer it from the component that reported
+        /// the mate and from where the entities resolved, and a top-level
+        /// flexible subassembly broke both guesses: its top-level mates were
+        /// lifted a second time, and a top-level "Pin-1" landed on the
+        /// subassembly's own "Pin-1".
+        /// </summary>
+        internal sealed class MateContext
+        {
+            /// <summary>The component whose GetMates reported the mate.</summary>
+            public readonly WalkedComponent Owner;
+
+            /// <summary>The flexible subassembly whose document is read, or
+            /// null for the top document.</summary>
+            public readonly WalkedComponent Sub;
+
+            private MateContext(WalkedComponent owner, WalkedComponent sub)
+            {
+                Owner = owner;
+                Sub = sub;
+            }
+
+            public static MateContext ForTop(WalkedComponent owner)
+            {
+                return new MateContext(owner, null);
+            }
+
+            public static MateContext ForSub(WalkedComponent sub)
+            {
+                return new MateContext(sub, sub);
+            }
+
+            /// <summary>
+            /// The subassembly whose frame the EntityParams are in, or null
+            /// for the top frame. "All coordinate information is given in
+            /// terms of the assembly coordinate system where the mate
+            /// resides" (API help, IMateEntity2~EntityParams.html), and the
+            /// mate resides in the document it is read in. An entity with no
+            /// ReferenceComponent is that document's own geometry: ground at
+            /// the top, the subassembly node inside one.
+            /// </summary>
+            public WalkedComponent Residence { get { return Sub; } }
+
+            /// <summary>Part of the dedupe key: mate names are unique per
+            /// document, so one name read in two documents is two mates.</summary>
+            public string Key { get { return Sub == null ? "top" : Sub.Id; } }
+
+            /// <summary>
+            /// The walked component one name on a GetParent() chain means.
+            /// At the top, Name2 is the full instance path from the root,
+            /// which is the walked path. In a subassembly's document it is
+            /// relative to that document, so it is joined onto the
+            /// subassembly's path, and only onto that: the bare name would
+            /// be a top-level component, and a parent subassembly's path a
+            /// component of another document.
+            /// </summary>
+            public WalkedComponent Match(string name, IDictionary<string, WalkedComponent> byPath)
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                string path = Sub == null ? name : Sub.Graph.Path + "/" + name;
+                WalkedComponent hit;
+                return byPath.TryGetValue(path, out hit) ? hit : null;
+            }
+        }
+
+        /// <summary>
         /// <paramref name="document"/> is the assembly the mates belong to.
         /// It is read for one thing only: a screw mate stated as turns per
         /// unit length counts the document's OWN linear unit (ScrewLead).
@@ -37,10 +104,11 @@ namespace Peak.Cadder.Sw
 
             // Every mated component reports the same mate feature, so the
             // graph would hold each mate two or more times without a dedupe.
-            // The key is the feature name plus the resolved component set,
-            // not the name alone: mate names are unique per DOCUMENT, and a
-            // flexible subassembly's internal "Concentric1" may share its
-            // name with a top-level "Concentric1".
+            // The key is the feature name plus the resolved component set
+            // plus the document read, not the name alone: mate names are
+            // unique per DOCUMENT, and a flexible subassembly's internal
+            // "Concentric1" may share its name with a top-level
+            // "Concentric1".
             var seen = new HashSet<string>();
 
             foreach (var w in walked)
@@ -62,8 +130,13 @@ namespace Peak.Cadder.Sw
                     if (log != null) log("GetMates failed for " + w.Graph.Path + ": " + ex.Message);
                 }
                 if (mates == null) continue;
+                // Read in the TOP document even when the reporter is a
+                // flexible subassembly: its GetMates holds the top-level
+                // mates it takes part in, and those are stated in top
+                // coordinates with top-context names.
+                var ctx = MateContext.ForTop(w);
                 foreach (var o in mates)
-                    ReadOne(o, w, byPath, graph, seen, log, unitMetres);
+                    ReadOne(o, ctx, byPath, graph, seen, log, unitMetres);
             }
 
             foreach (var w in walked)
@@ -83,7 +156,7 @@ namespace Peak.Cadder.Sw
         /// geometry to record and no residual freedom to classify, so it is
         /// skipped.</summary>
         private static void ReadOne(
-            object o, WalkedComponent owner,
+            object o, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, MateGraph graph,
             HashSet<string> seen, Action<string> log, double unitMetres)
         {
@@ -93,23 +166,23 @@ namespace Peak.Cadder.Sw
             if (feat == null) return;
 
             GraphMate gm;
-            try { gm = ReadMate(mate, feat, owner, byPath, log, unitMetres); }
+            try { gm = ReadMate(mate, feat, ctx, byPath, log, unitMetres); }
             catch (Exception ex)
             {
-                if (log != null) log("mate read failed on " + owner.Graph.Path + ": " + ex.Message);
+                if (log != null) log("mate read failed on " + ctx.Owner.Graph.Path + ": " + ex.Message);
                 return;
             }
             if (gm == null) return;
-            if (!seen.Add(DedupeKey(gm))) return;
+            if (!seen.Add(DedupeKey(gm, ctx))) return;
             graph.Mates.Add(gm);
         }
 
         /// <summary>
         /// The internal mates of a flexible subassembly, read from the sub
         /// document's own components: the only context where their entities
-        /// resolve. The sub node is the owner: name resolution joins the
-        /// sub-context names onto its path, and mate residence lifts the
-        /// sub-local geometry by its transform. Entities on the sub's own
+        /// resolve. The sub document is the context: name resolution joins
+        /// the sub-context names onto the sub's path, and the sub-local
+        /// geometry lifts by the sub's transform. Entities on the sub's own
         /// reference geometry stay null and pin to the sub node itself, which
         /// the fixed-in-sub merge then welds to the right body.
         /// </summary>
@@ -133,6 +206,7 @@ namespace Peak.Cadder.Sw
             }
             if (comps == null) return;
 
+            var ctx = MateContext.ForSub(sub);
             foreach (var o in comps)
             {
                 var comp = o as Component2;
@@ -146,14 +220,14 @@ namespace Peak.Cadder.Sw
                 }
                 if (mates == null) continue;
                 foreach (var m in mates)
-                    ReadOne(m, sub, byPath, graph, seen, log, unitMetres);
+                    ReadOne(m, ctx, byPath, graph, seen, log, unitMetres);
             }
         }
 
         // ── One mate ────────────────────────────────────────────────────────
 
         private static GraphMate ReadMate(
-            IMate2 mate, IFeature feat, WalkedComponent owner,
+            IMate2 mate, IFeature feat, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, Action<string> log,
             double unitMetres)
         {
@@ -172,13 +246,13 @@ namespace Peak.Cadder.Sw
             ReadLockRotation(feat, type, gm, log);
             ReadSlotConstraint(feat, type, gm, log);
             ReadWidthConstraint(feat, type, gm, log);
-            ReadEntities(mate, feat, owner, byPath, gm, log);
-            RetypeFaceEntities(feat, owner, byPath, gm, log);
-            RecoverCurveEntities(mate, owner, byPath, gm, log);
+            ReadEntities(mate, feat, ctx, byPath, gm, log);
+            RetypeFaceEntities(feat, ctx, byPath, gm, log);
+            RecoverCurveEntities(mate, ctx, byPath, gm, log);
             if (type == (int)swMateType_e.swMatePATH)
-                ReadPathCurve(mate, owner, byPath, gm, log);
+                ReadPathCurve(mate, ctx, byPath, gm, log);
             if (type == (int)swMateType_e.swMateCAMFOLLOWER)
-                ReadCamFaces(mate, feat, owner, byPath, gm, log);
+                ReadCamFaces(mate, feat, ctx, byPath, gm, log);
             return gm;
         }
 
@@ -197,7 +271,7 @@ namespace Peak.Cadder.Sw
         /// first face.
         /// </summary>
         private static void ReadCamFaces(
-            IMate2 mate, IFeature feat, WalkedComponent owner,
+            IMate2 mate, IFeature feat, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, GraphMate gm, Action<string> log)
         {
             // A lightweight component's faces have no tessellation to read
@@ -233,7 +307,7 @@ namespace Peak.Cadder.Sw
                     var entity = face as IEntity;
                     var comp = entity == null ? null : entity.GetComponent() as Component2;
                     Component2 matched = null;
-                    var w = comp == null ? null : ResolveWalked(comp, owner, byPath, out matched);
+                    var w = comp == null ? null : ResolveWalked(comp, ctx, byPath, out matched);
                     if (w != null)
                     {
                         lift = PartLift(comp, w, matched);
@@ -342,7 +416,7 @@ namespace Peak.Cadder.Sw
         /// null and the classifier warns instead of guessing.
         /// </summary>
         private static void ReadPathCurve(
-            IMate2 mate, WalkedComponent owner,
+            IMate2 mate, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, GraphMate gm, Action<string> log)
         {
             var polylines = new List<List<double[]>>();
@@ -363,7 +437,7 @@ namespace Peak.Cadder.Sw
                 {
                     var refComp = me.ReferenceComponent as Component2;
                     Component2 matched = null;
-                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath, out matched);
+                    var w = refComp == null ? null : ResolveWalked(refComp, ctx, byPath, out matched);
                     if (w != null) lift = PartLift(refComp, w, matched);
                 }
                 catch { }
@@ -894,15 +968,14 @@ namespace Peak.Cadder.Sw
         /// RESIDES." A top-level mate is therefore already global. A mate
         /// that lives inside a flexible subassembly reports its geometry in
         /// that subassembly's own frame and is lifted here by the
-        /// subassembly's root-relative transform. Residence is inferred: the
-        /// deepest flexible ancestor of the reporting component under which
-        /// every resolvable entity component sits is taken as the owning
-        /// document; entities on that subassembly's own reference geometry
-        /// come back with a null ReferenceComponent and are pinned to the
-        /// subassembly's component id, not to the top assembly.
+        /// subassembly's root-relative transform. The residence is the
+        /// document the mate is read in (MateContext). Entities on that
+        /// subassembly's own reference geometry come back with a null
+        /// ReferenceComponent and are pinned to the subassembly's component
+        /// id, not to the top assembly.
         /// </summary>
         private static void ReadEntities(
-            IMate2 mate, IFeature feat, WalkedComponent owner,
+            IMate2 mate, IFeature feat, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, GraphMate gm,
             Action<string> log)
         {
@@ -927,12 +1000,12 @@ namespace Peak.Cadder.Sw
                     if (refName == null) refName = "?";
                 }
                 refNames.Add(refName);
-                resolved.Add(ResolveWalked(refComp, owner, byPath));
+                resolved.Add(ResolveWalked(refComp, ctx, byPath));
             }
 
-            FallbackResolveFromSelections(feat, owner, byPath, resolved, gm, log);
+            FallbackResolveFromSelections(feat, ctx, byPath, resolved, gm, log);
 
-            var residence = MateResidence(owner, resolved);
+            var residence = ctx.Residence;
             double[,] lift = residence == null ? null : residence.Graph.Transform;
 
             // One raw line per mate: what SolidWorks ACTUALLY reported.
@@ -1069,7 +1142,7 @@ namespace Peak.Cadder.Sw
         /// classifier can build a path joint.
         /// </summary>
         private static void RecoverCurveEntities(
-            IMate2 mate, WalkedComponent owner,
+            IMate2 mate, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, GraphMate gm, Action<string> log)
         {
             if (gm.TypeValue != (int)swMateType_e.swMateCOINCIDENT) return;
@@ -1099,7 +1172,7 @@ namespace Peak.Cadder.Sw
                 {
                     var refComp = me.ReferenceComponent as Component2;
                     Component2 matched = null;
-                    var w = refComp == null ? null : ResolveWalked(refComp, owner, byPath, out matched);
+                    var w = refComp == null ? null : ResolveWalked(refComp, ctx, byPath, out matched);
                     if (w != null) lift = PartLift(refComp, w, matched);
                 }
                 catch { }
@@ -1184,7 +1257,7 @@ namespace Peak.Cadder.Sw
         ///    the only description of it that survives the trip.
         /// </summary>
         private static void RetypeFaceEntities(
-            IFeature feat, WalkedComponent owner,
+            IFeature feat, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, GraphMate gm, Action<string> log)
         {
             // A patch is only worth carrying for a point ON the face; every
@@ -1254,7 +1327,7 @@ namespace Peak.Cadder.Sw
                 }
                 catch { }
                 Component2 matched;
-                var walked = ResolveWalked(comp, owner, byPath, out matched);
+                var walked = ResolveWalked(comp, ctx, byPath, out matched);
                 if (walked == null) continue;
 
                 foreach (var ge in gm.Entities)
@@ -1852,7 +1925,7 @@ namespace Peak.Cadder.Sw
         /// diagnostic line records that the fallback ran.
         /// </summary>
         private static void FallbackResolveFromSelections(
-            IFeature feat, WalkedComponent owner,
+            IFeature feat, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath,
             List<WalkedComponent> resolved, GraphMate gm, Action<string> log)
         {
@@ -1875,7 +1948,7 @@ namespace Peak.Cadder.Sw
                 }
                 catch { }
                 if (comp == null) continue;
-                var hit = ResolveWalked(comp, owner, byPath);
+                var hit = ResolveWalked(comp, ctx, byPath);
                 if (hit == null) continue;
                 resolved[i] = hit;
                 if (log != null)
@@ -1979,26 +2052,24 @@ namespace Peak.Cadder.Sw
 
         /// <summary>
         /// Maps a mate entity's ReferenceComponent to a walked component.
-        /// Three steps, each covering a way SolidWorks names the component:
-        /// the full instance path (top-document context); the path qualified
-        /// by an ancestor subassembly (a component handed out in the
-        /// subassembly's own context omits the prefix); and the GetParent()
-        /// chain, which folds an entity deep inside a rigid subassembly onto
-        /// the leaf that represents the whole subassembly in the graph.
+        /// Each name on the GetParent() chain is matched the way the read
+        /// context names components (MateContext.Match): the chain folds an
+        /// entity deep inside a rigid subassembly onto the leaf that
+        /// represents the whole subassembly in the graph.
         /// </summary>
         private static WalkedComponent ResolveWalked(
-            Component2 refComp, WalkedComponent owner,
+            Component2 refComp, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath)
         {
             Component2 matched;
-            return ResolveWalked(refComp, owner, byPath, out matched);
+            return ResolveWalked(refComp, ctx, byPath, out matched);
         }
 
         /// <summary>The same, and the component on the GetParent() chain
         /// whose name matched: the entity's own component, or the rigid
         /// subassembly that holds it.</summary>
         private static WalkedComponent ResolveWalked(
-            Component2 refComp, WalkedComponent owner,
+            Component2 refComp, MateContext ctx,
             Dictionary<string, WalkedComponent> byPath, out Component2 matched)
         {
             matched = null;
@@ -2008,21 +2079,8 @@ namespace Peak.Cadder.Sw
                 try { name = c.Name2; } catch { }
                 if (string.IsNullOrEmpty(name)) break;
 
-                // Context joins BEFORE the bare name: a sub-document entity
-                // named "hinge-base-1" must land inside its own subassembly,
-                // not on a same-named top-level component. Top-level names
-                // never match a join (their owner's path prefixes wrongly),
-                // so they still resolve through the bare lookup.
-                WalkedComponent hit;
-                for (var anc = owner; anc != null; anc = anc.Parent)
-                {
-                    if (byPath.TryGetValue(anc.Graph.Path + "/" + name, out hit))
-                    {
-                        matched = c;
-                        return hit;
-                    }
-                }
-                if (byPath.TryGetValue(name, out hit))
+                var hit = ctx.Match(name, byPath);
+                if (hit != null)
                 {
                     matched = c;
                     return hit;
@@ -2074,50 +2132,6 @@ namespace Peak.Cadder.Sw
         {
             try { return comp.GetParent(); }
             catch { return null; }
-        }
-
-        /// <summary>
-        /// The flexible subassembly whose document owns this mate, or null
-        /// for the top assembly. Deepest candidate first; a candidate is the
-        /// residence only when every resolved entity sits STRICTLY below it:
-        /// an entity on the candidate itself means a mate made one level up,
-        /// grabbing the subassembly from outside.
-        /// </summary>
-        private static WalkedComponent MateResidence(
-            WalkedComponent owner, List<WalkedComponent> resolved)
-        {
-            var candidate = owner.Graph.Solving == "flexible" && HasStrictDescendant(owner, resolved)
-                ? owner
-                : owner.FlexibleAncestor;
-
-            for (var f = candidate; f != null; f = f.FlexibleAncestor)
-            {
-                bool allBelow = true;
-                bool anyBelow = false;
-                foreach (var r in resolved)
-                {
-                    if (r == null) continue;
-                    if (IsStrictlyBelow(r, f)) { anyBelow = true; continue; }
-                    allBelow = false;
-                    break;
-                }
-                if (allBelow && anyBelow) return f;
-            }
-            return null;
-        }
-
-        private static bool HasStrictDescendant(WalkedComponent f, List<WalkedComponent> resolved)
-        {
-            foreach (var r in resolved)
-                if (r != null && IsStrictlyBelow(r, f)) return true;
-            return false;
-        }
-
-        private static bool IsStrictlyBelow(WalkedComponent w, WalkedComponent ancestor)
-        {
-            for (var p = w.Parent; p != null; p = p.Parent)
-                if (ReferenceEquals(p, ancestor)) return true;
-            return false;
         }
 
         // ── Naming ──────────────────────────────────────────────────────────
@@ -2203,10 +2217,11 @@ namespace Peak.Cadder.Sw
             catch { return null; }
         }
 
-        private static string DedupeKey(GraphMate gm)
+        internal static string DedupeKey(GraphMate gm, MateContext ctx)
         {
             var sb = new StringBuilder();
-            sb.Append(gm.FeatureName).Append('|').Append(gm.TypeValue);
+            sb.Append(ctx.Key).Append('|')
+                .Append(gm.FeatureName).Append('|').Append(gm.TypeValue);
             var ids = new List<string>();
             foreach (var e in gm.Entities) ids.Add(e.ComponentId ?? "-");
             ids.Sort(StringComparer.Ordinal);
