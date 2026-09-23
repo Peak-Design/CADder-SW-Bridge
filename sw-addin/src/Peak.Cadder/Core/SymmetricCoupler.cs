@@ -698,8 +698,22 @@ namespace Peak.Cadder.Core
             joints.Add(jDriven);
         }
 
+        /// <summary>
+        /// The body's own revolute or prismatic mount: a joint with the body
+        /// as its child. A joint with the body as its PARENT is taken only
+        /// when no joint has the body as its child, which is a body the tree
+        /// reaches through that joint the other way round (the sign flip in
+        /// TryCouple). When the body's own mount is of another type, there is
+        /// no mount: a joint hanging off the body, such as a bolt that turns
+        /// in a collar, is no mount of the collar. Taken for one, the bolts
+        /// were geared, the collars posed independently, and no warning
+        /// said so.
+        /// </summary>
         private static RigJoint FindMount(List<RigJoint> joints, string groupId)
         {
+            bool ownMount = false;
+            foreach (var j in joints)
+                if (j.ChildGroup == groupId && j.ParentGroup != groupId) ownMount = true;
             RigJoint best = null;
             int bestScore = int.MaxValue;
             foreach (var j in joints)
@@ -708,7 +722,7 @@ namespace Peak.Cadder.Core
                 if (j.Axis == null) continue;
                 int score;
                 if (j.ChildGroup == groupId) score = 0;
-                else if (j.ParentGroup == groupId) score = 1;
+                else if (j.ParentGroup == groupId && !ownMount) score = 1;
                 else continue;
                 if (score < bestScore
                     || (score == bestScore && best != null
