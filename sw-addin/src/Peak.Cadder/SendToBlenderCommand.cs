@@ -96,7 +96,7 @@ namespace Peak.Cadder
                     {
                         var outcome = ExportCommand.ExportBundle(
                             app, model, assembly, stepPath, manifestPath, settings,
-                            manifestOnly: true,
+                            manifestOnly: true, matchStep: false,
                             mateErrorPrompt: message =>
                             {
                                 bool yes = ExportCommand.WithoutBar(

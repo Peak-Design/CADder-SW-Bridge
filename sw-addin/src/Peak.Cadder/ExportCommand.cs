@@ -278,13 +278,15 @@ namespace Peak.Cadder
         /// fix run between SaveAs3 and the occurrence matcher, so the manifest
         /// is matched (and hashed) against the FINAL file. With manifestOnly
         /// the STEP/appearance stages are skipped and the existing file on
-        /// disk (if any) serves for matching and the hash.
+        /// disk (if any) serves for matching and the hash, unless
+        /// <paramref name="matchStep"/> is false: the direct link sends no
+        /// STEP, so its manifest names none (ReadExistingStep).
         /// </summary>
         public static RigExportOutcome ExportBundle(
             ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
             string stepPath, string manifestPath, AppSettings settings,
             bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null,
-            ExportProgress progress = null, bool tellUser = false)
+            ExportProgress progress = null, bool tellUser = false, bool matchStep = true)
         {
             // The numbers beside each stage are its share of the whole
             // export, 0 to 100. They come from timing the samples here: the
@@ -574,82 +576,49 @@ namespace Peak.Cadder
             string sha1 = null;
             Appearance.AppearancePipelineResult post;
             MatchResult matches;
-            using (var staging = manifestOnly
-                ? StepStaging.ForRead(stepPath, AddIn.Log)
-                : StepStaging.ForWrite(stepPath, AddIn.Log))
-            {
-            string workingStep = staging.WorkingPath;
             if (manifestOnly)
             {
                 post = new Appearance.AppearancePipelineResult();
-                if (File.Exists(workingStep))
-                {
-                    sha1 = StepExporter.Sha1Hex(workingStep);
-                    post.Notes.Add("Manifest only: the STEP was not re-written; "
-                        + "occurrences were matched against the existing "
-                        + Path.GetFileName(stepPath) + ".");
-                }
-                else
-                {
-                    post.Notes.Add("Manifest only, and no STEP file sits beside the "
-                        + "manifest: occurrence paths are null and the Blender side "
-                        + "falls back to transform matching.");
-                }
+                sha1 = ReadExistingStep(stepPath, matchStep, walked, post.Notes,
+                    out matches, AddIn.Log);
             }
             else
             {
-                progress.StopIfCancelled();
-                progress.Stage("Writing the STEP file", 78, 95);
-                var step = StepExporter.Export(app, model, workingStep, ap, AddIn.Log,
-                    exportAppearances: repairAppearances,
-                    includeHidden: settings.IncludeHidden,
-                    keep: keep);
+                using (var staging = StepStaging.ForWrite(stepPath, AddIn.Log))
+                {
+                    string workingStep = staging.WorkingPath;
+                    progress.StopIfCancelled();
+                    progress.Stage("Writing the STEP file", 78, 95);
+                    var step = StepExporter.Export(app, model, workingStep, ap, AddIn.Log,
+                        exportAppearances: repairAppearances,
+                        includeHidden: settings.IncludeHidden,
+                        keep: keep);
 
-                // Flexible-twin fix + appearance repair + materials, one parse,
-                // one save. Errors here must not kill the export: the file as
-                // SolidWorks wrote it is still usable.
-                // NB: types under Appearance.* stay namespace-qualified here, a
-                // using would make Part21 ambiguous against Sw.Part21.
-                var flexRequests = FlexibleLayoutBuilder.Build(walked, AddIn.Log);
-                try
-                {
-                    post = Appearance.AppearancePipeline.Run(model, workingStep,
-                        repairAppearances, settings.DeInstance,
-                        settings.EngineeringMaterial, settings.IncludeHidden,
-                        flexRequests, AddIn.Log, keep);
-                }
-                catch (Exception ex)
-                {
-                    AddIn.Log("STEP post-processing failed: " + ex);
-                    post = new Appearance.AppearancePipelineResult();
-                    post.Notes.Add("STEP post-processing failed (" + ex.Message
-                        + "); the file is as SolidWorks wrote it.");
-                }
-                sha1 = post.FileModified ? StepExporter.Sha1Hex(workingStep) : step.Sha1;
-                staging.Publish();
+                    // Flexible-twin fix + appearance repair + materials, one parse,
+                    // one save. Errors here must not kill the export: the file as
+                    // SolidWorks wrote it is still usable.
+                    // NB: types under Appearance.* stay namespace-qualified here, a
+                    // using would make Part21 ambiguous against Sw.Part21.
+                    var flexRequests = FlexibleLayoutBuilder.Build(walked, AddIn.Log);
+                    try
+                    {
+                        post = Appearance.AppearancePipeline.Run(model, workingStep,
+                            repairAppearances, settings.DeInstance,
+                            settings.EngineeringMaterial, settings.IncludeHidden,
+                            flexRequests, AddIn.Log, keep);
+                    }
+                    catch (Exception ex)
+                    {
+                        AddIn.Log("STEP post-processing failed: " + ex);
+                        post = new Appearance.AppearancePipelineResult();
+                        post.Notes.Add("STEP post-processing failed (" + ex.Message
+                            + "); the file is as SolidWorks wrote it.");
+                    }
+                    sha1 = post.FileModified ? StepExporter.Sha1Hex(workingStep) : step.Sha1;
+                    staging.Publish();
+                    matches = MatchStep(workingStep, walked, AddIn.Log);
+                }   // staging: the scratch STEP, if any, is removed here
             }
-
-            if (File.Exists(workingStep))
-            {
-                try
-                {
-                    var matcher = new OccurrenceMatcher(new Part21(workingStep), AddIn.Log);
-                    matches = matcher.Match(walked);
-                }
-                catch (Exception ex)
-                {
-                    // A manifest with null occurrence paths is degraded but
-                    // usable: the Blender side falls back to transform
-                    // matching. A dead export over a matcher bug is not.
-                    AddIn.Log("occurrence matching failed: " + ex);
-                    matches = new MatchResult();
-                }
-            }
-            else
-            {
-                matches = new MatchResult();
-            }
-            }   // staging: the scratch STEP, if any, is removed here
 
             // A joint whose channel a coupling writes cannot be an input:
             // a driver is one-way, and pushing a cam's follower never turns
@@ -693,6 +662,69 @@ namespace Peak.Cadder
             outcome.KeepPaths = keep;
             outcome.LimitsLeftSuppressed = limitsLeft;
             return outcome;
+        }
+
+        /// <summary>
+        /// The STEP file of a manifest-only export: the one already on disk
+        /// beside the manifest, when there is one. Returns its hash, and
+        /// matches the occurrences against it.
+        ///
+        /// Not for the direct link (<paramref name="matchStep"/> false). It
+        /// sends a mesh and no STEP, so a STEP file in its folder is left
+        /// over from an earlier STEP export. Hashing it named that old file
+        /// in the manifest, and matching against it warned about every part
+        /// added since. The hash and the occurrence paths are then null,
+        /// and the file is not read at all.
+        /// </summary>
+        internal static string ReadExistingStep(
+            string stepPath, bool matchStep, List<WalkedComponent> walked,
+            List<string> notes, out MatchResult matches, Action<string> log)
+        {
+            matches = new MatchResult();
+            if (!matchStep)
+            {
+                notes.Add("Direct link: no STEP file goes with this manifest, so it "
+                    + "carries no STEP hash and no occurrence paths.");
+                return null;
+            }
+            using (var staging = StepStaging.ForRead(stepPath, log))
+            {
+                string workingStep = staging.WorkingPath;
+                if (!File.Exists(workingStep))
+                {
+                    notes.Add("Manifest only, and no STEP file sits beside the "
+                        + "manifest: occurrence paths are null and the Blender side "
+                        + "falls back to transform matching.");
+                    return null;
+                }
+                string sha1 = StepExporter.Sha1Hex(workingStep);
+                notes.Add("Manifest only: the STEP was not re-written; "
+                    + "occurrences were matched against the existing "
+                    + Path.GetFileName(stepPath) + ".");
+                matches = MatchStep(workingStep, walked, log);
+                return sha1;
+            }   // staging: the scratch STEP, if any, is removed here
+        }
+
+        /// <summary>The occurrences of the walk in a STEP file, or none
+        /// when there is no file.</summary>
+        private static MatchResult MatchStep(
+            string workingStep, List<WalkedComponent> walked, Action<string> log)
+        {
+            if (!File.Exists(workingStep)) return new MatchResult();
+            try
+            {
+                var matcher = new OccurrenceMatcher(new Part21(workingStep), log);
+                return matcher.Match(walked);
+            }
+            catch (Exception ex)
+            {
+                // A manifest with null occurrence paths is degraded but
+                // usable: the Blender side falls back to transform
+                // matching. A dead export over a matcher bug is not.
+                if (log != null) log("occurrence matching failed: " + ex);
+                return new MatchResult();
+            }
         }
 
         /// <summary>

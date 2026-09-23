@@ -949,9 +949,13 @@ namespace Peak.Cadder.Bridge
                 if (withMesh) bar.Window(0, 78);
                 if (assembly != null)
                 {
+                    // A mesh without a STEP is the direct link, and its
+                    // manifest names no STEP file. A manifest on its own
+                    // matches the STEP beside it, as Export Rig does.
                     var outcome = ExportCommand.ExportBundle(
                         app, model, assembly, stepPath, manifestPath, settings,
-                        manifestOnly: !withStep, progress: bar);
+                        manifestOnly: !withStep, progress: bar,
+                        matchStep: withStep || !withMesh);
                     keep = outcome.KeepPaths;
                     result["manifest"] = outcome.ManifestPath;
                     result["warnings"] = outcome.Warnings;

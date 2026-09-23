@@ -38,6 +38,14 @@ within the file and is the only key other sections use. `step_name` and
 by the occurrence matcher: the Blender side matches on these plus transforms,
 never on Blender object names.
 
+**A manifest can come without a STEP file.** The direct link sends a mesh
+(`.swmesh`) that carries the component ids itself. Its manifest has
+`step_export.sha1` null and every `step_occurrence_path` null, and the exporter
+reads no STEP file for it, not even one that sits beside the manifest. When
+`sha1` is not null, it is the SHA-1 of the STEP file that the occurrence paths
+were matched against. A consumer that matches against a STEP file hashes that
+file first and warns when the two differ.
+
 **A component can BE a subassembly occurrence.** A rigid subassembly is one
 body, so the walk names the assembly occurrence and stops; the parts inside it
 are not components at all. Such an occurrence carries no geometry of its own in
