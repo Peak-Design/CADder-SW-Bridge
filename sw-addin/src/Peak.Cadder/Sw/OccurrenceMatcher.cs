@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using SolidWorks.Interop.swconst;
 
 namespace Peak.Cadder.Sw
 {
@@ -25,6 +26,11 @@ namespace Peak.Cadder.Sw
 
         public int ExportedCount;
         public int MatchedCount;
+
+        /// <summary>Components that are not in the file by design: hidden,
+        /// or outside the selection. They are not matched, and not
+        /// unmatched either.</summary>
+        public HashSet<string> LeftOut = new HashSet<string>();
     }
 
     /// <summary>
@@ -231,6 +237,9 @@ namespace Peak.Cadder.Sw
             var result = new MatchResult();
             var roots = walked.Where(w => w.Parent == null).ToList();
             result.ExportedCount = walked.Count(IsExported);
+            foreach (var w in walked)
+                if (w.Graph != null && !w.Graph.Suppressed && !IsExported(w))
+                    result.LeftOut.Add(w.Id);
             if (roots.Count == 0 || _rootPd < 0) return result;
 
             // The rotation convention of IMathTransform.ArrayData is applied
@@ -276,8 +285,9 @@ namespace Peak.Cadder.Sw
 
             foreach (var sw in swKids)
             {
-                // A suppressed component is absent from the STEP file by
-                // design; matching it would only claim someone else's slot.
+                // A suppressed, hidden or deselected component is absent
+                // from the STEP file by design; matching it would only claim
+                // someone else's slot.
                 if (!IsExported(sw)) continue;
 
                 double[] want = RelMm(sw, alt);
@@ -331,8 +341,65 @@ namespace Peak.Cadder.Sw
             }
         }
 
-        private static bool IsExported(WalkedComponent w)
-            => w.Graph != null && !w.Graph.Suppressed;
+        /// <summary>The export's keep set ("only the selected components"),
+        /// or null. StepExporter hides everything outside it for the save.
+        /// </summary>
+        public HashSet<string> Keep;
+
+        /// <summary>Whether the export showed hidden components for the
+        /// save (the Hidden components option).</summary>
+        public bool IncludeHidden;
+
+        /// <summary>Whether SolidWorks draws a component. Reads the live
+        /// component when not set.</summary>
+        internal Func<WalkedComponent, bool> Visible;
+
+        private Dictionary<WalkedComponent, bool> _drawn;
+
+        /// <summary>
+        /// Whether a component is in the STEP file. A suppressed one never
+        /// is. A silent SaveAs3 leaves out a hidden component and the whole
+        /// branch below a hidden node, and "only the selected components"
+        /// hides everything outside the keep set (StepExporter). Before,
+        /// only suppression counted: every hidden or deselected component
+        /// was counted as exported, found no occurrence, and the manifest
+        /// warned OCCURRENCE_UNMATCHED about parts that were never meant to
+        /// be in the file.
+        /// </summary>
+        private bool IsExported(WalkedComponent w)
+        {
+            if (w.Graph == null || w.Graph.Suppressed) return false;
+            for (var p = w; p != null; p = p.Parent)
+            {
+                string path = p.Graph == null ? null : p.Graph.Path;
+                if (Keep != null && !Keep.Contains(path ?? "")) return false;
+                if (!IncludeHidden && !Drawn(p)) return false;
+            }
+            return true;
+        }
+
+        private bool Drawn(WalkedComponent w)
+        {
+            if (_drawn == null) _drawn = new Dictionary<WalkedComponent, bool>();
+            bool drawn;
+            if (_drawn.TryGetValue(w, out drawn)) return drawn;
+            if (Visible != null) drawn = Visible(w);
+            else
+            {
+                // A component that cannot answer counts as drawn, which is
+                // what the matcher assumed before.
+                drawn = true;
+                try
+                {
+                    if (w.Comp != null)
+                        drawn = w.Comp.Visible
+                            == (int)swComponentVisibilityState_e.swComponentVisible;
+                }
+                catch { }
+            }
+            _drawn[w] = drawn;
+            return drawn;
+        }
 
         /// <summary>
         /// True when this STEP product can be this component. SolidWorks names

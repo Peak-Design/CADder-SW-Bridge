@@ -580,7 +580,7 @@ namespace Peak.Cadder
             {
                 post = new Appearance.AppearancePipelineResult();
                 sha1 = ReadExistingStep(stepPath, matchStep, walked, post.Notes,
-                    out matches, AddIn.Log);
+                    out matches, AddIn.Log, keep, settings.IncludeHidden);
             }
             else
             {
@@ -616,7 +616,8 @@ namespace Peak.Cadder
                     }
                     sha1 = post.FileModified ? StepExporter.Sha1Hex(workingStep) : step.Sha1;
                     staging.Publish();
-                    matches = MatchStep(workingStep, walked, AddIn.Log);
+                    matches = MatchStep(workingStep, walked, keep,
+                        settings.IncludeHidden, AddIn.Log);
                 }   // staging: the scratch STEP, if any, is removed here
             }
 
@@ -678,7 +679,8 @@ namespace Peak.Cadder
         /// </summary>
         internal static string ReadExistingStep(
             string stepPath, bool matchStep, List<WalkedComponent> walked,
-            List<string> notes, out MatchResult matches, Action<string> log)
+            List<string> notes, out MatchResult matches, Action<string> log,
+            HashSet<string> keep = null, bool includeHidden = true)
         {
             matches = new MatchResult();
             if (!matchStep)
@@ -701,20 +703,27 @@ namespace Peak.Cadder
                 notes.Add("Manifest only: the STEP was not re-written; "
                     + "occurrences were matched against the existing "
                     + Path.GetFileName(stepPath) + ".");
-                matches = MatchStep(workingStep, walked, log);
+                matches = MatchStep(workingStep, walked, keep, includeHidden, log);
                 return sha1;
             }   // staging: the scratch STEP, if any, is removed here
         }
 
         /// <summary>The occurrences of the walk in a STEP file, or none
-        /// when there is no file.</summary>
+        /// when there is no file. <paramref name="keep"/> and
+        /// <paramref name="includeHidden"/> say what StepExporter left out
+        /// of the file on purpose, so it is not counted as unmatched.</summary>
         private static MatchResult MatchStep(
-            string workingStep, List<WalkedComponent> walked, Action<string> log)
+            string workingStep, List<WalkedComponent> walked,
+            HashSet<string> keep, bool includeHidden, Action<string> log)
         {
             if (!File.Exists(workingStep)) return new MatchResult();
             try
             {
-                var matcher = new OccurrenceMatcher(new Part21(workingStep), log);
+                var matcher = new OccurrenceMatcher(new Part21(workingStep), log)
+                {
+                    Keep = keep,
+                    IncludeHidden = includeHidden,
+                };
                 return matcher.Match(walked);
             }
             catch (Exception ex)
@@ -1454,7 +1463,7 @@ namespace Peak.Cadder
                     c.StepName = w.DocName ?? g.Name;
                     c.StepOccurrencePath = null;
                     if (g.Suppressed) suppressed.Add(w.Id);
-                    else unmatched.Add(w.Id);
+                    else if (!matches.LeftOut.Contains(w.Id)) unmatched.Add(w.Id);
                 }
                 manifest.Components.Add(c);
             }
