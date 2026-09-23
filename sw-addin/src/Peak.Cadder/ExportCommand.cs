@@ -546,9 +546,7 @@ namespace Peak.Cadder
                 }
                 if (modelled.Count > 0)
                 {
-                    classification.Warnings.RemoveAll(w =>
-                        w.Code == "CAM_FOLLOWER"
-                        && modelled.Exists(n => w.Message.Contains(n)));
+                    DropRiggedCamWarnings(classification.Warnings, modelled);
                     // The cam-follower pair's own joint carried the "not
                     // rigged" note; the relation now lives on the follower's
                     // mount joint as a table.
@@ -695,6 +693,21 @@ namespace Peak.Cadder
             outcome.KeepPaths = keep;
             outcome.LimitsLeftSuppressed = limitsLeft;
             return outcome;
+        }
+
+        /// <summary>
+        /// Removes the "not rigged" warning of every cam mate the export
+        /// rigged after all. The name is matched whole, as "mate NAME ",
+        /// the way the rewrite of the message finds it. A bare part of the
+        /// text also matched CamMateTangent10 to 19 for a rigged
+        /// CamMateTangent1, and their warnings went with it.
+        /// </summary>
+        internal static void DropRiggedCamWarnings(
+            List<ManifestWarning> warnings, List<string> rigged)
+        {
+            warnings.RemoveAll(w =>
+                w.Code == "CAM_FOLLOWER" && w.Message != null
+                && rigged.Exists(n => w.Message.Contains("mate " + n + " ")));
         }
 
         // ── What SolidWorks says can move ───────────────────────────────────
