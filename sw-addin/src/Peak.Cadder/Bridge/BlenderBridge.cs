@@ -117,8 +117,8 @@ namespace Peak.Cadder.Bridge
                 if (answer == PingAnswer.NoAnswer && running != null && running(pid))
                 {
                     if (log != null) log("bridge registry " + Path.GetFileName(file)
-                        + ": Blender " + pid + " is running but did not answer; "
-                        + "the entry stays");
+                        + ": Blender " + pid + " is running but did not answer. "
+                        + "The entry stays");
                     continue;
                 }
                 // A dead entry: the Blender behind it is gone. Deleting keeps
