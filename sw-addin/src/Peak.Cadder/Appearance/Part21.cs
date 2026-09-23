@@ -433,7 +433,43 @@ namespace Peak.Cadder.Appearance
                 sb.Append(built, idx, built.Length - idx);
             }
 
-            File.WriteAllText(path, sb.ToString());
+            WriteReplacing(path, sb.ToString());
+        }
+
+        /// <summary>
+        /// Writes the new text beside the target and then swaps it in.
+        /// File.WriteAllText on the target empties it first, so a write that
+        /// failed half way (a full disk, an I/O error) left a part of a
+        /// file. The export then reported the file as SolidWorks wrote it,
+        /// with the hash of that file. Now a failed write leaves the target
+        /// as it was.
+        /// </summary>
+        private static void WriteReplacing(string path, string text)
+        {
+            string temp = path + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
+            try
+            {
+                File.WriteAllText(temp, text);
+                try
+                {
+                    if (File.Exists(path)) File.Replace(temp, path, null);
+                    else File.Move(temp, path);
+                }
+                catch (IOException)
+                {
+                    // A virus scanner can hold the new file for a moment, and
+                    // some network drives cannot swap files. The text is
+                    // complete and can be written, so write it directly, as
+                    // before.
+                    File.WriteAllText(path, text);
+                }
+            }
+            finally
+            {
+                try { if (File.Exists(temp)) File.Delete(temp); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
 
         public static string Str(string s)
