@@ -368,13 +368,32 @@ namespace Peak.Cadder.Sw
             {
                 if (_log != null) _log("DOF probe failed: " + ex.Message);
                 verdict.Type = JointType.Free;
+                verdict.Characterised = false;
             }
             return verdict;
         }
 
         // ── Verdict mapping ─────────────────────────────────────────────────
 
-        private static void Map(
+        /// <summary>
+        /// Names the joint a characterised reading describes. A reading it
+        /// cannot name ends as Free, and Free here means "I do not know":
+        /// such a verdict is no longer characterised. It stayed
+        /// characterised before, and ApplySolverVerdicts then reported a
+        /// correctly classified revolute as disagreeing with the solver
+        /// (confidence low, PROBE_DISAGREES) on a reading that said nothing.
+        /// </summary>
+        internal static void Map(
+            ProbeVerdict verdict, int remaining,
+            bool r1, bool r2, bool l1, bool l2,
+            double[] r1Dir, double[] r1Pt, double[] r2Dir, double[] r2Pt,
+            double[] l1Dir, double[] l2Dir)
+        {
+            MapType(verdict, remaining, r1, r2, l1, l2, r1Dir, r1Pt, r2Dir, r2Pt, l1Dir, l2Dir);
+            if (verdict.Type == JointType.Free) verdict.Characterised = false;
+        }
+
+        private static void MapType(
             ProbeVerdict verdict, int remaining,
             bool r1, bool r2, bool l1, bool l2,
             double[] r1Dir, double[] r1Pt, double[] r2Dir, double[] r2Pt,
