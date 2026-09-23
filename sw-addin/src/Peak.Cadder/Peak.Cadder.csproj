@@ -19,7 +19,6 @@
     <Product>CADder Bridge for SolidWorks</Product>
     <Description>Exports the assembly's kinematics as a rig manifest next to a STEP file, for the CADder Blender add-on.</Description>
     <Copyright>Copyright (c) 2026 Peak Design</Copyright>
-    <ComVisible>false</ComVisible>
     <NoWarn>$(NoWarn);CS0618</NoWarn>
   </PropertyGroup>
 

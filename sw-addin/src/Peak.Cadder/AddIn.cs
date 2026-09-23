@@ -11,6 +11,13 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
+// No class is visible to COM unless it says so. Setup runs RegAsm
+// /codebase, which registers every public class of a COM-visible assembly
+// machine-wide: 70 of them, the dialogs among them. SolidWorks needs two,
+// AddIn and CommandCallbacks, and both carry [ComVisible(true)]. The csproj
+// property ComVisible did nothing: the SDK has no such property.
+[assembly: ComVisible(false)]
+
 namespace Peak.Cadder
 {
     // Shell cloned from Peak.NextStep\AddIn.cs. The traps it documents
