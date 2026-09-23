@@ -38,6 +38,11 @@ namespace Peak.Cadder
         /// selection itself is gone by the time the export returns: the DOF
         /// probe clears it while it drags components.</summary>
         public System.Collections.Generic.HashSet<string> KeepPaths;
+
+        /// <summary>The limit mates that could not be put back after the
+        /// export read the assembly. They are still suppressed.</summary>
+        public System.Collections.Generic.List<string> LimitsLeftSuppressed =
+            new System.Collections.Generic.List<string>();
     }
 
     public static class ExportCommand
@@ -186,7 +191,7 @@ namespace Peak.Cadder
             {
                 var outcome = ExportBundle(app, model, assembly,
                     ManifestStepPath(manifestPath), manifestPath, settings,
-                    manifestOnly: true, progress: bar);
+                    manifestOnly: true, progress: bar, tellUser: true);
                 CloseBar(bar);
                 app.SendMsgToUser2(outcome.Report,
                     (int)swMessageBoxIcon_e.swMbInformation,
@@ -265,7 +270,7 @@ namespace Peak.Cadder
             ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
             string stepPath, string manifestPath, AppSettings settings,
             bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null,
-            ExportProgress progress = null)
+            ExportProgress progress = null, bool tellUser = false)
         {
             // The numbers beside each stage are its share of the whole
             // export, 0 to 100. They come from timing the samples here: the
@@ -349,6 +354,7 @@ namespace Peak.Cadder
             RigidGroupingResult grouping;
             List<PairVerdict> verdicts;
             SolveState limitsOut = null;
+            List<string> limitsLeft = new List<string>();
             HashSet<string> statusVetoed = null;
             try
             {
@@ -371,7 +377,10 @@ namespace Peak.Cadder
             }
             finally
             {
-                PutLimitsBack(model, limitsOut, mateErrorPrompt != null ? app : null);
+                // Every command a user runs at SolidWorks tells them, not
+                // only the ones that can ask about mate errors.
+                limitsLeft = PutLimitsBack(model, limitsOut,
+                    mateErrorPrompt != null || tellUser ? app : null);
             }
             progress.StopIfCancelled();
             // The verdicts are read as a SET: a pair whose child is mated to a
@@ -670,6 +679,7 @@ namespace Peak.Cadder
             outcome.ManifestPath = manifestPath;
             outcome.Warnings = manifest.Warnings.Count;
             outcome.KeepPaths = keep;
+            outcome.LimitsLeftSuppressed = limitsLeft;
             return outcome;
         }
 
@@ -739,14 +749,14 @@ namespace Peak.Cadder
         /// as a hydraulic ram can be shared by other assemblies, so the user
         /// is told which mates, when there is a user to tell.
         /// </summary>
-        private static void PutLimitsBack(IModelDoc2 model, SolveState state, ISldWorks app)
+        private static List<string> PutLimitsBack(IModelDoc2 model, SolveState state, ISldWorks app)
         {
-            if (state == null || state.Count == 0) return;
+            if (state == null || state.Count == 0) return new List<string>();
             var failed = state.Restore();
             state.RebuildSubDocuments();
             if (!SolveState.Rebuild(model, "edit"))
                 AddIn.Log("solve state: the rebuild after putting the limits back failed");
-            if (failed.Count == 0 || app == null) return;
+            if (failed.Count == 0 || app == null) return failed;
             try
             {
                 app.SendMsgToUser2(
@@ -758,6 +768,7 @@ namespace Peak.Cadder
                     (int)swMessageBoxBtn_e.swMbOk);
             }
             catch { }
+            return failed;
         }
 
         // ── Grounding diagnostics ───────────────────────────────────────────

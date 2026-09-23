@@ -101,6 +101,32 @@ namespace Peak.Cadder.Tests
             Assert.True(HasEdge(grouping, ground, grouping.ComponentGroup["c118"]));
         }
 
+        /// <summary>
+        /// The status pass follows the same rule. A fixed component always
+        /// reads fully defined, and a mate on the node's own planes makes it
+        /// mated, so the pass welded the fixed node to the ground, and the
+        /// barrel fixed inside it went with it (review, 2026-09-23).
+        /// </summary>
+        [Fact]
+        public void AFixedFlexibleNodeIsNotGroundedOnItsStatus()
+        {
+            var graph = RamGraph(nodeReportsFixed: true);
+            foreach (var c in graph.Components)
+                if (c.Id == "c057" || c.Id == "c110") c.StatusFree = 3;
+            graph.Mates.Add(CoincidentPlanes("Coincident1", "c054", "c057", Yp,
+                P(0.525, 0.2, -0.3)));
+            graph.Mates.Add(CoincidentPlanes("Coincident2", "c054", "c110", Yp,
+                P(-0.525, 0.2, -0.3)));
+
+            var grouping = RigidGrouper.Group(graph);
+
+            string ground = grouping.ComponentGroup["c054"];
+            Assert.NotEqual(ground, grouping.ComponentGroup["c065"]);
+            Assert.NotEqual(ground, grouping.ComponentGroup["c118"]);
+            Assert.DoesNotContain("c057", grouping.StatusWeldIds);
+            Assert.DoesNotContain("c110", grouping.StatusWeldIds);
+        }
+
         /// <summary>But a ground there must be: when the ONLY fixed component
         /// in the assembly is a flexible subassembly node, it grounds after
         /// all, because the alternative is a rig of nothing but islands.</summary>

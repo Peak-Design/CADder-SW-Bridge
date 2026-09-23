@@ -932,6 +932,10 @@ namespace Peak.Cadder.Bridge
                     result["manifest"] = outcome.ManifestPath;
                     result["warnings"] = outcome.Warnings;
                     result["joints"] = JointShape(outcome.ManifestPath);
+                    // Blender asked, so Blender says it: the user is there,
+                    // not at SolidWorks.
+                    if (outcome.LimitsLeftSuppressed.Count > 0)
+                        result["limits_left_suppressed"] = outcome.LimitsLeftSuppressed;
                     if (withStep) result["step"] = outcome.StepPath ?? stepPath;
                 }
                 else if (withStep)

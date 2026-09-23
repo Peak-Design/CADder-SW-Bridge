@@ -606,6 +606,44 @@ namespace Peak.Cadder.Tests
             Assert.Equal(new[] { "lifter-1" }, result.PoseHeldSkips);
         }
 
+        /// <summary>A part bolted to a cam follower inside a flexible
+        /// subassembly reads fully defined in the sub's document at a dwell,
+        /// as the follower does. Welding it to the subassembly took the
+        /// follower with it, and the cam moved nothing (review,
+        /// 2026-09-23).</summary>
+        [Fact]
+        public void APartBoltedToACamFollowerInASubassemblyIsNotWeldedOnItsStatus()
+        {
+            var lifter = Inside(Comp("c004", "lifter"), "c002");
+            lifter.SubStatusFree = 3;
+            var cap = Inside(Comp("c005", "cap"), "c002");
+            cap.SubStatusFree = 3;
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    Flexible(Comp("c002", "valve sub")),
+                    InSubFixed(Inside(Comp("c003", "cam"), "c002")),
+                    lifter,
+                    cap,
+                },
+                Concentric("Concentric1", "c001", "c003", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident1", "c003", "c004", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c003", "c004", Y, P(0, 0, 0)),
+                CoincidentPlanes("Coincident3", "c004", "c005", X, P(0.2, 0, 0)),
+                CoincidentPlanes("Coincident4", "c004", "c005", Y, P(0, 0, 0)),
+                CoincidentPlanes("Coincident5", "c004", "c005", Z, P(0, 0, 0)),
+                Mate("CamMateTangent1", "swMateCAMFOLLOWER",
+                    Cylinder("c003", Z, P(0, 0, 0), 0.0762),
+                    Cylinder("c004", Z, P(0.1137, 0, 0), 0.0375)));
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(result.ComponentGroup["c004"], result.ComponentGroup["c005"]);
+            Assert.NotEqual(result.ComponentGroup["c002"], result.ComponentGroup["c004"]);
+            Assert.Empty(result.SubStatusWelds);
+        }
+
         /// <summary>A component no active mate touches (a pattern or mirror
         /// instance) follows its seed, so its status welds nothing.</summary>
         [Fact]

@@ -87,7 +87,8 @@ namespace Peak.Cadder.Core
         /// for the grouping the mates alone give.</param>
         public static RigidGroupingResult Group(
             MateGraph graph, IEnumerable<string[]> solverRigidPairs = null,
-            ISet<string> statusVetoed = null, bool statusWelds = true)
+            ISet<string> statusVetoed = null, bool statusWelds = true,
+            bool subStatusWelds = true)
         {
             var comps = new List<GraphComponent>();
             var indexById = new Dictionary<string, int>();
@@ -190,9 +191,12 @@ namespace Peak.Cadder.Core
             // nor is anything the mates alone make one body with it.
             var poseTouched = PoseHeldComponents(graph);
             HashSet<string> poseHeld = null;
-            if (poseTouched.Count > 0 && statusWelds)
+            if (poseTouched.Count > 0 && (statusWelds || subStatusWelds))
             {
-                var mateOnly = Group(graph, solverRigidPairs, null, statusWelds: false);
+                // What the mates alone make one body, with neither status
+                // pass: both passes keep their hands off that whole body.
+                var mateOnly = Group(graph, solverRigidPairs, null,
+                    statusWelds: false, subStatusWelds: false);
                 var heldGroups = new HashSet<string>();
                 foreach (string id in poseTouched)
                 {
@@ -205,12 +209,19 @@ namespace Peak.Cadder.Core
             }
             var poseSkips = new List<string>();
             var subStatusWelded = new List<string>();
-            for (int i = 0; i < comps.Count; i++)
+            for (int i = 0; i < comps.Count && subStatusWelds; i++)
             {
                 var c = comps[i];
                 if (c.ParentId == null || c.SubStatusFree != SwFullyConstrained) continue;
                 if (!mated.Contains(c.Id)) continue;
-                if (poseTouched.Contains(c.Id)) { poseSkips.Add(c.Path ?? c.Id); continue; }
+                // Not only the part the cam touches: a part bolted to the
+                // follower reads fully defined at a dwell too, and welding it
+                // to the subassembly takes the follower with it.
+                if (poseHeld != null ? poseHeld.Contains(c.Id) : poseTouched.Contains(c.Id))
+                {
+                    poseSkips.Add(c.Path ?? c.Id);
+                    continue;
+                }
                 int p;
                 if (!indexById.TryGetValue(c.ParentId, out p)) continue;
                 if (Find(parent, i) == Find(parent, p)) continue;
@@ -253,6 +264,12 @@ namespace Peak.Cadder.Core
                     var c = comps[i];
                     if (i == assemblyProxy || c.ParentId != null) continue;
                     if (c.StatusFree != SwFullyConstrained) continue;
+                    // A fixed component always reads fully defined. A fixed
+                    // FLEXIBLE node that Grounds() will not ground is not
+                    // grounded on its status either: it is not a body, and
+                    // the barrel fixed inside it would go with it (the
+                    // ClampRig rams, 2026-08-24).
+                    if (c.IsFixed && !Grounds(c, flexibleGrounds)) continue;
                     if (!mated.Contains(c.Id)) continue;
                     if (statusVetoed != null && statusVetoed.Contains(c.Id)) continue;
                     if (poseHeld != null && poseHeld.Contains(c.Id))
