@@ -123,9 +123,9 @@ namespace Peak.Cadder
         ///
         /// A 4-digit year after the prefix prevents both faults.
         /// </summary>
-        private static IEnumerable<string> InstalledVersionKeys(RegistryKey swKey)
+        private static IEnumerable<string> InstalledVersionKeys(IEnumerable<string> names)
         {
-            foreach (var name in swKey.GetSubKeyNames())
+            foreach (var name in names)
             {
                 if (!name.StartsWith("SOLIDWORKS ", StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -135,22 +135,44 @@ namespace Peak.Cadder
             }
         }
 
+        /// <summary>
+        /// The HKLM keys the add-in is registered under, from the subkey
+        /// names of HKLM\SOFTWARE\SolidWorks.
+        ///
+        /// One key per SolidWorks year installed now, and the key that no
+        /// year owns (SOFTWARE\SolidWorks\AddIns), which SolidWorks also
+        /// reads. With the year keys alone, a SolidWorks year installed
+        /// after setup did not list the add-in until setup ran again.
+        /// </summary>
+        internal static List<string> RegistrationKeys(
+            IEnumerable<string> solidWorksSubKeys, string guid)
+        {
+            var keys = new List<string>();
+            foreach (var ver in InstalledVersionKeys(solidWorksSubKeys))
+                keys.Add($@"SOFTWARE\SolidWorks\{ver}\Addins\{guid}");
+            keys.Add(AnyYearKey(guid));
+            return keys;
+        }
+
+        private static string AnyYearKey(string guid)
+        {
+            return $@"SOFTWARE\SolidWorks\AddIns\{guid}";
+        }
+
         [ComRegisterFunction]
         public static void RegisterFunction(Type t)
         {
             var guid = t.GUID.ToString("B");
+            string[] years;
             using (var swKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\SolidWorks"))
+                years = swKey == null ? new string[0] : swKey.GetSubKeyNames();
+            foreach (var path in RegistrationKeys(years, guid))
             {
-                if (swKey == null) return;
-                foreach (var ver in InstalledVersionKeys(swKey))
+                using (var key = Registry.LocalMachine.CreateSubKey(path))
                 {
-                    using (var key = Registry.LocalMachine.CreateSubKey(
-                        $@"SOFTWARE\SolidWorks\{ver}\Addins\{guid}"))
-                    {
-                        key.SetValue(null, 1);
-                        key.SetValue("Title", AddInTitle + " " + AddInVersion);
-                        key.SetValue("Description", AddInDescription);
-                    }
+                    key.SetValue(null, 1);
+                    key.SetValue("Title", AddInTitle + " " + AddInVersion);
+                    key.SetValue("Description", AddInDescription);
                 }
             }
         }
@@ -170,6 +192,7 @@ namespace Peak.Cadder
                              .Where(n => n.StartsWith("SOLIDWORKS ", StringComparison.OrdinalIgnoreCase)))
                     Registry.LocalMachine.DeleteSubKey(
                         $@"SOFTWARE\SolidWorks\{ver}\Addins\{guid}", throwOnMissingSubKey: false);
+                Registry.LocalMachine.DeleteSubKey(AnyYearKey(guid), throwOnMissingSubKey: false);
             }
         }
 
