@@ -78,6 +78,38 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void SubassemblyOwnCurveLiftsByTheSubassembly()
+        {
+            // Flexible Track-1 at (0.3, 0, 0), turned 90 degrees, holds an
+            // assembly-level 3D sketch: its curve has no ReferenceComponent
+            // and is in Track-1's document frame. The follower vertex of the
+            // same mate lifts by Track-1, so the path must too.
+            var track = Pose(0.3, 0.0, 0.0, 90.0);
+            var lift = MateReader.UnresolvedLift(track, null);
+            AssertPoint(new[] { 0.3, 0.1, 0.0 }, SwFrames.LiftPoint(lift, new[] { 0.1, 0.0, 0.0 }));
+        }
+
+        [Fact]
+        public void UnwalkedPartCurveLiftsByItsPlaceInTheReadDocument()
+        {
+            var track = Pose(0.3, 0.0, 0.0, 90.0);
+            var partInTrack = Pose(0.0, 0.05, 0.0, 0.0);
+            var lift = MateReader.UnresolvedLift(track, partInTrack);
+            AssertPoint(MathOps.TransformPoint(MathOps.Multiply(track, partInTrack), new[] { 0.1, 0.0, 0.0 }),
+                SwFrames.LiftPoint(lift, new[] { 0.1, 0.0, 0.0 }));
+
+            // At the top a part's place is already in the world.
+            var top = MateReader.UnresolvedLift(null, partInTrack);
+            AssertPoint(new[] { 0.1, 0.05, 0.0 }, SwFrames.LiftPoint(top, new[] { 0.1, 0.0, 0.0 }));
+        }
+
+        [Fact]
+        public void TopDocumentOwnCurveStaysInTheWorld()
+        {
+            Assert.Null(MateReader.UnresolvedLift(null, null));
+        }
+
+        [Fact]
         public void UnreadablePlacesFallBackToTheWalkedTransform()
         {
             var walked = Pose(0.3, 0.0, 0.0, 10.0);

@@ -490,10 +490,7 @@ namespace Peak.Cadder.Sw
                 double[,] lift = null;
                 try
                 {
-                    var refComp = me.ReferenceComponent as Component2;
-                    Component2 matched = null;
-                    var w = refComp == null ? null : ResolveWalked(refComp, ctx, byPath, out matched);
-                    if (w != null) lift = PartLift(refComp, w, matched);
+                    lift = EntityPartLift(me.ReferenceComponent as Component2, ctx, byPath);
                 }
                 catch { }
 
@@ -1225,10 +1222,7 @@ namespace Peak.Cadder.Sw
                 double[,] lift = null;
                 try
                 {
-                    var refComp = me.ReferenceComponent as Component2;
-                    Component2 matched = null;
-                    var w = refComp == null ? null : ResolveWalked(refComp, ctx, byPath, out matched);
-                    if (w != null) lift = PartLift(refComp, w, matched);
+                    lift = EntityPartLift(me.ReferenceComponent as Component2, ctx, byPath);
                 }
                 catch { }
 
@@ -2181,6 +2175,38 @@ namespace Peak.Cadder.Sw
             if (walked == null || matchedPlace == null || partPlace == null) return walked;
             return MathOps.Multiply(walked,
                 MathOps.Multiply(MathOps.InvertRigid(matchedPlace), partPlace));
+        }
+
+        /// <summary>
+        /// The lift for part-space geometry on one mate entity: an edge or
+        /// a sketch curve. A curve with no ReferenceComponent is the read
+        /// document's own (an assembly-level sketch), and one whose
+        /// component did not resolve still has a place in that document.
+        /// Both are in the document's frame, which ReadEntities lifts the
+        /// same mate's EntityParams by. Without this, a sketch path inside
+        /// a flexible subassembly was sampled in the subassembly's frame
+        /// and written as world coordinates, away from its own follower.
+        /// </summary>
+        private static double[,] EntityPartLift(
+            Component2 refComp, MateContext ctx, Dictionary<string, WalkedComponent> byPath)
+        {
+            var residence = ctx.Residence == null ? null : ctx.Residence.Graph.Transform;
+            if (refComp == null) return UnresolvedLift(residence, null);
+            Component2 matched;
+            var w = ResolveWalked(refComp, ctx, byPath, out matched);
+            if (w != null) return PartLift(refComp, w, matched);
+            return UnresolvedLift(residence, SwFrames.ComponentWorld(refComp));
+        }
+
+        /// <summary>The pure half of EntityPartLift for a curve that did
+        /// not resolve: <paramref name="residence"/> is the read document's
+        /// world transform (null at the top), and
+        /// <paramref name="partPlace"/> the part's Transform2 in that
+        /// document (null for the document's own curve).</summary>
+        internal static double[,] UnresolvedLift(double[,] residence, double[,] partPlace)
+        {
+            if (partPlace == null) return residence;
+            return residence == null ? partPlace : MathOps.Multiply(residence, partPlace);
         }
 
         private static Component2 SafeParent(Component2 comp)
