@@ -376,10 +376,20 @@ namespace Peak.Cadder.Core
             // entity carries a direction. EntityParams direction slots are
             // undefined for point-like geometry, so a direction next to a
             // sphere is noise, not an axis.
+            //
+            // But a real line on the other side is an axis: a sphere
+            // concentric to a bore, a datum axis or a straight edge puts the
+            // center ON that line, so the sphere keeps the slide along it
+            // and every rotation, as a vertex on a line does. The center pin
+            // cost a ball in a tube its travel. Every other kind keeps the
+            // pin: a junk kind, a point, a sphere, and a cone or a circular
+            // edge (a spherical face the retype missed arrives as a cone).
             var sphere = FindEntity(m, "sphere");
             if (sphere != null && sphere.Point != null)
             {
-                ApplyPointCoincidence(s, sphere.Point);
+                var axis = LineOtherThan(m, sphere);
+                if (axis != null) RestrictTransToLine(s, MathOps.Normalized(axis.Direction));
+                else ApplyPointCoincidence(s, sphere.Point);
                 return;
             }
             double[] dir, pt;
@@ -865,10 +875,21 @@ namespace Peak.Cadder.Core
                     s.RotPoint = point;
                     break;
                 case RotFreedom.AboutPoint:
+                    // A second pinned point leaves the turn about the line
+                    // through both points: a lid pinned at the two ends of
+                    // its hinge line, a part on two ball studs. Reading it
+                    // as rigid merged the pair, and the lid could not open.
+                    // A third point off that line holds the turn (the
+                    // AboutLine case below).
                     if (MathOps.Distance2(s.RotPoint, point) > MateFacts.CollinearTol * MateFacts.CollinearTol)
                     {
-                        s.Rot = RotFreedom.None;
-                        s.RotDir = null;
+                        s.Rot = RotFreedom.AboutLine;
+                        s.RotDir = MathOps.Normalized(new[]
+                        {
+                            point[0] - s.RotPoint[0],
+                            point[1] - s.RotPoint[1],
+                            point[2] - s.RotPoint[2],
+                        });
                     }
                     break;
                 case RotFreedom.AboutLine:
@@ -999,6 +1020,21 @@ namespace Peak.Cadder.Core
         {
             foreach (var e in m.Entities)
                 if (e.EntityTypeName == kind) return e;
+            return null;
+        }
+
+        /// <summary>A true line beside a sphere on a concentric: a
+        /// cylinder, a datum axis, or a straight edge. A circular edge has a
+        /// radius and is not a line. Null for any other kind.</summary>
+        private static GraphMateEntity LineOtherThan(GraphMate m, GraphMateEntity sphere)
+        {
+            foreach (var e in m.Entities)
+            {
+                if (e == sphere || e.Direction == null) continue;
+                if (e.EntityTypeName == "cylinder" || e.EntityTypeName == "axis"
+                    || (e.EntityTypeName == "edge" && e.Radius <= 0.0))
+                    return e;
+            }
             return null;
         }
 
