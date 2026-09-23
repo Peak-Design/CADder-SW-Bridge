@@ -632,7 +632,7 @@ namespace Peak.Cadder.Core
                 // a screw, or a weld, which holds every point of its bodies
                 // alike (the wrench's cut is one). A ball with an angle
                 // limit carries the axis of its cone, and its origin is its
-                // centre, the one point that defines it: slid to the point
+                // center, the one point that defines it: slid to the point
                 // nearest a crank's hinge, it moved 400 mm off the point
                 // where its bodies meet.
                 if (cut.Type != JointType.Revolute

@@ -866,7 +866,7 @@ namespace Peak.Cadder.Sw
         /// The chain grows at BOTH ends. Edge and sketch-segment senses are
         /// arbitrary, and the first segment can be a middle one, so a chain
         /// that only appended at its end jumped from the first segment's end
-        /// back across it to reach a neighbour at its start, and the
+        /// back across it to reach a neighbor at its start, and the
         /// follower rode a chord that is not in the model.</summary>
         internal static List<double[]> ChainPolylines(List<List<double[]>> segments)
         {

@@ -305,13 +305,13 @@ namespace Peak.Cadder.Appearance
         }
 
         /// <summary>
-        /// Writes the colour of one occurrence on every solid of its part.
+        /// Writes the color of one occurrence on every solid of its part.
         /// Returns the number of styled items written, 0 when the part has
         /// no solid.
         ///
         /// Each solid gets its own styled item. Only the first solid was
         /// styled, so the other bodies of a multi-body part kept the part
-        /// colour. Each override also names the styled item of its own
+        /// color. Each override also names the styled item of its own
         /// solid: the first solid with a styled item is not always the
         /// first solid, and an override must not name the style of another
         /// item.
@@ -325,7 +325,7 @@ namespace Peak.Cadder.Appearance
             if (occ.TargetItems.Count == 0)
             {
                 _log?.Invoke($"    NAUO #{occ.NauoId}: the part has no solid to take "
-                           + "the occurrence colour");
+                           + "the occurrence color");
                 return 0;
             }
 
@@ -372,7 +372,7 @@ namespace Peak.Cadder.Appearance
                 else
                 {
                     // No base styled item to override: a plain styled item bound to
-                    // the item still carries the colour for readers that ignore
+                    // the item still carries the color for readers that ignore
                     // occurrence context.
                     _step.Append($"#{styledId}=STYLED_ITEM('occurrence colour'," +
                                  $"(#{psaId}),#{solid});");
@@ -476,7 +476,7 @@ namespace Peak.Cadder.Appearance
                 //
                 // That includes an occurrence that the matcher could not
                 // match, or that a conflict above left out. The log says it
-                // keeps the SolidWorks colour, and it still uses the original
+                // keeps the SolidWorks color, and it still uses the original
                 // part in the file. The matched leaves alone do not show it.
                 var overridden = new HashSet<int>(partGroup
                     .Where(p => p.Key.OverridesPartInternals).Select(p => p.Value.NauoId));
@@ -567,7 +567,7 @@ namespace Peak.Cadder.Appearance
         /// the top level and also inside a container P has a use as shallow
         /// as any use of P. When N split first, the occurrence entity inside
         /// P that serves every use of P moved to the copy of N, and every use
-        /// of P changed colour with it.
+        /// of P changed color with it.
         /// </summary>
         private int SplitSharedDefinitions(
             List<KeyValuePair<OccurrenceAppearance, OccurrenceRef>> pairs)
@@ -622,12 +622,12 @@ namespace Peak.Cadder.Appearance
                     // another group cannot move alone. This happens when the
                     // container above could not be copied. To repoint the
                     // entity would change the other group too, so both keep
-                    // the SolidWorks colour, and the conflict check below
+                    // the SolidWorks color, and the conflict check below
                     // reports them.
                     if (group.Any(u => groupsOfNauo[pairs[indexOf[u]].Value.NauoId].Count > 1))
                     {
                         _log?.Invoke($"    {defName}: {group.Count()} use(s) share an occurrence "
-                                   + "entity with uses that need other colours; not split");
+                                   + "entity with uses that need other colors, so it is not split");
                         continue;
                     }
 

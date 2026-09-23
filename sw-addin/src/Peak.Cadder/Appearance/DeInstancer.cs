@@ -178,8 +178,8 @@ namespace Peak.Cadder.Appearance
             // references.
             foreach (var extra in Closure(chain)) toClone.Add(extra);
 
-            // The copied solids take the colour of the copy. A part with no
-            // solid cannot take a colour, so it is not copied: the copy only
+            // The copied solids take the color of the copy. A part with no
+            // solid cannot take a color, so it is not copied: the copy only
             // added an orphan product chain to the file.
             var originals = toClone
                 .Where(i => _step.TypeOf(i) == "MANIFOLD_SOLID_BREP"
@@ -336,13 +336,13 @@ namespace Peak.Cadder.Appearance
             // that this code means to replace.
             //
             // The transparency is the exception. The chain that SolidWorks
-            // wrote holds a SURFACE_STYLE_TRANSPARENT or none, and a colour
+            // wrote holds a SURFACE_STYLE_TRANSPARENT or none, and a color
             // written in place keeps it. A glass override then came out
             // opaque, and an opaque override on glass stayed clear, while the
             // copies of the same part in other groups were correct. When the
             // chain does not hold the transparency of the override, the item
-            // gets a new chain. The old colour is still written in place, so
-            // the dead chain does not hold the original colour either.
+            // gets a new chain. The old color is still written in place, so
+            // the dead chain does not hold the original color either.
             int count = 0;
             int newChain = 0;
             foreach (var styled in mine)

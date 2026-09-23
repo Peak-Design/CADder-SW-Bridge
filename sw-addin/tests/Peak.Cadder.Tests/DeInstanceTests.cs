@@ -46,7 +46,7 @@ namespace Peak.Cadder.Tests
                     .DefaultIfEmpty(0.0).Max())
                 .ToList();
 
-        /// <summary>'asm' uses one part once. The part colour is grey, with
+        /// <summary>'asm' uses one part once. The part color is gray, with
         /// the given transparency, on the solid and on its B-rep.</summary>
         private string SingleUse(double partTransparency, out int nauo)
         {
@@ -114,7 +114,7 @@ namespace Peak.Cadder.Tests
         {
             // A part with a surface body and a solid body carries them in
             // two representations, behind two relationships. The surface
-            // one has the lower id. The part is used twice with two colours,
+            // one has the lower id. The part is used twice with two colors,
             // so one use gets a copy.
             var f = new AppearanceStepFixture();
             int asm = f.Product("asm");
@@ -155,7 +155,7 @@ namespace Peak.Cadder.Tests
         public void AnUnmatchedUseKeepsTheSolidWorksColour()
         {
             // p-1 is matched and red. p-2 is not matched, so the log says it
-            // keeps the SolidWorks colour. It still uses the original part
+            // keeps the SolidWorks color. It still uses the original part
             // in the file, so the red must go on a copy.
             var f = new AppearanceStepFixture();
             int asm = f.Product("asm");
@@ -213,7 +213,7 @@ namespace Peak.Cadder.Tests
         [Fact]
         public void AFailedCopyLeavesNoOrphansAndNoStyleOnNothing()
         {
-            // The same part used twice with two colours: the second group
+            // The same part used twice with two colors: the second group
             // needs a copy, and a part with no solids cannot give one.
             var f = new AppearanceStepFixture();
             int asm = f.Product("asm");
@@ -280,7 +280,7 @@ namespace Peak.Cadder.Tests
         [Fact]
         public void AnOverrideWithTheSameTransparencyIsWrittenInPlace()
         {
-            // The chain already holds the transparency, so the colour is
+            // The chain already holds the transparency, so the color is
             // written again in place and no new chain is added.
             string path = SingleUse(0.5, out int nauo);
             int before = new Part21(path).ByType("COLOUR_RGB").Count;

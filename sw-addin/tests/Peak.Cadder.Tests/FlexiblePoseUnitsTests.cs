@@ -10,9 +10,9 @@ namespace Peak.Cadder.Tests
 {
     /// <summary>
     /// The flexible-twin fix in a file whose assembly placements are not in
-    /// millimetres. SolidWorks writes the assembly placements in the unit of
-    /// the top document, and the 2022 sample landing_gear.sldasm has a metre
-    /// assembly. The occurrence tables hold millimetres, but a new placement
+    /// millimeters. SolidWorks writes the assembly placements in the unit of
+    /// the top document, and the 2022 sample landing_gear.sldasm has a meter
+    /// assembly. The occurrence tables hold millimeters, but a new placement
     /// must go into the file in the unit of the representation that lists
     /// it, and that representation must list it, or a reader of the file
     /// cannot find its unit.
@@ -29,7 +29,7 @@ namespace Peak.Cadder.Tests
 
         /// <summary>'asm' uses 'sub' at the origin and at subX, and 'sub'
         /// holds 'leaf' at leafX, both in the unit of the assembly context.
-        /// The leaf part has its own millimetre context.</summary>
+        /// The leaf part has its own millimeter context.</summary>
         private string WriteFixture(string unit, double subX, double leafX)
         {
             var f = new AppearanceStepFixture();
@@ -74,7 +74,7 @@ namespace Peak.Cadder.Tests
         }
 
         /// <summary>The leaf use under the sub use at subXmm, read back from
-        /// the saved file: its position in millimetres, the raw coordinate
+        /// the saved file: its position in millimeters, the raw coordinate
         /// in the file, and the unit that both parsers find for it.</summary>
         private static (double Mm, double Raw, double Unit, double SwUnit) LeafUnder(
             string path, double subXmm)

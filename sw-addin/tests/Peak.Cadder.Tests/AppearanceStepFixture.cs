@@ -37,7 +37,7 @@ namespace Peak.Cadder.Tests
 
         public readonly int ProductContext;
         public readonly int DefinitionContext;
-        /// <summary>A geometric context in millimetres, the default for
+        /// <summary>A geometric context in millimeters, the default for
         /// every product.</summary>
         public readonly int MmContext;
 
@@ -173,7 +173,7 @@ namespace Peak.Cadder.Tests
 
         /// <summary>A part with one solid, styled on the solid and on its
         /// B-rep representation, the way SolidWorks writes a part
-        /// colour.</summary>
+        /// color.</summary>
         public int ColouredPart(string name, double r, double g, double b, double transparency = 0)
         {
             int pd = Product(name);
@@ -282,7 +282,7 @@ namespace Peak.Cadder.Tests
         public static List<int> StyledItemsOn(Part21 step, int item)
             => step.ByType("STYLED_ITEM").Where(s => step.Refs(s).LastOrDefault() == item).ToList();
 
-        /// <summary>The colour of every plain styled item on this entity, as
+        /// <summary>The color of every plain styled item on this entity, as
         /// "r,g,b".</summary>
         public static List<string> ColoursOn(Part21 step, int item)
             => StyledItemsOn(step, item)

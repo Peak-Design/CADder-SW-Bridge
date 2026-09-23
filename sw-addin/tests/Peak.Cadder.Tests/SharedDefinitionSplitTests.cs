@@ -9,7 +9,7 @@ namespace Peak.Cadder.Tests
 {
     /// <summary>
     /// The split of a shared sub-assembly definition whose uses need
-    /// different colours. A definition N is used at the top level and also
+    /// different colors. A definition N is used at the top level and also
     /// inside a container P that is used twice. One occurrence entity inside
     /// P serves both uses of P, so N can only split after P has split.
     /// </summary>
@@ -27,7 +27,7 @@ namespace Peak.Cadder.Tests
         private static readonly Rgb Green = new Rgb(0, 1, 0);
 
         /// <summary>asm holds n-1 (N) at x=0, and p-1 and p-2 (P) at x=100
-        /// and x=200. P holds N, and N holds one grey leaf part.</summary>
+        /// and x=200. P holds N, and N holds one gray leaf part.</summary>
         private string WriteFixture(bool containerCanSplit, out Dictionary<string, int> nauo)
         {
             var f = new AppearanceStepFixture();
@@ -103,7 +103,7 @@ namespace Peak.Cadder.Tests
             };
         }
 
-        /// <summary>The colour of the leaf at the end of a chain of uses, each
+        /// <summary>The color of the leaf at the end of a chain of uses, each
         /// picked by its x position inside the definition above it.</summary>
         private static string LeafColour(string path, params double[] xs)
         {
@@ -151,7 +151,7 @@ namespace Peak.Cadder.Tests
             rw.ApplyOccurrenceColours(pairs, deInstance: true);
             rw.Save(path);
 
-            // A missing colour is honest, a wrong one is not.
+            // A missing color is honest, a wrong one is not.
             Assert.NotEqual("0,1,0", LeafColour(path, 100, 0, 0));
             Assert.NotEqual("1,0,0", LeafColour(path, 200, 0, 0));
             Assert.Contains(log, l => l.Contains("CONFLICT"));

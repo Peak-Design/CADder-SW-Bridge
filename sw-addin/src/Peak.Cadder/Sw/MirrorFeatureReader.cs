@@ -45,7 +45,7 @@ namespace Peak.Cadder.Sw
         private const double PlaneTol = 1e-6;
 
         /// <summary>How far the local mirror may be from an involution, in
-        /// its rotation entries and in metres. Placements are exact to float
+        /// its rotation entries and in meters. Placements are exact to float
         /// noise.</summary>
         private const double MirrorTol = 1e-6;
 
@@ -476,8 +476,8 @@ namespace Peak.Cadder.Sw
             return r;
         }
 
-        /// <summary>How far the other box's centre is from the mirror of
-        /// the source box's centre, or NaN when a box is unknown. GetBox is
+        /// <summary>How far the other box's center is from the mirror of
+        /// the source box's center, or NaN when a box is unknown. GetBox is
         /// not the tightest box, so this ranks candidates and is never the
         /// proof of a mirror.</summary>
         private static double BoxMismatch(double[,] r, MirrorOccurrence src, MirrorOccurrence other)

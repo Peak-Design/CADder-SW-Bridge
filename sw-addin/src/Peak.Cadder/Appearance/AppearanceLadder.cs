@@ -406,11 +406,11 @@ namespace Peak.Cadder.Appearance
         }
 
         /// <summary>
-        /// The colour that SolidWorks draws for an appearance, by the rule
+        /// The color that SolidWorks draws for an appearance, by the rule
         /// that the direct send uses (AppearanceSpec.DisplayColourRef). A
-        /// one- or two-colour appearance shows its second colour, and the
+        /// one- or two-color appearance shows its second color, and the
         /// first is the highlight tint of the metals. The repair took the
-        /// first colour, so a polished gold override came out as
+        /// first color, so a polished gold override came out as
         /// (255,206,127) in the STEP file and as (247,224,153) in
         /// SolidWorks and over the direct send.
         /// </summary>

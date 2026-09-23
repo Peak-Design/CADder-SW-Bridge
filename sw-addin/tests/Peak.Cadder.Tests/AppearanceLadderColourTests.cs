@@ -4,7 +4,7 @@ using Xunit;
 namespace Peak.Cadder.Tests
 {
     /// <summary>
-    /// The colour of an override in the STEP repair is the colour that
+    /// The color of an override in the STEP repair is the color that
     /// SolidWorks draws, the same one the direct send uses
     /// (AppearanceSpec.DisplayColourRef). Live usb_flash_drive2
     /// (2026-09-15): polished gold holds primary (255,206,127), which is the

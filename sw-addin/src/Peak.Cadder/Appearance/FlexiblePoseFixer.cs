@@ -240,17 +240,17 @@ namespace Peak.Cadder.Appearance
         // ── Instance ↔ use matching ─────────────────────────────────────────
 
         /// <summary>
-        /// Every length in this class is in millimetres, and SolidWorks gives
-        /// metres. The occurrence tables are already in millimetres whatever
+        /// Every length in this class is in millimeters, and SolidWorks gives
+        /// meters. The occurrence tables are already in millimeters whatever
         /// the unit of the file (StepRewriter.ReadOccurrencePlacement), and
         /// FindPlacement converts the child placements the same way. Only
         /// AppendPlacement goes back to the unit of the file.
         ///
         /// An earlier version tried a scale of 1000 and then 1 on the raw
-        /// file values. After the tables changed to millimetres, the scale
-        /// always came out as 1000. In a metre or inch file the fix then
-        /// compared raw metres with millimetres, and wrote millimetres into a
-        /// metre context: the leaves came out 1000 times too far out.
+        /// file values. After the tables changed to millimeters, the scale
+        /// always came out as 1000. In a meter or inch file the fix then
+        /// compared raw meters with millimeters, and wrote millimeters into a
+        /// meter context: the leaves came out 1000 times too far out.
         /// </summary>
         private const double MmPerM = 1000.0;
 
@@ -306,11 +306,11 @@ namespace Peak.Cadder.Appearance
             public int IdtId;
             public int MovingId;
             public int RelId;
-            /// <summary>Millimetres per unit of the representation that
+            /// <summary>Millimeters per unit of the representation that
             /// lists the placement. A new placement is written in this
             /// unit.</summary>
             public double UnitMm;
-            public double[] Loc;         // millimetres
+            public double[] Loc;         // millimeters
             public double[,] Rot;        // 3x3
         }
 
@@ -493,7 +493,7 @@ namespace Peak.Cadder.Appearance
         }
 
         /// <summary>A new placement in the unit of the representation that
-        /// lists it: unitMm is millimetres per unit of that
+        /// lists it: unitMm is millimeters per unit of that
         /// representation.</summary>
         private static int AppendPlacement(Part21 step, double[,] localM, double unitMm)
         {
@@ -535,7 +535,7 @@ namespace Peak.Cadder.Appearance
         /// one. A reader finds the unit of a placement through this list
         /// (Part21.PlacementUnitMm, and the copy in the rig matcher). A
         /// placement that no representation lists falls back to
-        /// millimetres, and in a metre file the reader then takes a wrong
+        /// millimeters, and in a meter file the reader then takes a wrong
         /// value as correct. The old placement stays in the list while
         /// another transformation still uses it.
         /// </summary>

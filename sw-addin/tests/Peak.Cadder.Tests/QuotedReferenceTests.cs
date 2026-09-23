@@ -46,7 +46,7 @@ namespace Peak.Cadder.Tests
         public void ACopyOfAPartKeepsItsNameAndCopiesNothingElse()
         {
             // The part's name points at the shape representation of the
-            // assembly. The part is used twice with two colours, so one use
+            // assembly. The part is used twice with two colors, so one use
             // gets a copy of the part.
             var f = new AppearanceStepFixture();
             int asm = f.Product("asm");

@@ -114,7 +114,7 @@ namespace Peak.Cadder.Tests
         public void SymmetricPartPlacedByItsBoxCentrePairs()
         {
             // The part is symmetric about its local plane z = 0.02, and the
-            // mirror type puts the box centres, not the origins, in mirror.
+            // mirror type puts the box centers, not the origins, in mirror.
             var a = Placement(new[] { 0.3, -0.2, 0.1 }, new[] { 0.0, 0.0, 0.7 });
             var b = Instance(a, Local(1, 1, -1, new[] { 0.0, 0.0, 0.04 }));
             var pairs = MirrorFeatureReader.Pair("MirrorComponent1",

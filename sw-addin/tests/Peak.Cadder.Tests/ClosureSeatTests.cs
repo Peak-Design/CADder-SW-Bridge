@@ -30,7 +30,7 @@ namespace Peak.Cadder.Tests
         /// <summary>
         /// A spatial crank and rocker joined by a link with a ball at each
         /// end. Each ball has an angle limit, so it carries the axis of its
-        /// cone. A ball is the loop's cut, and its origin is its centre, the
+        /// cone. A ball is the loop's cut, and its origin is its center, the
         /// one point that defines the joint. Slid along the cone's axis to
         /// the point nearest the crank's hinge, it moved 400 mm off the
         /// point where the bodies meet.

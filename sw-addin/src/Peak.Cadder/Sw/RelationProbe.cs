@@ -324,7 +324,7 @@ namespace Peak.Cadder.Sw
             return 5 * steps;
         }
 
-        /// <summary>A driven slide under this, in metres over the whole
+        /// <summary>A driven slide under this, in meters over the whole
         /// read, is the drag's noise and not a motion.</summary>
         private const double SlideMoves = 1e-5;
 
