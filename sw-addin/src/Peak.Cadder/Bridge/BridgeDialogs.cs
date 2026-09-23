@@ -8,13 +8,18 @@ namespace Peak.Cadder.Bridge
     /// <summary>
     /// Marquee progress while a worker thread talks to Blender. The COM/SW
     /// calls all happen BEFORE this shows; the worker does pure .NET (HTTP,
-    /// process launch), so the thread split is safe. No close box: the only
-    /// way out is the worker finishing (or the Cancel returning the thread's
-    /// result to the void: the HTTP call cannot be aborted mid-import without
-    /// leaving Blender half-imported, so there is deliberately no cancel).
+    /// process launch), so the thread split is safe. No close box, and no
+    /// Alt+F4 either (FormClosing): the only way out is the worker
+    /// finishing (or the Cancel returning the thread's result to the void:
+    /// the HTTP call cannot be aborted mid-import without leaving Blender
+    /// half-imported, so there is deliberately no cancel).
     /// </summary>
     public sealed class ProgressDialog : Form
     {
+        /// <summary>Set by the worker when it is done. Until then the
+        /// dialog refuses to close.</summary>
+        private bool _finished;
+
         private ProgressDialog(string title, string message)
         {
             Text = title;
@@ -54,6 +59,17 @@ namespace Peak.Cadder.Bridge
                 Margin = new Padding(0),
             });
             Controls.Add(root);
+
+            // No close box does not stop Alt+F4. A dialog closed that way
+            // left SolidWorks waiting for the worker with no window and no
+            // message loop, for minutes, and SolidWorks looked hung. So the
+            // user cannot close it while the worker runs. Windows can,
+            // when it shuts down.
+            FormClosing += (s, e) =>
+            {
+                if (!_finished && e.CloseReason == CloseReason.UserClosing)
+                    e.Cancel = true;
+            };
         }
 
         public static T Run<T>(IWin32Window owner, string title, string message,
@@ -71,6 +87,7 @@ namespace Peak.Cadder.Bridge
                     {
                         dlg.BeginInvoke(new Action(() =>
                         {
+                            dlg._finished = true;
                             dlg.DialogResult = DialogResult.OK;
                             dlg.Close();
                         }));
