@@ -117,6 +117,16 @@ namespace Peak.Cadder.Core
         {
             var driver = FindMount(joints, ga);
             var driven = FindMount(joints, gb);
+            // One relation can be declared twice: two symmetric mates over
+            // the same bodies, or a mate and a mirror feature. The second
+            // finds it made already. Made again, it came back reversed: the
+            // swap below turned the first coupling's driver into the new
+            // driven joint, and the two mounts drove each other. That is a
+            // dependency cycle, and the consumer refuses the whole rig.
+            if (driver != null && driven != null && driver != driven
+                && (DrivenBy(driven, driver) || DrivenBy(driver, driven)))
+                return null;
+            if (MirrorPaired(joints, ga, gb)) return null;
             if (driver != null && driven != null && driven.Coupling != null
                 && driver.Coupling == null)
             {
@@ -124,12 +134,16 @@ namespace Peak.Cadder.Core
                 var tg = ga; ga = gb; gb = tg;
             }
 
-            RigJoint inputA, inputB;
-            string common;
-            if (driver != null && driven != null && driver != driven
+            RigJoint inputA = null, inputB = null;
+            string common = null;
+            bool loopsMirror = driver != null && driven != null && driver != driven
                 && MirroredLoopInputs(loops, joints, driver, driven, planeGroup,
                                       planePoint, planeNormal,
-                                      out inputA, out inputB, out common))
+                                      out inputA, out inputB, out common);
+            // The same for the two loops' drivers.
+            if (loopsMirror && (DrivenBy(inputB, inputA) || DrivenBy(inputA, inputB)))
+                return null;
+            if (loopsMirror && inputA.Coupling == null && inputB.Coupling == null)
             {
                 double along = MathOps.Dot(inputB.Axis, Mirror(inputA.Axis, planeNormal));
                 double loopRatio = inputA.Type == JointType.Prismatic
@@ -169,6 +183,9 @@ namespace Peak.Cadder.Core
                 return "the driven side already carries a coupling";
             if (driver.Type != driven.Type)
                 return "the two mounts are different joint types";
+            if (Reaches(joints, driver, driven))
+                return "a chain of other couplings already joins the two mounts, "
+                    + "and one more coupling would close a cycle";
 
             var mirrored = Mirror(driver.Axis, planeNormal);
             double align = MathOps.Dot(driven.Axis, mirrored);
@@ -235,7 +252,6 @@ namespace Peak.Cadder.Core
             inputA = JointById(joints, loopA.SuggestedDriverJoint);
             inputB = JointById(joints, loopB.SuggestedDriverJoint);
             if (inputA == null || inputB == null || inputA == inputB) return false;
-            if (inputA.Coupling != null || inputB.Coupling != null) return false;
             if (inputA.Type != inputB.Type) return false;
             if (inputA.Type != JointType.Revolute && inputA.Type != JointType.Prismatic)
                 return false;
@@ -316,6 +332,44 @@ namespace Peak.Cadder.Core
             if (id == null) return null;
             foreach (var j in joints) if (j.Id == id) return j;
             return null;
+        }
+
+        /// <summary>Whether `driven` carries a coupling from `driver`.</summary>
+        private static bool DrivenBy(RigJoint driven, RigJoint driver)
+        {
+            return driven.Coupling != null && driven.Coupling.DriverJoint == driver.Id;
+        }
+
+        /// <summary>Whether the couplings, read back from `from` driver by
+        /// driver, reach `to`. A coupling that makes `to` follow `from`
+        /// would then close a cycle.</summary>
+        private static bool Reaches(List<RigJoint> joints, RigJoint from, RigJoint to)
+        {
+            var seen = new HashSet<string>();
+            for (var j = from; j != null && j.Coupling != null && j.Coupling.DriverJoint != null; )
+            {
+                if (j.Coupling.DriverJoint == to.Id) return true;
+                if (!seen.Add(j.Id)) return false;
+                j = JointById(joints, j.Coupling.DriverJoint);
+            }
+            return false;
+        }
+
+        /// <summary>Whether the two bodies are a mirror pair already: a free
+        /// joint on each, one mirroring the other (SynthesizeMirrorPair).</summary>
+        private static bool MirrorPaired(List<RigJoint> joints, string ga, string gb)
+        {
+            foreach (var j in joints)
+            {
+                if (j.Type != JointType.Free || j.Coupling == null || j.Coupling.Kind != "mirror")
+                    continue;
+                var d = JointById(joints, j.Coupling.DriverJoint);
+                if (d == null) continue;
+                if ((j.ChildGroup == ga && d.ChildGroup == gb)
+                    || (j.ChildGroup == gb && d.ChildGroup == ga))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
