@@ -133,22 +133,27 @@ namespace Peak.Cadder.Core
             }
             if (turning.Count == 0) return;
 
+            // A fixed rack is part of the ground, and the ground has no
+            // joint of its own for the mate to finish. Railing it took the
+            // borrow away from every free pair with the ground, anywhere in
+            // the assembly.
             var railed = new HashSet<string>();
             foreach (var e in grouping.Edges)
                 foreach (var m in e.Mates)
                 {
                     if (!MateFacts.Is(m, "RACKPINION")
                         && !MateFacts.Is(m, "LINEARCOUPLER")) continue;
-                    railed.Add(e.GroupA);
-                    railed.Add(e.GroupB);
+                    var owners = new List<string> { e.GroupA, e.GroupB };
                     foreach (var ent in m.Entities)
                     {
                         string owner;
                         if (ent.ComponentId != null
                             && grouping.ComponentGroup.TryGetValue(
                                 ent.ComponentId, out owner))
-                            railed.Add(owner);
+                            owners.Add(owner);
                     }
+                    foreach (var owner in owners)
+                        if (!IsGrounded(grouping, owner)) railed.Add(owner);
                 }
 
             for (int i = 0; i < grouping.Edges.Count; i++)
