@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using Peak.Cadder.Core.Model;
 
 namespace Peak.Cadder.Core
@@ -66,6 +67,14 @@ namespace Peak.Cadder.Core
             // pairwise; the ring narrowed it to fixed, and the robot arm
             // shipped with no control at all. Narrowing only ever removes
             // freedom, so the rounds are bounded by the freedoms there are.
+            // ExportCommand analyzes the same joints again once a coupling
+            // has a driver. A stop this analyzer derived on the pass before
+            // is no mate's limit: read as one, it was no longer listed as
+            // derived, and an option that makes another joint the driver
+            // kept it. It goes, with its note, and is derived again below
+            // when the loop still asks for it.
+            ForgetDerivedLimits(joints);
+
             LoopAnalysisResult result = null;
             int budget = 3 * joints.Count + 1;
             for (int round = 0; round < budget; round++)
@@ -1761,6 +1770,17 @@ namespace Peak.Cadder.Core
                     continue;
                 }
 
+                // The gear may be there already: ExportCommand analyzes the
+                // joints again, and the gear this made on the pass before is
+                // this mate, modelled. Read as a coupling in the way, it was
+                // skipped, and the mate's under-defined warning came back.
+                double ratio = -(double)(signs[0] * signs[1]);
+                if (Gears(terms[1], terms[0], ratio) || Gears(terms[0], terms[1], ratio))
+                {
+                    result.CoupledFreeJointIds.Add(free.Id);
+                    continue;
+                }
+
                 // Driven = the joint deeper in the tree (its bone hangs below
                 // the driver's in the rig); equal depths fall to the higher
                 // id, so the first-created ground joint stays the input.
@@ -1803,6 +1823,15 @@ namespace Peak.Cadder.Core
                     driven.SourceMates.Add(new SourceMate { SwFeature = sm.SwFeature, Type = sm.Type });
                 result.CoupledFreeJointIds.Add(free.Id);
             }
+        }
+
+        /// <summary>Whether `driven` carries a gear of `ratio` from
+        /// `driver`.</summary>
+        private static bool Gears(RigJoint driven, RigJoint driver, double ratio)
+        {
+            var c = driven.Coupling;
+            return c != null && c.Kind == "gear" && c.DriverJoint == driver.Id
+                && c.Ratio.HasValue && Math.Abs(c.Ratio.Value - ratio) < 1e-9;
         }
 
         private static RigJoint FindJoint(List<RigJoint> joints, string id)
@@ -2270,11 +2299,11 @@ namespace Peak.Cadder.Core
                 if (derived == null) continue;
                 driver.RotationLimit = derived;
                 result.DerivedLimitJoints.Add(driver.Id);
-                driver.Notes = AppendLoopNote(driver.Notes,
+                driver.Notes = AppendLoopNote(driver.Notes, Remember(derived,
                     "Rotation limit derived from the stroke limit of " + slide.Id
                     + " through the loop triangle: in SolidWorks this joint is "
                     + "stopped by that slide reaching its end, not by a limit "
-                    + "mate of its own.");
+                    + "mate of its own."));
             }
 
             // A slide that drives a loop in which one other slide, parallel
@@ -2292,11 +2321,46 @@ namespace Peak.Cadder.Core
                 if (derived == null) continue;
                 driver.TranslationLimit = derived;
                 result.DerivedLimitJoints.Add(driver.Id);
-                driver.Notes = AppendLoopNote(driver.Notes,
+                driver.Notes = AppendLoopNote(driver.Notes, Remember(derived,
                     "Translation limit derived from the stroke limit of " + slideId
                     + ", which slides parallel to this joint in the same loop: in "
                     + "SolidWorks this joint is stopped by that slide reaching its "
-                    + "end, not by a limit mate of its own.");
+                    + "end, not by a limit mate of its own."));
+            }
+        }
+
+        /// <summary>Every limit DeriveSliderDriverLimits made, with the note
+        /// it wrote. Keyed by the limit itself, so a joint whose limit a mate
+        /// set is never taken for one, and an entry goes when its limit
+        /// does.</summary>
+        private static readonly ConditionalWeakTable<JointLimit, string> DerivedLimits =
+            new ConditionalWeakTable<JointLimit, string>();
+
+        private static string Remember(JointLimit derived, string note)
+        {
+            DerivedLimits.Remove(derived);
+            DerivedLimits.Add(derived, note);
+            return note;
+        }
+
+        /// <summary>Takes every derived limit off the joints, and its note
+        /// with it.</summary>
+        private static void ForgetDerivedLimits(IList<RigJoint> joints)
+        {
+            foreach (var j in joints)
+            {
+                string note;
+                if (j.RotationLimit != null && DerivedLimits.TryGetValue(j.RotationLimit, out note))
+                {
+                    j.RotationLimit = null;
+                    j.Notes = StripLoopNote(j.Notes, note);
+                }
+                if (j.TranslationLimit != null
+                    && DerivedLimits.TryGetValue(j.TranslationLimit, out note))
+                {
+                    j.TranslationLimit = null;
+                    j.Notes = StripLoopNote(j.Notes, note);
+                }
             }
         }
 
@@ -2472,9 +2536,20 @@ namespace Peak.Cadder.Core
                            v[2] - along * axis[2] };
         }
 
+        /// <summary>Adds a note once. The choice runs again for every round
+        /// of narrowing, and the analysis runs again on its own joints, so a
+        /// note written each time came out two and three times.</summary>
         private static string AppendLoopNote(string notes, string add)
         {
-            return string.IsNullOrEmpty(notes) ? add : notes + " " + add;
+            if (string.IsNullOrEmpty(notes)) return add;
+            return notes.Contains(add) ? notes : notes + " " + add;
+        }
+
+        private static string StripLoopNote(string notes, string note)
+        {
+            if (string.IsNullOrEmpty(notes)) return notes;
+            string left = notes.Replace(" " + note, "").Replace(note + " ", "").Replace(note, "");
+            return left.Length == 0 ? null : left;
         }
 
         /// <summary>
