@@ -119,5 +119,88 @@ namespace Peak.Cadder.Tests
             Assert.Empty(result.SubStatusWelds);
             Assert.Contains("rocker-1", result.PoseHeldSkips);
         }
+
+        // ── The cam side ────────────────────────────────────────────────────
+
+        /// <summary>A cam plate bolted to the frame, and a lifter on a slide
+        /// that rides it. One face on the frame stands in for a fastening
+        /// the mates cannot read as rigid (a countersink, a width), and the
+        /// same for the bolt on the plate. All three read fully defined.
+        /// </summary>
+        private static MateGraph StationaryCam(string camComponent)
+        {
+            var cam = Mate("CamMateTangent1", "swMateCAMFOLLOWER",
+                Cylinder("c002", Z, P(0, 0, 0), 0.0762),
+                Cylinder("c003", Z, P(0.1137, 0, 0), 0.0375));
+            cam.CamComponentId = camComponent;
+            return Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    StillWithLimitsOut(Comp("c002", "cam plate")),
+                    StillWithLimitsOut(Comp("c003", "lifter")),
+                    StillWithLimitsOut(Comp("c004", "bolt")),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident2", "c001", "c003", Z, P(0, 0, 0)),
+                CoincidentPlanes("Coincident3", "c001", "c003", Y, P(0, 0, 0)),
+                CoincidentPlanes("Coincident4", "c002", "c004", X, P(-0.05, 0, 0)),
+                cam);
+        }
+
+        /// <summary>At a dwell the follower cannot move, but the cam can:
+        /// its profile does not change the contact as it turns. So a cam
+        /// that reads fully defined is still, and its status welds it and
+        /// what is bolted to it. Only the follower is kept off.</summary>
+        [Fact]
+        public void AStillCamIsWeldedOnItsStatusAndItsFollowerIsNot()
+        {
+            var result = RigidGrouper.Group(StationaryCam("c002"));
+
+            string ground = result.ComponentGroup["c001"];
+            Assert.Equal(ground, result.ComponentGroup["c002"]);
+            Assert.Equal(ground, result.ComponentGroup["c004"]);
+            Assert.NotEqual(ground, result.ComponentGroup["c003"]);
+            Assert.Equal(new[] { "c002", "c004" }, result.StatusWeldIds);
+            Assert.Equal(new[] { "lifter-1" }, result.PoseHeldSkips);
+        }
+
+        /// <summary>When the cam's faces were not read, nothing says which
+        /// side is the cam, so both sides are kept off.</summary>
+        [Fact]
+        public void WithTheCamSideUnknownBothSidesAreKeptOff()
+        {
+            var result = RigidGrouper.Group(StationaryCam(null));
+
+            Assert.Empty(result.StatusWeldIds);
+            Assert.Contains("cam plate-1", result.PoseHeldSkips);
+            Assert.Contains("lifter-1", result.PoseHeldSkips);
+        }
+
+        /// <summary>A path rail is the cam of a path mate: the part whose
+        /// point rides the rail is kept off, and the rail is welded.</summary>
+        [Fact]
+        public void AStillPathRailIsWeldedOnItsStatusAndItsRiderIsNot()
+        {
+            var path = Mate("Path1", "swMatePATH",
+                EdgeEnt("c002", X, P(0, 0, 0.02)),
+                VertexEnt("c003", P(0.02, 0, 0.02)));
+            path.PathPoints = new[] { P(0, 0, 0.02), P(0.05, 0, 0.02), P(0.1, 0.02, 0.02) };
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "frame", isFixed: true),
+                    StillWithLimitsOut(Comp("c002", "rail")),
+                    StillWithLimitsOut(Comp("c003", "shuttle")),
+                },
+                CoincidentPlanes("Coincident1", "c001", "c002", Z, P(0, 0, 0)),
+                path);
+
+            var result = RigidGrouper.Group(graph);
+
+            Assert.Equal(new[] { "c002" }, result.StatusWeldIds);
+            Assert.Equal(new[] { "shuttle-1" }, result.PoseHeldSkips);
+            Assert.NotEqual(result.ComponentGroup["c001"], result.ComponentGroup["c003"]);
+        }
     }
 }

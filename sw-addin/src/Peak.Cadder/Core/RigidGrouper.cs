@@ -435,8 +435,16 @@ namespace Peak.Cadder.Core
             return lost;
         }
 
-        /// <summary>Components some active mate touches.</summary>
-        /// <summary>Components an active cam-follower or path mate touches.
+        /// <summary>
+        /// The follower side of every active cam-follower or path mate: the
+        /// part a dwell holds. At a dwell the cam's profile does not change
+        /// the contact as the cam moves, so the cam can still move and its
+        /// status is true. Only the follower cannot move to first order. So
+        /// a still cam plate or path rail that reads fully defined is welded
+        /// like any other part. Kept off, it would move in Blender with what
+        /// is bolted to it. When a mate does not say which side is the cam
+        /// (its faces were not read, or no single part holds the point on
+        /// the path), both sides are kept off.
         /// </summary>
         private static HashSet<string> PoseHeldComponents(MateGraph graph)
         {
@@ -444,23 +452,63 @@ namespace Peak.Cadder.Core
             foreach (var m in graph.Mates)
             {
                 if (m.Suppressed) continue;
-                if (!MateFacts.Is(m, "CAMFOLLOWER") && !MateFacts.Is(m, "PATH")) continue;
+                bool cam = MateFacts.Is(m, "CAMFOLLOWER");
+                if (!cam && !MateFacts.Is(m, "PATH")) continue;
+                var followers = new List<string>();
+                var all = new List<string>();
+                string rider = cam ? null : PathRider(m);
                 foreach (var e in m.Entities)
-                    if (e != null && e.ComponentId != null) touched.Add(e.ComponentId);
+                {
+                    if (e == null || e.ComponentId == null) continue;
+                    all.Add(e.ComponentId);
+                    if (cam ? e.ComponentId != m.CamComponentId : e.ComponentId == rider)
+                        followers.Add(e.ComponentId);
+                }
+                bool known = cam ? m.CamComponentId != null : rider != null;
+                foreach (string id in known && followers.Count > 0 ? followers : all)
+                    touched.Add(id);
             }
             return touched;
         }
 
+        /// <summary>The one part whose point rides a path mate's curve: a
+        /// vertex or a point, with the curve on something else. Null when
+        /// the entities do not say that plainly.</summary>
+        private static string PathRider(GraphMate m)
+        {
+            string rider = null;
+            var carriers = new List<string>();
+            foreach (var e in m.Entities)
+            {
+                if (e == null) continue;
+                bool point = e.Direction == null && e.Point != null
+                    && (e.EntityTypeName == "vertex" || e.EntityTypeName == "point"
+                        || e.EntityTypeName == "origin");
+                if (!point)
+                {
+                    carriers.Add(e.ComponentId);
+                    continue;
+                }
+                if (e.ComponentId == null || (rider != null && rider != e.ComponentId)) return null;
+                rider = e.ComponentId;
+            }
+            if (rider == null || carriers.Count == 0 || carriers.Contains(rider)) return null;
+            return rider;
+        }
+
         /// <summary>
         /// The mate-only groups the status passes keep off: the group of each
-        /// part a cam or path mate touches, and every group the mates join
+        /// follower a cam or path mate holds, and every group the mates join
         /// to it without passing through the ground. At a dwell the follower
         /// cannot move to first order, so neither can a body whose only
         /// motion comes through it: a pushrod, and a rocker hinged to the
         /// frame, read fully defined too. Welding them would take the
         /// follower's slide with them and freeze the whole train. The ground
         /// stops the search, because the follower does not move the ground.
-        /// A body kept off here goes back to what the mates say, as in 1.0.1.
+        /// The cam or path mate itself does not carry the search to the cam,
+        /// because the follower does not move the cam at a dwell either (see
+        /// PoseHeldComponents). A body kept off here goes back to what the
+        /// mates say, as in 1.0.1.
         /// </summary>
         private static HashSet<string> PoseHeldGroups(
             RigidGroupingResult mateOnly, ICollection<string> touched)
@@ -471,6 +519,10 @@ namespace Peak.Cadder.Core
             var next = new Dictionary<string, List<string>>();
             foreach (var edge in mateOnly.Edges)
             {
+                bool joins = false;
+                foreach (var m in edge.Mates)
+                    if (!MateFacts.Is(m, "CAMFOLLOWER") && !MateFacts.Is(m, "PATH")) joins = true;
+                if (!joins) continue;
                 AddNeighbor(next, edge.GroupA, edge.GroupB);
                 AddNeighbor(next, edge.GroupB, edge.GroupA);
             }
@@ -505,6 +557,7 @@ namespace Peak.Cadder.Core
             list.Add(to);
         }
 
+        /// <summary>Components some active mate touches.</summary>
         private static HashSet<string> MatedComponents(MateGraph graph)
         {
             var mated = new HashSet<string>();
