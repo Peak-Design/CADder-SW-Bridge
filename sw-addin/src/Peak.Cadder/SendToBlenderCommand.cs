@@ -169,7 +169,8 @@ namespace Peak.Cadder
                 var payload = BuildPayload(
                     settings, native ? null : stepPath, native ? meshPath : null,
                     manifestPath, update, rigMode,
-                    settings.MatchView ? ViewReader.Read(model) : null);
+                    settings.MatchView ? ViewReader.Read(model) : null,
+                    model.GetPathName());
                 string doing = update
                     ? "Bringing " + baseName + " up to date in Blender…"
                     : target == null
@@ -278,7 +279,7 @@ namespace Peak.Cadder
         internal static Dictionary<string, object> BuildPayload(
             AppSettings settings, string stepPath, string meshPath,
             string manifestPath, bool update = false, string rigMode = null,
-            Dictionary<string, object> view = null)
+            Dictionary<string, object> view = null, string sourceDocument = null)
         {
             bool rig = manifestPath != null;
             var payload = new Dictionary<string, object>
@@ -330,6 +331,11 @@ namespace Peak.Cadder
                 },
             };
             if (!string.IsNullOrEmpty(rigMode)) payload["rig_mode"] = rigMode;
+            // The document the scene comes from. Blender keeps it and names
+            // it in every request it sends back, so SolidWorks answers for
+            // this document and not for the one that is in front then.
+            if (!string.IsNullOrEmpty(sourceDocument))
+                payload["source_document"] = sourceDocument;
             // Where SolidWorks is looking from. Blender turns its viewport
             // to the same angle when this is here, and leaves it alone when
             // it is not, so the setting travels as its presence.

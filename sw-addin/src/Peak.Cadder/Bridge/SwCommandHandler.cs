@@ -510,8 +510,9 @@ namespace Peak.Cadder.Bridge
         private static Dictionary<string, object> Export(
             ISldWorks app, Dictionary<string, object> request)
         {
-            var model = ModelFor(app, request);
-            if (model == null) return Fail("no document is open in SolidWorks");
+            string error;
+            var model = ModelFor(app, request, out error);
+            if (model == null) return Fail(error);
             if (string.IsNullOrEmpty(SafePath(model)))
                 return Fail("the document has never been saved");
             var settings = AppSettings.Load(AddIn.Log);
@@ -533,8 +534,9 @@ namespace Peak.Cadder.Bridge
         private static Dictionary<string, object> Send(
             ISldWorks app, Dictionary<string, object> request)
         {
-            var model = ModelFor(app, request);
-            if (model == null) return Fail("no document is open in SolidWorks");
+            string error;
+            var model = ModelFor(app, request, out error);
+            if (model == null) return Fail(error);
             if (string.IsNullOrEmpty(SafePath(model)))
                 return Fail("the document has never been saved");
             var settings = AppSettings.Load(AddIn.Log);
@@ -564,7 +566,8 @@ namespace Peak.Cadder.Bridge
             var payload = SendToBlenderCommand.BuildPayload(
                 settings, native ? null : stepPath, native ? meshPath : null,
                 manifestPath, update: update, rigMode: rigMode,
-                view: settings.MatchView ? ViewReader.Read(model) : null);
+                view: settings.MatchView ? ViewReader.Read(model) : null,
+                sourceDocument: SafePath(model));
             int timeoutMs = (int)(MiniJson.Num(request, "timeout_s", 600) * 1000);
             var resp = BlenderBridge.PostImport(target, payload, timeoutMs, AddIn.Log);
             var reply = new Dictionary<string, object>
@@ -1024,43 +1027,125 @@ namespace Peak.Cadder.Bridge
             return null;
         }
 
-        /// <summary>The active document, or the open one whose title the
-        /// request names.</summary>
+        /// <summary>The open document the request names by its path or its
+        /// title, or the active document when it names none. Null when
+        /// there is no such document (DocumentFor).</summary>
         private static IModelDoc2 ModelFor(ISldWorks app, Dictionary<string, object> request)
         {
-            if (app == null) return null;
+            string error;
+            return ModelFor(app, request, out error);
+        }
+
+        private static IModelDoc2 ModelFor(
+            ISldWorks app, Dictionary<string, object> request, out string error)
+        {
+            if (app == null)
+            {
+                error = NoDocument;
+                return null;
+            }
+            return DocumentFor(request, () => app.ActiveDoc as IModelDoc2,
+                OpenDocuments(app), SafePath, SafeTitle, out error);
+        }
+
+        private const string NoDocument = "no document is open in SolidWorks";
+
+        private static IEnumerable<IModelDoc2> OpenDocuments(ISldWorks app)
+        {
+            var doc = app.GetFirstDocument() as IModelDoc2;
+            while (doc != null)
+            {
+                yield return doc;
+                doc = doc.GetNext() as IModelDoc2;
+            }
+        }
+
+        /// <summary>
+        /// The document a request is about, out of the open ones.
+        ///
+        /// Blender names the document its scene came from
+        /// ("document_path"), and the answer is for that document, whether
+        /// it is in front or not. Component ids are one assembly's
+        /// numbering, and every assembly has a c001. An answer from the
+        /// active document put the poses of another assembly on the scene,
+        /// and the geometry of a part the user had opened to edit on the
+        /// assembly's first component. So a named document that is not
+        /// open fails the request, and says which document it is. A request
+        /// that names none (an older Blender) gets the active document.
+        /// </summary>
+        internal static T DocumentFor<T>(
+            Dictionary<string, object> request, Func<T> active, IEnumerable<T> open,
+            Func<T, string> pathOf, Func<T, string> titleOf, out string error)
+            where T : class
+        {
+            error = NoDocument;
             // A path names one document. A title can name two: with file
             // extensions hidden, plunger.SLDASM and its part plunger.SLDPRT
             // are both "plunger", and the lab exported the part (nothing).
             string path = MiniJson.Str(request, "document_path", null);
             if (!string.IsNullOrEmpty(path))
             {
+                error = "The document " + path + " is not open in SolidWorks. "
+                    + "Open it and try again.";
                 string want;
                 try { want = Path.GetFullPath(path); } catch { return null; }
-                var open = app.GetFirstDocument() as IModelDoc2;
-                while (open != null)
+                foreach (var doc in open)
                 {
-                    string have = SafePath(open);
-                    if (!string.IsNullOrEmpty(have))
+                    string have = pathOf(doc);
+                    if (string.IsNullOrEmpty(have)) continue;
+                    try { have = Path.GetFullPath(have); } catch { }
+                    if (string.Equals(have, want, StringComparison.OrdinalIgnoreCase))
                     {
-                        try { have = Path.GetFullPath(have); } catch { }
-                        if (string.Equals(have, want, StringComparison.OrdinalIgnoreCase))
-                            return open;
+                        error = null;
+                        return doc;
                     }
-                    open = open.GetNext() as IModelDoc2;
                 }
                 return null;
             }
             string title = MiniJson.Str(request, "title", null);
-            if (string.IsNullOrEmpty(title)) return app.ActiveDoc as IModelDoc2;
-            var doc = app.GetFirstDocument() as IModelDoc2;
-            while (doc != null)
+            if (string.IsNullOrEmpty(title))
             {
-                if (string.Equals(SafeTitle(doc), title, StringComparison.OrdinalIgnoreCase))
-                    return doc;
-                doc = doc.GetNext() as IModelDoc2;
+                var model = active();
+                if (model != null) error = null;
+                return model;
             }
+            foreach (var doc in open)
+                if (string.Equals(titleOf(doc), title, StringComparison.OrdinalIgnoreCase))
+                {
+                    error = null;
+                    return doc;
+                }
             return null;
+        }
+
+        /// <summary>
+        /// Why a part document cannot answer a request, or null when it
+        /// can. A part is one component, c001, placed under its own name
+        /// (NativeExport). A request for another component, or for a
+        /// placement inside an assembly, came from an assembly's scene, and
+        /// the part answering as c001 put its geometry on that assembly's
+        /// first component.
+        /// </summary>
+        internal static string PartMismatch(
+            IList<string> ids, IList<string> paths, string title)
+        {
+            const string none = "none of those components are in the open part";
+            if (ids != null && ids.Count > 0 && !ids.Contains("c001")) return none;
+            if (paths == null || paths.Count == 0) return null;
+            string name = WithoutPartExtension(title);
+            foreach (var p in paths)
+                if (string.Equals(WithoutPartExtension(p), name, StringComparison.OrdinalIgnoreCase))
+                    return null;
+            return none;
+        }
+
+        /// <summary>The title without ".SLDPRT". Windows shows the
+        /// extension in a title or not, as the user set Explorer.</summary>
+        private static string WithoutPartExtension(string name)
+        {
+            if (name == null) return "";
+            return name.EndsWith(".sldprt", StringComparison.OrdinalIgnoreCase)
+                ? name.Substring(0, name.Length - ".sldprt".Length) : name;
         }
 
         private static long LogMark()
@@ -1141,8 +1226,9 @@ namespace Peak.Cadder.Bridge
         private static Dictionary<string, object> Poses(
             ISldWorks app, Dictionary<string, object> request)
         {
-            var model = app == null ? null : app.ActiveDoc as IModelDoc2;
-            if (model == null) return Fail("no document is open in SolidWorks");
+            string error;
+            var model = ModelFor(app, request, out error);
+            if (model == null) return Fail(error);
             var assembly = model as IAssemblyDoc;
             if (assembly == null) return Fail("the document is not an assembly");
 
@@ -1556,8 +1642,9 @@ namespace Peak.Cadder.Bridge
         private static Dictionary<string, object> Retessellate(
             ISldWorks app, Dictionary<string, object> request)
         {
-            var model = app == null ? null : app.ActiveDoc as IModelDoc2;
-            if (model == null) return Fail("no document is open in SolidWorks");
+            string error;
+            var model = ModelFor(app, request, out error);
+            if (model == null) return Fail(error);
 
             var settings = AppSettings.Load(AddIn.Log);
             var fineness = FinenessFrom(request, settings);
@@ -1602,8 +1689,12 @@ namespace Peak.Cadder.Bridge
             }
             else
             {
-                // A part document is one component; a filter naming anything
-                // else simply does not apply to it.
+                // A part document is one component. A filter that names
+                // another component is not about this part.
+                string mismatch = PartMismatch(
+                    Strings(request, "components"), Strings(request, "paths"),
+                    SafeTitle(model));
+                if (mismatch != null) return Fail(mismatch);
                 scene = NativeExport.Build(
                     app, model, fineness, AddIn.Log, separateSolids,
                     appearance: appearance, defeature: defeature);

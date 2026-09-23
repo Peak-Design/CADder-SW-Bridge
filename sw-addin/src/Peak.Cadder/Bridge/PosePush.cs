@@ -42,18 +42,30 @@ namespace Peak.Cadder.Bridge
                     { "transform", Flatten(w.Graph.Transform) },
                 });
             }
-            return new Dictionary<string, object>
+            return PayloadOf(SafeTitle(model), SafePath(model), components);
+        }
+
+        /// <summary>The payload around the component rows. It names the
+        /// document by its full path too, as a send does, so Blender can
+        /// name it back in every request.</summary>
+        internal static Dictionary<string, object> PayloadOf(
+            string title, string documentPath, List<object> components)
+        {
+            var payload = new Dictionary<string, object>
             {
                 { "source", "solidworks" },
-                { "document", SafeTitle(model) },
+                { "document", title },
                 {
                     "poses", new Dictionary<string, object>
                     {
-                        { "document", SafeTitle(model) },
+                        { "document", title },
                         { "components", components },
                     }
                 },
             };
+            if (!string.IsNullOrEmpty(documentPath))
+                payload["source_document"] = documentPath;
+            return payload;
         }
 
         /// <summary>What to tell the user, from what Blender answered. A
@@ -90,6 +102,12 @@ namespace Peak.Cadder.Bridge
         private static string SafeTitle(IModelDoc2 model)
         {
             try { return model.GetTitle(); }
+            catch { return null; }
+        }
+
+        private static string SafePath(IModelDoc2 model)
+        {
+            try { return model.GetPathName(); }
             catch { return null; }
         }
     }
