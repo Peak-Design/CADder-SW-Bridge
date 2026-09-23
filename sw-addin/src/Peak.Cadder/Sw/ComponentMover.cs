@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Peak.Cadder.Core;
 using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
 
 namespace Peak.Cadder.Sw
 {
@@ -132,6 +133,98 @@ namespace Peak.Cadder.Sw
             return SwFrames.FromMatrix(_mathUtil, m);
         }
 
+        /// <summary>
+        /// The current value of every angle and distance limit mate at the
+        /// top level, by mate name. SolidWorks solves a limit mate as a
+        /// fixed dimension at its current value, and a drag changes that
+        /// value. A rebuild then holds the part at the new value, and no
+        /// drag or solve puts it back (live hinge sample, 2026-09-23: the
+        /// leaf, saved on its minimum, stayed one nudge off after every
+        /// restore). So a probe reads these before it drags, and RestoreAll
+        /// writes the changed ones back first.
+        /// </summary>
+        public List<KeyValuePair<string, double>> LimitValues()
+        {
+            var values = new List<KeyValuePair<string, double>>();
+            if (_assembly == null) return values;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            object[] comps = null;
+            try { comps = _assembly.GetComponents(true) as object[]; } catch { }
+            if (comps == null) return values;
+            foreach (var co in comps)
+            {
+                var comp = co as Component2;
+                if (comp == null) continue;
+                object[] mates = null;
+                try { mates = comp.GetMates() as object[]; } catch { }
+                if (mates == null) continue;
+                foreach (var o in mates)
+                {
+                    var mate = o as IMate2;
+                    var feat = o as IFeature;
+                    if (mate == null || feat == null) continue;
+                    string name = null;
+                    try { name = feat.Name; } catch { }
+                    if (string.IsNullOrEmpty(name) || !seen.Add(name)) continue;
+                    if (!IsLimit(mate)) continue;
+                    var dim = LimitDimension(name);
+                    if (dim == null) continue;
+                    try { values.Add(new KeyValuePair<string, double>(name, dim.SystemValue)); }
+                    catch { }
+                }
+            }
+            return values;
+        }
+
+        private static bool IsLimit(IMate2 mate)
+        {
+            try
+            {
+                int type = mate.Type;
+                if (type != (int)swMateType_e.swMateANGLE
+                    && type != (int)swMateType_e.swMateDISTANCE) return false;
+                return mate.MinimumVariation != mate.MaximumVariation;
+            }
+            catch { return false; }
+        }
+
+        /// <summary>The dimension that holds a limit mate's current value.</summary>
+        private IDimension LimitDimension(string mateName)
+        {
+            try { return _model.Parameter("D1@" + mateName) as IDimension; }
+            catch { return null; }
+        }
+
+        /// <summary>Writes back every limit value that changed, then
+        /// rebuilds so the parts follow. Returns how many it wrote.</summary>
+        private int PutLimitValuesBack(List<KeyValuePair<string, double>> limits, string who)
+        {
+            if (limits == null || limits.Count == 0) return 0;
+            int written = 0;
+            foreach (var kv in limits)
+            {
+                var dim = LimitDimension(kv.Key);
+                if (dim == null) continue;
+                double now;
+                try { now = dim.SystemValue; } catch { continue; }
+                if (Math.Abs(now - kv.Value) <= 1e-9) continue;
+                int result = -1;
+                try
+                {
+                    result = dim.SetSystemValue3(kv.Value,
+                        (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
+                }
+                catch { }
+                if (result == (int)swSetValueReturnStatus_e.swSetValue_Successful) written++;
+                else if (_log != null)
+                    _log((who ?? "restore") + ": the value of " + kv.Key
+                        + " could not be put back (status " + result + ")");
+            }
+            if (written > 0)
+                try { _model.EditRebuild3(); } catch { }
+            return written;
+        }
+
         public static List<KeyValuePair<Component2, MathTransform>> Snapshot(
             IEnumerable<WalkedComponent> walked)
         {
@@ -167,8 +260,13 @@ namespace Peak.Cadder.Sw
         /// catch a component that the drag of another carried away.
         /// </summary>
         public List<LeftMoved> RestoreAll(
-            List<KeyValuePair<Component2, MathTransform>> snaps, string who = null)
+            List<KeyValuePair<Component2, MathTransform>> snaps, string who = null,
+            List<KeyValuePair<string, double>> limits = null)
         {
+            int written = PutLimitValuesBack(limits, who);
+            if (written > 0 && _log != null)
+                _log((who ?? "restore") + ": put the value of " + written
+                    + " limit mate(s) back");
             foreach (var kv in snaps)
             {
                 try { kv.Key.Transform2 = kv.Value; } catch { }

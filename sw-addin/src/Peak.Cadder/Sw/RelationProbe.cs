@@ -237,6 +237,7 @@ namespace Peak.Cadder.Sw
             if (dP0 == null || dC0 == null || fP0 == null || fC0 == null) return null;
 
             var snapshots = ComponentMover.Snapshot(byId.Values);
+            var limits = mover.LimitValues();
             var rawSpin = new List<double[]> { new[] { 0.0, 0.0 } };
             var rawSlide = new List<double[]> { new[] { 0.0, 0.0 } };
             double step = 2.0 * Math.PI / steps;
@@ -283,7 +284,7 @@ namespace Peak.Cadder.Sw
             }
             finally
             {
-                mover.RestoreAll(snapshots, "relation probe " + name);
+                mover.RestoreAll(snapshots, "relation probe " + name, limits);
                 var back = SwFrames.ToMatrix(dChild.Comp.Transform2);
                 if (back != null)
                 {

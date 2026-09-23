@@ -36,9 +36,10 @@ namespace Peak.Cadder.Sw
     /// that silently does nothing can only cost a signal, never invent one.
     ///
     /// Restoration: the nudge is reversed by the ACHIEVED amount (a blocked
-    /// nudge must not be "reversed" into free territory), then every walked
-    /// transform snapshot is re-written, and ComponentMover.RestoreAll drags
-    /// back each component that the write did not put back.
+    /// nudge must not be "reversed" into free territory). Then
+    /// ComponentMover.RestoreAll writes back the value of each limit mate
+    /// the nudges changed, re-writes every walked transform snapshot, and
+    /// drags back each component that the writes did not put back.
     /// </summary>
     public sealed class LimitSignProbe : ILimitSignOracle
     {
@@ -130,6 +131,7 @@ namespace Peak.Cadder.Sw
             if (c0 == null || p0 == null) return 0;
             var m0 = moverIsChild ? c0 : p0;
             var snapshots = Snapshot();
+            var limits = _mover.LimitValues();
 
             var achieved = new double[] { double.NaN, double.NaN };
             var dimDelta = new double[] { double.NaN, double.NaN };
@@ -248,7 +250,7 @@ namespace Peak.Cadder.Sw
                     // could not. The old check read the mover's origin only:
                     // a leaf whose origin is on its pin read as back while
                     // it stayed turned.
-                    RestoreAll(snapshots, "limit sign probe " + joint.Id);
+                    RestoreAll(snapshots, "limit sign probe " + joint.Id, limits);
                 }
                 catch (Exception ex)
                 {
@@ -418,9 +420,10 @@ namespace Peak.Cadder.Sw
             return ComponentMover.Snapshot(_byId.Values);
         }
 
-        private void RestoreAll(List<KeyValuePair<Component2, MathTransform>> snaps, string who)
+        private void RestoreAll(List<KeyValuePair<Component2, MathTransform>> snaps, string who,
+            List<KeyValuePair<string, double>> limits)
         {
-            _mover.RestoreAll(snaps, who);
+            _mover.RestoreAll(snaps, who, limits);
         }
 
         /// <summary>The components this probe could not put back.</summary>
