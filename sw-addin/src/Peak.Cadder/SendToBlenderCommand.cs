@@ -54,6 +54,8 @@ namespace Peak.Cadder
             }
 
             var settings = AppSettings.Load(AddIn.Log);
+            // For this send only. Nothing here saves the settings.
+            settings.OnlySelected = GeometryFollowsSelection(settings, update);
             var owner = ExportOptionsDialog.ActiveOwner();
             // The export stages run on this thread and can take minutes on a
             // large assembly. The bar says which stage is running, and it
@@ -82,8 +84,10 @@ namespace Peak.Cadder
                     // geometry's route changes, so the STEP stages are the
                     // only thing skipped.
                     // "Only the selected components" applies to the
-                    // geometry of either route. The manifest still describes
-                    // the whole assembly, as it does for a STEP export.
+                    // geometry of either route, for a first send only
+                    // (GeometryFollowsSelection). The manifest still
+                    // describes the whole assembly, as it does for a STEP
+                    // export.
                     HashSet<string> keep = null;
                     // The rig export takes about three quarters of a direct
                     // send, the tessellation the rest.
@@ -212,6 +216,21 @@ namespace Peak.Cadder
                     (int)swMessageBoxBtn_e.swMbOk);
             }
             finally { ExportCommand.CloseBar(bar); }
+        }
+
+        /// <summary>
+        /// Whether a send cuts its geometry to the selected components.
+        ///
+        /// Never for an update. Blender compares the scene with the new
+        /// file and removes every part the file does not hold, so a file
+        /// cut to the selection deleted every part that was not selected,
+        /// with the materials and modifiers the user had put on it. One
+        /// click on a face selects its component, so a stray click before
+        /// Refresh Model was enough.
+        /// </summary>
+        internal static bool GeometryFollowsSelection(AppSettings settings, bool update)
+        {
+            return settings.OnlySelected && !update;
         }
 
         /// <summary>The folder this export writes into: a folder of its

@@ -124,7 +124,7 @@ namespace Peak.Cadder
                 "Only the selected components", settings.OnlySelected,
                 "Send the components that are selected in the assembly, and "
                 + "leave the rest behind. The rig still describes the whole "
-                + "assembly");
+                + "assembly. Refresh Model always sends the whole assembly");
             _appearances = Check(
                 "Appearances", settings.ExportAppearances,
                 "Send the SolidWorks appearances: colors, finish, textures "

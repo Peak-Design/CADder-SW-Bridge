@@ -540,7 +540,7 @@ namespace Peak.Cadder.Bridge
             var settings = AppSettings.Load(AddIn.Log);
             bool native = MiniJson.Flag(request, "native", true);
             long mark = LogMark();
-            var paths = ExportFiles(app, model, settings, request, !native, native);
+            var paths = ExportFiles(app, model, settings, request, !native, native, send: true);
 
             var instances = BlenderBridge.Discover(AddIn.Log);
             BlenderInstance target = instances.Count > 0 ? instances[0] : null;
@@ -890,11 +890,33 @@ namespace Peak.Cadder.Bridge
 
         // ── Shared ────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// Whether an export the listener runs keeps only the selected
+        /// components. A lab request can ask for the option without the
+        /// settings. Otherwise only the lab's send reads the settings, the
+        /// way the ribbon's does, and an update never does
+        /// (SendToBlenderCommand.GeometryFollowsSelection). Blender asks
+        /// for an export to bring the whole assembly over again or up to
+        /// date, so a selection left in SolidWorks does not cut it.
+        /// </summary>
+        internal static bool OnlySelectedFor(
+            Dictionary<string, object> request, AppSettings settings, bool send)
+        {
+            if (request != null && request.ContainsKey("only_selected"))
+                return MiniJson.Flag(request, "only_selected", false);
+            if (!send) return false;
+            return SendToBlenderCommand.GeometryFollowsSelection(
+                settings, MiniJson.Flag(request, "update", false));
+        }
+
         /// <summary>Manifest (assemblies), STEP and mesh as asked. Keys of the
-        /// result: manifest, step, mesh, warnings, joints.</summary>
+        /// result: manifest, step, mesh, warnings, joints. <paramref
+        /// name="send"/> is true for the lab's send, which follows the
+        /// ribbon's.</summary>
         private static Dictionary<string, object> ExportFiles(
             ISldWorks app, IModelDoc2 model, AppSettings settings,
-            Dictionary<string, object> request, bool withStep, bool withMesh)
+            Dictionary<string, object> request, bool withStep, bool withMesh,
+            bool send = false)
         {
             var assembly = model as IAssemblyDoc;
             string baseName = Path.GetFileNameWithoutExtension(model.GetPathName());
@@ -907,11 +929,7 @@ namespace Peak.Cadder.Bridge
             string manifestPath = Path.Combine(dir, baseName + ".rig.json");
             var result = new Dictionary<string, object>();
 
-            // A lab request can ask for the option without the settings, and
-            // the settings answer when it does not.
-            bool onlySelected = request.ContainsKey("only_selected")
-                ? MiniJson.Flag(request, "only_selected", false)
-                : settings.OnlySelected;
+            bool onlySelected = OnlySelectedFor(request, settings, send);
             settings.OnlySelected = onlySelected;
             HashSet<string> keep = null;
             // An update from Blender runs the same stages as the ribbon's
