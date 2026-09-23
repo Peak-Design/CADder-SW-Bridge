@@ -551,7 +551,12 @@ namespace Peak.Cadder.Bridge
             long mark = LogMark();
             var paths = ExportFiles(app, model, settings, request, !native, native, send: true);
 
+            // "update" and "rig_mode" make this the payload Refresh Model
+            // sends, so a lab session can refresh a scene the way the ribbon
+            // does, into the Blender the ribbon would choose.
+            bool update = MiniJson.Flag(request, "update", false);
             var instances = BlenderBridge.Discover(AddIn.Log);
+            if (update) instances = BlenderBridge.ForRefresh(instances, SafePath(model));
             BlenderInstance target = instances.Count > 0 ? instances[0] : null;
             if (target == null)
             {
@@ -564,10 +569,6 @@ namespace Peak.Cadder.Bridge
             string stepPath = paths.ContainsKey("step") ? (string)paths["step"] : null;
             string meshPath = paths.ContainsKey("mesh") ? (string)paths["mesh"] : null;
             string manifestPath = paths.ContainsKey("manifest") ? (string)paths["manifest"] : null;
-            // "update" and "rig_mode" make this the payload Refresh Model
-            // sends, so a lab session can refresh a scene the way the ribbon
-            // does.
-            bool update = MiniJson.Flag(request, "update", false);
             string rigMode = request.ContainsKey("rig_mode")
                 ? request["rig_mode"] as string : null;
             var payload = SendToBlenderCommand.BuildPayload(
@@ -1826,6 +1827,9 @@ namespace Peak.Cadder.Bridge
                 { "advanced", AppSettings.Load(AddIn.Log).AdvancedCommands },
                 { "commands", new List<object>(AddIn.CommandOrder) },
                 { "tabs", tabs },
+                // What the Refresh Model button shows for the active document,
+                // from the callback SolidWorks itself calls (1 enabled, 0 grey).
+                { "refresh_model_enabled", new CommandCallbacks().EnableRefreshModel() },
             };
         }
 

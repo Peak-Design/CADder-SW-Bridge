@@ -56,14 +56,10 @@ namespace Peak.Cadder
 
         /// <summary>
         /// The documents this session has put into a Blender. Refresh Model
-        /// is only offered for one of them: a refresh brings a scene up to
-        /// date, and there is nothing to bring up to date until the
-        /// assembly has been sent once.
-        ///
-        /// Per session on purpose. A send in a session that has ended may
-        /// well still be standing in a Blender, but nothing here can know
-        /// that without asking Blender, and the ribbon asks this question
-        /// on every idle.
+        /// reads this only for an older Blender bridge. A current bridge
+        /// lists in its registry file the documents its scenes hold
+        /// (BlenderBridge.AnyHolding), which also holds after a restart of
+        /// either program.
         /// </summary>
         private static readonly HashSet<string> Sent =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -589,11 +585,13 @@ namespace Peak.Cadder
         }
 
         /// <summary>
-        /// Refresh Model is offered once there is something to refresh: this
-        /// SolidWorks session has sent this document, and a Blender with the
-        /// bridge is up. Before that the button would only ever answer
-        /// "send it first", and a button that cannot work should say so by
-        /// being grey (Oscar, 2026-09-16).
+        /// Refresh Model is offered once there is something to refresh: a
+        /// running Blender with the bridge holds a scene of this document.
+        /// Before that the button would only ever answer "send it first",
+        /// and a button that cannot work should say so by being grey
+        /// (Oscar, 2026-09-16). A Blender that crashed or closed takes the
+        /// button with it (Oscar, 2026-09-23), and one that opens the saved
+        /// scene again brings it back.
         /// </summary>
         public int EnableRefreshModel()
         {
@@ -602,8 +600,8 @@ namespace Peak.Cadder
             int type = doc.GetType();
             if (type != (int)swDocumentTypes_e.swDocASSEMBLY
                 && type != (int)swDocumentTypes_e.swDocPART) return 0;
-            return AddIn.WasSent(doc.GetPathName())
-                && Bridge.BlenderBridge.AnyListening() ? 1 : 0;
+            string path = doc.GetPathName();
+            return Bridge.BlenderBridge.AnyHolding(path, AddIn.WasSent(path)) ? 1 : 0;
         }
 
         public int EnableAlways() => 1;

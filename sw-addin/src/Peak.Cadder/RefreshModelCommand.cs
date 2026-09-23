@@ -23,8 +23,9 @@ namespace Peak.Cadder
     /// armature that is there so an animation survives, or build a new one.
     ///
     /// It follows a send: the Blender scene must already hold this
-    /// assembly. The ribbon greys the button until this SolidWorks session
-    /// has sent this document to a Blender that is still listening.
+    /// assembly. The ribbon greys the button until a running Blender with
+    /// the bridge holds a scene of this document (BlenderBridge.AnyHolding),
+    /// and the refresh goes to that Blender.
     /// </summary>
     public static class RefreshModelCommand
     {
@@ -39,12 +40,16 @@ namespace Peak.Cadder
                     (int)swMessageBoxBtn_e.swMbOk);
                 return;
             }
-            if (!AddIn.WasSent(model.GetPathName()))
+            // The rule the ribbon greys the button by, for a click that
+            // came before the ribbon caught up.
+            string path = model.GetPathName();
+            if (!BlenderBridge.AnyHolding(path, AddIn.WasSent(path)))
             {
                 app.SendMsgToUser2(
-                    "Send this document to Blender first. A refresh brings "
-                    + "a scene up to date, and there is nothing to bring up "
-                    + "to date until it has been sent once.",
+                    "This document is not open in a running Blender. Send it "
+                    + "to Blender first. A refresh brings a scene up to date, "
+                    + "and there is nothing to bring up to date until it has "
+                    + "been sent.",
                     (int)swMessageBoxIcon_e.swMbInformation,
                     (int)swMessageBoxBtn_e.swMbOk);
                 return;

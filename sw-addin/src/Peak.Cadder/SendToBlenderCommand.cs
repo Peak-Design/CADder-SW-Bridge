@@ -147,6 +147,10 @@ namespace Peak.Cadder
 
                 // ── 2. Choose the Blender (needs UI, still this thread) ─────
                 var instances = BlenderBridge.Discover(AddIn.Log);
+                // A refresh goes to the Blender that holds the scene, and
+                // asks only when two of them do.
+                if (update)
+                    instances = BlenderBridge.ForRefresh(instances, model.GetPathName());
                 BlenderInstance target = null;
                 if (instances.Count == 1) target = instances[0];
                 else if (instances.Count > 1)

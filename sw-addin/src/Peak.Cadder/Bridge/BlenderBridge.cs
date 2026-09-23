@@ -22,6 +22,47 @@ namespace Peak.Cadder.Bridge
         public string BlendFile;
         public string RegistryFile;
 
+        /// <summary>The CAD documents this Blender's scenes hold, as its
+        /// bridge says. Null for an older bridge that does not say.</summary>
+        public List<string> Documents;
+
+        /// <summary>Whether this Blender says it holds a scene of the
+        /// document. False when it does not say.</summary>
+        public bool Holds(string documentPath)
+        {
+            if (Documents == null || string.IsNullOrEmpty(documentPath)) return false;
+            foreach (var d in Documents)
+                if (SamePath(d, documentPath)) return true;
+            return false;
+        }
+
+        internal static bool SamePath(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            return string.Equals(Full(a), Full(b), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string Full(string path)
+        {
+            try { return Path.GetFullPath(path); }
+            catch (Exception) { return path; }
+        }
+
+        /// <summary>The "documents" list of a registry file or a ping
+        /// answer, or null when there is none.</summary>
+        internal static List<string> DocumentsOf(Dictionary<string, object> obj)
+        {
+            var raw = MiniJson.Arr(obj, "documents");
+            if (raw == null) return null;
+            var list = new List<string>();
+            foreach (var o in raw)
+            {
+                var s = o as string;
+                if (!string.IsNullOrEmpty(s)) list.Add(s);
+            }
+            return list;
+        }
+
         public string Describe()
         {
             string file = string.IsNullOrEmpty(BlendFile)
@@ -47,33 +88,88 @@ namespace Peak.Cadder.Bridge
 
         // ── Discovery ───────────────────────────────────────────────────────
 
-        private static DateTime _lookedAt;
-        private static bool _sawOne;
+        private static DateTime _readAt;
+        private static List<BlenderInstance> _running = new List<BlenderInstance>();
 
         /// <summary>
-        /// Whether a Blender with the bridge looks like it is running.
+        /// Whether a running Blender with the bridge holds a scene of this
+        /// document: what Refresh Model needs, so its button is grey
+        /// otherwise.
         ///
-        /// For the RIBBON, which asks on every idle: a directory listing,
-        /// cached for a few seconds, and no ping. Discover is the honest
-        /// answer and costs an HTTP round trip per instance, which is far
-        /// too much to pay for greying a button. A stale registry file
-        /// therefore makes this say yes when the answer is no, and the
-        /// command then reports that nothing is listening, which is the
-        /// harmless way round.
+        /// For the RIBBON, which asks on every idle: the registry files and
+        /// the process list, read at most every three seconds, and no ping.
+        /// Before, any registry file enabled the button. A Blender that
+        /// crashed or was ended leaves its file, and a new Blender that never
+        /// got the send holds no scene of the document, so a refresh went to
+        /// a scene without the model. Each bridge now lists the documents its
+        /// scenes hold (the document tag of a send), and a saved file opened
+        /// again lists the same.
+        ///
+        /// An older bridge lists nothing. Then the rule is the one before:
+        /// this SolidWorks session has sent the document
+        /// (<paramref name="sentThisSession"/>), and that Blender is running.
         /// </summary>
-        public static bool AnyListening()
+        public static bool AnyHolding(string documentPath, bool sentThisSession)
         {
-            if ((DateTime.UtcNow - _lookedAt) < TimeSpan.FromSeconds(3))
-                return _sawOne;
-            _lookedAt = DateTime.UtcNow;
+            if ((DateTime.UtcNow - _readAt) >= TimeSpan.FromSeconds(3))
+            {
+                _readAt = DateTime.UtcNow;
+                _running = ReadRegistry(RegistryDir).Where(i => IsBlender(i.Pid)).ToList();
+            }
+            return Holding(_running, documentPath, sentThisSession) != null;
+        }
+
+        /// <summary>The first of <paramref name="instances"/> that holds a
+        /// scene of the document, by the rule of AnyHolding, or null.
+        /// </summary>
+        internal static BlenderInstance Holding(
+            IEnumerable<BlenderInstance> instances, string documentPath, bool sentThisSession)
+        {
+            if (string.IsNullOrEmpty(documentPath) || instances == null) return null;
+            foreach (var inst in instances)
+            {
+                if (inst == null) continue;
+                if (inst.Documents == null ? sentThisSession : inst.Holds(documentPath))
+                    return inst;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The Blenders a refresh of the document goes to: the ones that hold
+        /// a scene of it, when any says so. Otherwise all of them, which is
+        /// how an older bridge was chosen.
+        /// </summary>
+        internal static List<BlenderInstance> ForRefresh(
+            List<BlenderInstance> instances, string documentPath)
+        {
+            var holding = instances.Where(i => i != null && i.Holds(documentPath)).ToList();
+            return holding.Count > 0 ? holding : instances;
+        }
+
+        /// <summary>Every registry entry that reads, with no ping. A file that
+        /// Blender is still writing is left out.</summary>
+        internal static List<BlenderInstance> ReadRegistry(string dir)
+        {
+            var found = new List<BlenderInstance>();
+            string[] files;
             try
             {
-                _sawOne = Directory.Exists(RegistryDir)
-                    && Directory.GetFiles(RegistryDir, "*.json").Length > 0;
+                if (!Directory.Exists(dir)) return found;
+                files = Directory.GetFiles(dir, "*.json");
             }
-            catch (IOException) { _sawOne = false; }
-            catch (UnauthorizedAccessException) { _sawOne = false; }
-            return _sawOne;
+            catch (IOException) { return found; }
+            catch (UnauthorizedAccessException) { return found; }
+            foreach (var file in files)
+            {
+                try
+                {
+                    var inst = ReadRegistryFile(file);
+                    if (inst != null) found.Add(inst);
+                }
+                catch (Exception) { }
+            }
+            return found;
         }
 
         public static List<BlenderInstance> Discover(Action<string> log)
@@ -157,6 +253,7 @@ namespace Peak.Cadder.Bridge
                 AddonVersion = MiniJson.Str(obj, "addon_version"),
                 BlendFile = MiniJson.Str(obj, "blend_file"),
                 RegistryFile = path,
+                Documents = BlenderInstance.DocumentsOf(obj),
             };
             if (inst.Port <= 0 || string.IsNullOrEmpty(inst.Token)) return null;
             return inst;
@@ -199,6 +296,7 @@ namespace Peak.Cadder.Bridge
                 inst.BlendFile = MiniJson.Str(obj, "blend_file", inst.BlendFile);
                 inst.BlenderVersion = MiniJson.Str(obj, "blender_version", inst.BlenderVersion);
                 inst.AddonVersion = MiniJson.Str(obj, "addon_version", inst.AddonVersion);
+                inst.Documents = BlenderInstance.DocumentsOf(obj) ?? inst.Documents;
                 return PingAnswer.Ok;
             }
             catch (WebException ex) when (ex.Status == WebExceptionStatus.ConnectFailure)
