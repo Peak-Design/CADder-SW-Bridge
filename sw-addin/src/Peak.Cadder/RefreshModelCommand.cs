@@ -87,8 +87,12 @@ namespace Peak.Cadder
             int removed = Count(update, "removed");
             int moved = Count(update, "moved");
             int reshaped = Count(update, "reshaped");
+            // Parts with new geometry that kept their own, because Lock
+            // Geometry is on for them in Blender. Without the count, a
+            // refresh where only a locked part changed said nothing had.
+            int locked = Count(update, "locked");
             int kept = (int)MiniJson.Num(update, "kept", 0);
-            if (added + removed + moved + reshaped == 0)
+            if (added + removed + moved + reshaped + locked == 0)
                 return "Nothing has changed since the last send. "
                      + kept + " part(s) left as they are.";
             var said = new List<string>();
@@ -96,6 +100,7 @@ namespace Peak.Cadder
             if (removed > 0) said.Add(removed + " removed");
             if (moved > 0) said.Add(moved + " moved");
             if (reshaped > 0) said.Add(reshaped + " re-tessellated");
+            if (locked > 0) said.Add(locked + " kept their locked geometry");
             return "Blender is up to date: " + string.Join(", ", said.ToArray())
                  + ", " + kept + " unchanged." + RigLine(stages);
         }

@@ -17,21 +17,20 @@ namespace Peak.Cadder.Tests
         private static Dictionary<string, object> Reply(
             List<object> added = null, List<object> removed = null,
             List<object> moved = null, List<object> reshaped = null,
-            int kept = 0, Dictionary<string, object> rig = null)
+            int kept = 0, Dictionary<string, object> rig = null,
+            List<object> locked = null)
         {
-            var stages = new Dictionary<string, object>
+            var update = new Dictionary<string, object>
             {
-                {
-                    "update", new Dictionary<string, object>
-                    {
-                        { "added", added ?? new List<object>() },
-                        { "removed", removed ?? new List<object>() },
-                        { "moved", moved ?? new List<object>() },
-                        { "reshaped", reshaped ?? new List<object>() },
-                        { "kept", (double)kept },
-                    }
-                },
+                { "added", added ?? new List<object>() },
+                { "removed", removed ?? new List<object>() },
+                { "moved", moved ?? new List<object>() },
+                { "reshaped", reshaped ?? new List<object>() },
+                { "kept", (double)kept },
             };
+            // An add-on from before Lock Geometry sends no "locked" list.
+            if (locked != null) update["locked"] = locked;
+            var stages = new Dictionary<string, object> { { "update", update } };
             if (rig != null) stages["rig"] = rig;
             return new Dictionary<string, object>
             {
@@ -63,6 +62,27 @@ namespace Peak.Cadder.Tests
             Assert.Equal("Nothing has changed since the last send. "
                        + "9 part(s) left as they are.",
                 RefreshModelCommand.Summary(Reply(kept: 9)));
+        }
+
+        [Fact]
+        public void PartsThatKeptTheirLockedGeometryAreCounted()
+        {
+            Assert.Equal(
+                "Blender is up to date: 1 re-tessellated, 2 kept their locked "
+                + "geometry, 5 unchanged.",
+                RefreshModelCommand.Summary(
+                    Reply(reshaped: Parts("arm"), locked: Parts("clip", "guard"),
+                          kept: 5)));
+        }
+
+        [Fact]
+        public void AChangeOnlyToALockedPartIsNotNothing()
+        {
+            // The part changed in SolidWorks. Blender kept its mesh, and the
+            // message must not say that nothing changed.
+            Assert.Equal(
+                "Blender is up to date: 1 kept their locked geometry, 4 unchanged.",
+                RefreshModelCommand.Summary(Reply(locked: Parts("clip"), kept: 4)));
         }
 
         [Fact]

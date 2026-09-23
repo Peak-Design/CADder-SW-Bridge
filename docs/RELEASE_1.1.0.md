@@ -17,6 +17,9 @@ refresh. Use it with
   gray until a running Blender holds a scene of the document, from a send
   or from a saved file opened again. It goes gray again when that Blender
   closes. A refresh goes to the Blender that holds the scene.
+- **Refresh Model counts locked parts.** When Lock Geometry in CADder
+  keeps the mesh of a part that changed, the message after the refresh
+  says how many parts kept their locked geometry.
 
 ## Improvements and bug fixes
 
