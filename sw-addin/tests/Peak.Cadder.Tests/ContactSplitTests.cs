@@ -177,5 +177,43 @@ namespace Peak.Cadder.Tests
             AssertAlong(X, result.Joints[1].Axis);
             Assert.DoesNotContain(result.Warnings, w => w.Code == "UNDER_DEFINED");
         }
+
+        // ── A point on a triangulated face ──────────────────────────────────
+
+        /// <summary>
+        /// A vertex on a spherical or conical face. The reader carries such
+        /// a face as a triangulated patch ("surface"), but the entity keeps
+        /// the direction SolidWorks put in its slots: filler for a sphere,
+        /// the axis for a cone. The split read that direction as a line and
+        /// made a revolute plus a ball, so the point could only go round
+        /// one circle. A patch is for the surface joint, which holds the
+        /// point on the face and lets it go anywhere on it.
+        /// </summary>
+        [Theory]
+        [InlineData(1.0, 0.0, 0.0)]    // sphere: filler direction
+        [InlineData(0.0, 0.0, 1.0)]    // cone: its axis
+        public void AVertexOnAPatchWithADirectionIsASurfaceJoint(double dx, double dy, double dz)
+        {
+            var patch = PatchEnt("c001", 0.0);
+            patch.Point = P(0, 0, -0.05);
+            patch.Direction = new[] { dx, dy, dz };
+
+            var graph = Graph(
+                new[]
+                {
+                    Comp("c001", "dome", isFixed: true),
+                    Comp("c002", "probe"),
+                },
+                Mate("Coincident1", "swMateCOINCIDENT",
+                    patch,
+                    VertexEnt("c002", P(0.01, 0.01, 0))));
+
+            var result = Run(graph);
+
+            var joint = Assert.Single(result.Joints);
+            Assert.Equal(JointType.Surface, joint.Type);
+            Assert.NotNull(joint.SurfaceTriangles);
+            AssertVector(new[] { 0.01, 0.01, 0.0 }, joint.Origin);
+        }
     }
 }

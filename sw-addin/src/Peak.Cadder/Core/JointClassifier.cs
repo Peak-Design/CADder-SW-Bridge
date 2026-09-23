@@ -760,6 +760,9 @@ namespace Peak.Cadder.Core
                 bool hasPoint = false, hasSurface = false;
                 foreach (var e in m.Entities)
                 {
+                    // A point on a triangulated face is the surface joint's
+                    // case, whatever direction the face entity kept.
+                    if (HasPatch(e)) return false;
                     if (e.Direction == null && e.Point != null
                         && (e.EntityTypeName == "point" || e.EntityTypeName == "vertex"
                             || e.EntityTypeName == "origin" || e.EntityTypeName == "sphere"))
@@ -776,6 +779,10 @@ namespace Peak.Cadder.Core
         /// (sphere or typed point), or null for no rule.</summary>
         private static string ContactSideKind(GraphMateEntity e)
         {
+            // A triangulated face keeps the direction SolidWorks put in its
+            // slots: filler for a sphere, the axis for a cone. It is no
+            // line, and no split side describes it.
+            if (HasPatch(e)) return null;
             if (e.Direction != null)
                 return e.EntityTypeName == "plane" ? "plane" : "line";
             if (e.Point == null) return null;
@@ -2111,10 +2118,14 @@ namespace Peak.Cadder.Core
         private static GraphMateEntity SurfaceEntity(GraphMate m)
         {
             foreach (var e in m.Entities)
-                if (e.SurfaceTriangles != null && e.SurfaceTriangles.Length > 0
-                    && e.SurfacePoints != null && e.SurfacePoints.Length >= 3)
-                    return e;
+                if (HasPatch(e)) return e;
             return null;
+        }
+
+        private static bool HasPatch(GraphMateEntity e)
+        {
+            return e.SurfaceTriangles != null && e.SurfaceTriangles.Length > 0
+                && e.SurfacePoints != null && e.SurfacePoints.Length >= 3;
         }
 
         /// <summary>A direction-less point-carrying entity: the follower a
