@@ -159,8 +159,11 @@ namespace Peak.Cadder.Bridge
             if (model == null) return Fail("no document is open in SolidWorks");
             string path = MiniJson.Str(request, "out", null);
             if (string.IsNullOrEmpty(path))
+            {
+                PruneTemp(Path.GetTempPath(), "cadlink-view-*.bmp", DateTime.UtcNow);
                 path = Path.Combine(Path.GetTempPath(),
                     "cadlink-view-" + Guid.NewGuid().ToString("N") + ".bmp");
+            }
             int width = MiniJson.Int(request, "width", 1280);
             int height = MiniJson.Int(request, "height", 800);
             string view = MiniJson.Str(request, "view", null);
@@ -1703,8 +1706,11 @@ namespace Peak.Cadder.Bridge
 
             string path = MiniJson.Str(request, "out", null);
             if (string.IsNullOrEmpty(path))
+            {
+                PruneTemp(Path.GetTempPath(), "cadlink-refine-*.swmesh", DateTime.UtcNow);
                 path = Path.Combine(Path.GetTempPath(),
                     "cadlink-refine-" + Guid.NewGuid().ToString("N") + ".swmesh");
+            }
             MeshWriter.Write(path, scene);
 
             int triangles = 0;
@@ -1725,6 +1731,39 @@ namespace Peak.Cadder.Bridge
                 { "triangles", triangles },
                 { "tolerance_m", scene.Tolerance },
             };
+        }
+
+        /// <summary>How old a file of an earlier answer must be before it
+        /// is removed. Blender reads the file as soon as the answer
+        /// arrives, so this is a wide margin.</summary>
+        private static readonly TimeSpan TempFileAge = TimeSpan.FromMinutes(30);
+
+        /// <summary>
+        /// Removes the files of earlier answers that match
+        /// <paramref name="pattern"/> and are older than TempFileAge.
+        /// Returns how many. Nothing else deletes them: a refine answers
+        /// with a .swmesh in the temp folder, Blender reads it, and one
+        /// machine had 149 of them, 469 MB. A file that is in use stays
+        /// for the next time.
+        /// </summary>
+        internal static int PruneTemp(string dir, string pattern, DateTime nowUtc)
+        {
+            string[] files;
+            try { files = Directory.GetFiles(dir, pattern); }
+            catch (Exception) { return 0; }
+            int removed = 0;
+            foreach (var file in files)
+            {
+                try
+                {
+                    if (nowUtc - File.GetLastWriteTimeUtc(file) < TempFileAge) continue;
+                    File.Delete(file);
+                    removed++;
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+            return removed;
         }
 
         /// <summary>
