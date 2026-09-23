@@ -595,6 +595,10 @@ namespace Peak.Cadder
                         exportAppearances: repairAppearances,
                         includeHidden: settings.IncludeHidden,
                         keep: keep);
+                    // An Escape during the write or the pass below stops the
+                    // export here, before Publish, so a network target keeps
+                    // the file it had.
+                    progress.StopIfCancelled();
 
                     // Flexible-twin fix + appearance repair + materials, one parse,
                     // one save. Errors here must not kill the export: the file as
@@ -616,6 +620,7 @@ namespace Peak.Cadder
                         post.Notes.Add("STEP post-processing failed (" + ex.Message
                             + "); the file is as SolidWorks wrote it.");
                     }
+                    progress.StopIfCancelled();
                     sha1 = post.FileModified ? StepExporter.Sha1Hex(workingStep) : step.Sha1;
                     staging.Publish();
                     matches = MatchStep(workingStep, walked, keep,
