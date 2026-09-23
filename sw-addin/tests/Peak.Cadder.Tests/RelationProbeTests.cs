@@ -71,6 +71,54 @@ namespace Peak.Cadder.Tests
             Assert.True(turns);
         }
 
+        /// <summary>A read as Sample makes it: the driver unwrapped over one
+        /// turn in five-degree steps, the output from `output`.</summary>
+        private static List<double[]> Read(Func<double, double> output)
+        {
+            var raw = new List<double[]>();
+            for (int k = 0; k <= 71; k++)
+            {
+                double x = 2.0 * Math.PI * k / 72;
+                raw.Add(new[] { x, output(x) });
+            }
+            return raw;
+        }
+
+        [Fact]
+        public void OneToOneTurningOutputEndsItsCycleAFullTurnOn()
+        {
+            // A universal joint read 1:1: the unwrapped output reaches
+            // about 2 pi as the input comes round. Ending the cycle at 0
+            // swept the output back a whole turn over the last step.
+            var c = RelationTable.Build("j001", Read(x => x), 2.0 * Math.PI, true, true);
+            Assert.True(c.Periodic);
+            var last = c.Samples[c.Samples.Length - 1];
+            Assert.Equal(2.0 * Math.PI, last[0], 12);
+            Assert.Equal(2.0 * Math.PI, last[1], 9);
+            // No step anywhere sweeps back.
+            for (int i = 1; i < c.Samples.Length; i++)
+                Assert.True(c.Samples[i][1] - c.Samples[i - 1][1] > 0, "output must keep turning");
+
+            var reversed = RelationTable.Build("j001", Read(x => -x), 2.0 * Math.PI, true, true);
+            Assert.Equal(-2.0 * Math.PI, reversed.Samples[reversed.Samples.Length - 1][1], 9);
+        }
+
+        [Fact]
+        public void RockerThatComesBackEndsItsCycleAtRest()
+        {
+            var c = RelationTable.Build("j001", Read(x => 0.3 * Math.Sin(x)), 2.0 * Math.PI, true, true);
+            Assert.True(c.Periodic);
+            Assert.Equal(0.0, c.Samples[c.Samples.Length - 1][1], 12);
+        }
+
+        [Fact]
+        public void SlidingOutputEndsItsCycleAtRest()
+        {
+            // A slide never winds: a cam's stroke comes back to its start.
+            var c = RelationTable.Build("j001", Read(x => 0.01 * (1.0 - Math.Cos(x))), 2.0 * Math.PI, true, false);
+            Assert.Equal(0.0, c.Samples[c.Samples.Length - 1][1], 12);
+        }
+
         [Fact]
         public void NothingMovedLeavesTheTableFlatForARetry()
         {
