@@ -30,6 +30,14 @@ namespace Peak.Cadder.Appearance
         private readonly Action<string> _log;
 
         public AppearanceMatcher(IModelDoc2 model, Action<string> log)
+            : this(log)
+        {
+        }
+
+        /// <summary>The match reads nothing from the model. The tests use
+        /// this form, because they cannot name the embedded interop
+        /// type.</summary>
+        internal AppearanceMatcher(Action<string> log)
         {
             _log = log;
         }
@@ -98,20 +106,40 @@ namespace Peak.Cadder.Appearance
                 double[] want = RelMm(sw, alt);
                 StepRewriter.OccurrenceRef best = null;
                 double bestDist = double.MaxValue, secondDist = double.MaxValue;
+                double nearest = double.MaxValue;
 
+                // The candidates go in tiers of name match, strictest
+                // first. A looser tier counts only when no stricter one has
+                // a candidate inside the tolerance. With one ranking by
+                // distance, 'base' and 'base_plate' at the same position
+                // tied, the first NAUO won, and base took the occurrence of
+                // base_plate. base_plate then had no match, and the override
+                // of base painted base_plate.
                 if (want != null)
                 {
-                    foreach (var k in stepKids)
+                    for (int tier = 0; tier <= LoosestTier && best == null; tier++)
                     {
-                        if (used.Contains(k) || k.Translation == null) continue;
-                        if (!NameMatches(sw, k)) continue;
-                        double d = Distance(k.Translation, want);
-                        if (d < bestDist) { secondDist = bestDist; bestDist = d; best = k; }
-                        else if (d < secondDist) secondDist = d;
+                        StepRewriter.OccurrenceRef tierBest = null;
+                        double tierDist = double.MaxValue, tierSecond = double.MaxValue;
+                        foreach (var k in stepKids)
+                        {
+                            if (used.Contains(k) || k.Translation == null) continue;
+                            if (NameTier(sw, k) != tier) continue;
+                            double d = Distance(k.Translation, want);
+                            if (d < nearest) nearest = d;
+                            if (d < tierDist) { tierSecond = tierDist; tierDist = d; tierBest = k; }
+                            else if (d < tierSecond) tierSecond = d;
+                        }
+                        if (tierBest != null && tierDist <= ToleranceMm)
+                        {
+                            best = tierBest;
+                            bestDist = tierDist;
+                            secondDist = tierSecond;
+                        }
                     }
                 }
 
-                if (best != null && bestDist <= ToleranceMm)
+                if (best != null)
                 {
                     // Two occurrences at the same position make the match
                     // unclear. Report this instead of a choice.
@@ -128,7 +156,7 @@ namespace Peak.Cadder.Appearance
                     if (!quiet)
                         _log?.Invoke($"  UNMATCHED {sw.Path} ({CountExported(sw)} occurrence(s) " +
                                      $"under it; nearest candidate " +
-                                     $"{(bestDist == double.MaxValue ? -1 : bestDist):F3} mm) -- " +
+                                     $"{(nearest == double.MaxValue ? -1 : nearest):F3} mm) -- " +
                                      "left with SolidWorks' colour");
                     AddUnmatchedSubtree(sw, pairs);
                 }
@@ -146,27 +174,37 @@ namespace Peak.Cadder.Appearance
         private static int CountExported(OccurrenceAppearance n)
             => 1 + n.Children.Where(c => c.Exported).Sum(CountExported);
 
+        private const int LoosestTier = 3;
+
         /// <summary>
-        /// True when this STEP product can be this component. SolidWorks names
-        /// the product after the file, and appends the configuration name for a
-        /// non-default configuration, joined with an underscore.
+        /// How well this STEP product name fits this component, from 0 (the
+        /// strictest) to LoosestTier, or -1 when it cannot be this component.
+        /// SolidWorks names the product after the file, and appends the
+        /// configuration name for a non-default configuration, joined with
+        /// an underscore.
+        ///
+        ///   0  the document name
+        ///   1  the document name and the referenced configuration
+        ///   2  the component name without the instance number, for a
+        ///      virtual or renamed component
+        ///   3  any name that starts with the document name and '_'
         /// </summary>
-        private static bool NameMatches(OccurrenceAppearance sw, StepRewriter.OccurrenceRef k)
+        private static int NameTier(OccurrenceAppearance sw, StepRewriter.OccurrenceRef k)
         {
             string n = k.ProductName ?? "";
             string d = sw.DocName ?? "";
             if (d.Length > 0)
             {
-                if (n.Equals(d, StringComparison.OrdinalIgnoreCase)) return true;
+                if (n.Equals(d, StringComparison.OrdinalIgnoreCase)) return 0;
                 var cfg = sw.ReferencedConfiguration;
                 if (!string.IsNullOrEmpty(cfg)
-                    && n.Equals(d + "_" + cfg, StringComparison.OrdinalIgnoreCase)) return true;
-                if (n.StartsWith(d + "_", StringComparison.OrdinalIgnoreCase)) return true;
+                    && n.Equals(d + "_" + cfg, StringComparison.OrdinalIgnoreCase)) return 1;
             }
-            // A virtual or renamed component: fall back to the component name
-            // itself, without the instance number.
             string seg = AppearanceLadder.LastSegmentWithoutInstance(sw.Path);
-            return seg.Length > 0 && n.Equals(seg, StringComparison.OrdinalIgnoreCase);
+            if (seg.Length > 0 && n.Equals(seg, StringComparison.OrdinalIgnoreCase)) return 2;
+            if (d.Length > 0 && n.StartsWith(d + "_", StringComparison.OrdinalIgnoreCase))
+                return LoosestTier;
+            return -1;
         }
 
         /// <summary>
