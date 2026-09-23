@@ -128,7 +128,13 @@ namespace Peak.Cadder.Bridge
             // SolidWorks put up: the reply says so instead of hanging the
             // caller, and the job finishes on its own when the dialog goes.
             double timeoutS = MiniJson.Num(request, "timeout_s", 600);
-            return gate.Run(() => _handler(_app, request),
+            // Each job frees the SolidWorks objects it read before the next
+            // request can close a document (Sw.ComRelease).
+            return gate.Run(() =>
+                {
+                    try { return _handler(_app, request); }
+                    finally { Sw.ComRelease.Flush(); }
+                },
                 TimeSpan.FromSeconds(Math.Max(1, timeoutS)));
         }
 

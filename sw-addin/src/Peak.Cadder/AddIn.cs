@@ -540,13 +540,36 @@ namespace Peak.Cadder
     {
         public AddIn Owner { get; set; }
 
-        public void ExportRig() => ExportCommand.Run(AddIn.SwApp);
-        public void ExportRigJson() => ExportCommand.RunManifestOnly(AddIn.SwApp);
-        public void ExportStepPlus() => StepPlusCommand.Run(AddIn.SwApp);
-        public void SendToBlender() => SendToBlenderCommand.Run(AddIn.SwApp);
-        public void SendToBlenderNative() => SendToBlenderCommand.Run(AddIn.SwApp, native: true);
-        public void BlenderOptions() => BlenderOptionsDialog.Run(AddIn.SwApp);
-        public void RefreshModel() => RefreshModelCommand.Run(AddIn.SwApp);
+        public void ExportRig() => Guard("Export Rig", () => ExportCommand.Run(AddIn.SwApp));
+        public void ExportRigJson() => Guard("Export Rig", () => ExportCommand.RunManifestOnly(AddIn.SwApp));
+        public void ExportStepPlus() => Guard("Export STEP+", () => StepPlusCommand.Run(AddIn.SwApp));
+        public void SendToBlender() => Guard("Send to Blender", () => SendToBlenderCommand.Run(AddIn.SwApp));
+        public void SendToBlenderNative() => Guard("Send to Blender", () => SendToBlenderCommand.Run(AddIn.SwApp, native: true));
+        public void BlenderOptions() => Guard("Export Options", () => BlenderOptionsDialog.Run(AddIn.SwApp));
+        public void RefreshModel() => Guard("Refresh Model", () => RefreshModelCommand.Run(AddIn.SwApp));
+
+        /// <summary>
+        /// Runs one ribbon command. SolidWorks calls these through late
+        /// binding, and an exception that leaves a callback ends SolidWorks,
+        /// so it stops here: it goes to the log and to the user. Last, the
+        /// command frees the SolidWorks objects it read (ComRelease), while
+        /// every document it read is still open.
+        /// </summary>
+        private static void Guard(string name, Action command)
+        {
+            try { command(); }
+            catch (Exception ex)
+            {
+                AddIn.Log(name + " failed: " + ex);
+                try
+                {
+                    AddIn.SwApp?.SendMsgToUser2(name + " failed: " + ex.Message,
+                        (int)swMessageBoxIcon_e.swMbStop, (int)swMessageBoxBtn_e.swMbOk);
+                }
+                catch { }
+            }
+            finally { Sw.ComRelease.Flush(); }
+        }
 
         /// <summary>1 enables the button. 0 makes it grey.</summary>
         public int EnableExportRig()
