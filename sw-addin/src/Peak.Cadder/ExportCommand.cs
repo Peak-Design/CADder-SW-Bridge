@@ -99,7 +99,7 @@ namespace Peak.Cadder
                 // line of defence, not the restore path.
                 var outcome = ExportBundle(
                     app, model, assembly, stepPath, manifestPath, settings,
-                    mateErrorPrompt: message => AskWithoutRig(app, message),
+                    mateErrorPrompt: message => WithoutBar(bar, () => AskWithoutRig(app, message)),
                     progress: bar);
                 CloseBar(bar);
                 app.SendMsgToUser2(outcome.Report,
@@ -140,6 +140,20 @@ namespace Peak.Cadder
         {
             var bar = progress as IDisposable;
             if (bar != null) bar.Dispose();
+        }
+
+        /// <summary>
+        /// Asks the user something while an export runs. The bar closes
+        /// first, for the reason CloseBar gives: the mate error question
+        /// and the limit mate warning came up behind it, and SolidWorks
+        /// looked frozen while it waited for an answer nobody could see.
+        /// The rest of the export runs without the bar, unless the caller
+        /// opens a new one.
+        /// </summary>
+        internal static T WithoutBar<T>(ExportProgress progress, Func<T> ask)
+        {
+            CloseBar(progress);
+            return ask();
         }
 
         /// <summary>
@@ -380,7 +394,7 @@ namespace Peak.Cadder
                 // Every command a user runs at SolidWorks tells them, not
                 // only the ones that can ask about mate errors.
                 limitsLeft = PutLimitsBack(model, limitsOut,
-                    mateErrorPrompt != null || tellUser ? app : null);
+                    mateErrorPrompt != null || tellUser ? app : null, progress);
             }
             progress.StopIfCancelled();
             // The verdicts are read as a SET: a pair whose child is mated to a
@@ -749,7 +763,8 @@ namespace Peak.Cadder
         /// as a hydraulic ram can be shared by other assemblies, so the user
         /// is told which mates, when there is a user to tell.
         /// </summary>
-        private static List<string> PutLimitsBack(IModelDoc2 model, SolveState state, ISldWorks app)
+        private static List<string> PutLimitsBack(
+            IModelDoc2 model, SolveState state, ISldWorks app, ExportProgress progress)
         {
             if (state == null || state.Count == 0) return new List<string>();
             var failed = state.Restore();
@@ -759,13 +774,13 @@ namespace Peak.Cadder
             if (failed.Count == 0 || app == null) return failed;
             try
             {
-                app.SendMsgToUser2(
+                WithoutBar(progress, () => app.SendMsgToUser2(
                     "CADder Bridge could not put back these limit mates after it "
                     + "read the assembly. They are still suppressed:\n\n"
                     + string.Join("\n", failed.ToArray())
                     + "\n\nUnsuppress them before you save.",
                     (int)swMessageBoxIcon_e.swMbWarning,
-                    (int)swMessageBoxBtn_e.swMbOk);
+                    (int)swMessageBoxBtn_e.swMbOk));
             }
             catch { }
             return failed;

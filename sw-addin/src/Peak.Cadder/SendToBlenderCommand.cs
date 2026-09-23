@@ -62,8 +62,8 @@ namespace Peak.Cadder
             // closes before the first dialog: SolidWorks draws a message box
             // behind a live progress bar.
             string title = update ? "Refresh Model" : "Send to Blender";
-            var bar = Sw.SwProgressBar.Open(app, update
-                ? "Refreshing the model in Blender" : "Sending to Blender", AddIn.Log);
+            string barTitle = update ? "Refreshing the model in Blender" : "Sending to Blender";
+            var bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
 
             try
             {
@@ -97,7 +97,16 @@ namespace Peak.Cadder
                         var outcome = ExportCommand.ExportBundle(
                             app, model, assembly, stepPath, manifestPath, settings,
                             manifestOnly: true,
-                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message),
+                            mateErrorPrompt: message =>
+                            {
+                                bool yes = ExportCommand.WithoutBar(
+                                    bar, () => ExportCommand.AskWithoutRig(app, message));
+                                // The geometry still goes, and it takes a
+                                // while on a large assembly, so it gets a
+                                // bar of its own.
+                                if (yes) bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
+                                return yes;
+                            },
                             progress: bar);
                         // No rig: the geometry still goes, and the payload
                         // leaves out every rig stage (BuildPayload).
@@ -123,7 +132,8 @@ namespace Peak.Cadder
                     {
                         var outcome = ExportCommand.ExportBundle(
                             app, model, assembly, stepPath, manifestPath, settings,
-                            mateErrorPrompt: message => ExportCommand.AskWithoutRig(app, message),
+                            mateErrorPrompt: message => ExportCommand.WithoutBar(
+                                bar, () => ExportCommand.AskWithoutRig(app, message)),
                             progress: bar);
                         if (outcome.GeometryOnly) manifestPath = null;
                     }
