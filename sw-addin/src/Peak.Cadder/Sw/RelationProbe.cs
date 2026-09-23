@@ -247,7 +247,8 @@ namespace Peak.Cadder.Sw
                 // of five degrees reached 302 degrees, so the table missed
                 // the lobe on one follower and was not periodic).
                 double full = 2.0 * Math.PI - step / 2.0;
-                for (int k = 1; k <= 3 * steps && driverTotal < full; k++)
+                int budget = MaxDrags(steps);
+                for (int k = 1; k <= budget && driverTotal < full; k++)
                 {
                     var from = SwFrames.ToMatrix(dChild.Comp.Transform2);
                     if (!mover.Nudge(dChild.Comp, axis, origin, step, true, from))
@@ -307,6 +308,20 @@ namespace Peak.Cadder.Sw
             if (refusal != null) return null;
             return RelationTable.Build(driver.Id, drivenTurns ? rawSpin : rawSlide, 2.0 * Math.PI, true,
                 drivenTurns);
+        }
+
+        /// <summary>
+        /// How many drags one read may take. Every drag that is not a stall
+        /// moves the driver at least a quarter step (Sample stops at one
+        /// that moves less), so a turn takes fewer than 4 x steps drags. The
+        /// cap was 3 x steps, and the live cam sample, at about a third of a
+        /// step per drag, used 207 of its 216: a slightly slower drag ran
+        /// out before the turn and the table missed the end of the profile.
+        /// The margin over 4 x steps is for drags that land backwards.
+        /// </summary>
+        internal static int MaxDrags(int steps)
+        {
+            return 5 * steps;
         }
 
         /// <summary>A driven slide under this, in metres over the whole

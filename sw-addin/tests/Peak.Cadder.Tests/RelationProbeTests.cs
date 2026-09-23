@@ -119,6 +119,38 @@ namespace Peak.Cadder.Tests
             Assert.Equal(0.0, c.Samples[c.Samples.Length - 1][1], 12);
         }
 
+        /// <summary>Drags the read takes to come round when each one lands
+        /// at `fraction` of the asked step, as Sample counts them.</summary>
+        private static int DragsToComeRound(int steps, double fraction)
+        {
+            double step = 2.0 * Math.PI / steps;
+            double full = 2.0 * Math.PI - step / 2.0;
+            double total = 0.0;
+            int k = 0;
+            while (total < full)
+            {
+                k++;
+                total += step * fraction;
+            }
+            return k;
+        }
+
+        [Theory]
+        [InlineData(72, 0.35)]   // the live cam sample landed at about 0.35
+        [InlineData(72, 0.30)]   // a slightly slower drag
+        [InlineData(72, 0.26)]   // just above the stall test
+        [InlineData(360, 0.26)]
+        [InlineData(8, 0.26)]
+        public void EveryDragThatIsNotAStallComesRoundWithinTheBudget(int steps, double fraction)
+        {
+            // Sample stops at a drag under a quarter of the step. Any slower
+            // drag must reach the full turn before the budget ends, or the
+            // table misses the end of the profile and is not periodic.
+            Assert.True(DragsToComeRound(steps, fraction) <= RelationProbe.MaxDrags(steps),
+                DragsToComeRound(steps, fraction) + " drags needed, budget "
+                + RelationProbe.MaxDrags(steps));
+        }
+
         [Fact]
         public void NothingMovedLeavesTheTableFlatForARetry()
         {
