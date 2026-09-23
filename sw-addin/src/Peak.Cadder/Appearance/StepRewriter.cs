@@ -61,8 +61,11 @@ namespace Peak.Cadder.Appearance
             /// <summary>The solids of the child product, when the child is a
             /// part. Empty for a sub-assembly.</summary>
             public List<int> TargetItems = new List<int>();
-            /// <summary>The first solid, for the occurrence styling path.</summary>
+            /// <summary>The first solid, or 0 when there is none. The
+            /// occurrence styling uses every solid in TargetItems.</summary>
             public int TargetItemId => TargetItems.Count > 0 ? TargetItems[0] : 0;
+            /// <summary>The styled item on the first solid that has one.
+            /// It need not style TargetItemId.</summary>
             public int BaseStyledItemId = -1;
         }
 
@@ -302,11 +305,30 @@ namespace Peak.Cadder.Appearance
         }
 
         /// <summary>
-        /// Writes the colour of one occurrence. Returns the id of the new styled
+        /// Writes the colour of one occurrence on every solid of its part.
+        /// Returns the number of styled items written, 0 when the part has
+        /// no solid.
+        ///
+        /// Each solid gets its own styled item. Only the first solid was
+        /// styled, so the other bodies of a multi-body part kept the part
+        /// colour. Each override also names the styled item of its own
+        /// solid: the first solid with a styled item is not always the
+        /// first solid, and an override must not name the style of another
         /// item.
+        ///
+        /// A part with no solid, such as a skeleton or layout part, gets
+        /// nothing. Its styled item referenced #0, which does not exist, and
+        /// a strict reader rejects the file.
         /// </summary>
         public int AddOccurrenceColour(OccurrenceRef occ, Rgb colour, double transparency)
         {
+            if (occ.TargetItems.Count == 0)
+            {
+                _log?.Invoke($"    NAUO #{occ.NauoId}: the part has no solid to take "
+                           + "the occurrence colour");
+                return 0;
+            }
+
             int colourId = _step.NextId();
             _step.Append($"#{colourId}=COLOUR_RGB(''," +
                          $"{Part21.Num(colour.R)},{Part21.Num(colour.G)},{Part21.Num(colour.B)});");
@@ -336,22 +358,28 @@ namespace Peak.Cadder.Appearance
             int psaId = _step.NextId();
             _step.Append($"#{psaId}=PRESENTATION_STYLE_ASSIGNMENT((#{ssuId}));");
 
-            int styledId = _step.NextId();
-            if (occ.BaseStyledItemId > 0)
+            var owners = StyledByItem();
+            int written = 0;
+            foreach (var solid in occ.TargetItems)
             {
-                _step.Append($"#{styledId}=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM(" +
-                             $"'occurrence colour',(#{psaId}),#{occ.TargetItemId}," +
-                             $"#{occ.BaseStyledItemId},(#{occ.NauoId}));");
+                int styledId = _step.NextId();
+                if (owners.TryGetValue(solid, out int baseStyled) && baseStyled > 0)
+                {
+                    _step.Append($"#{styledId}=CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM(" +
+                                 $"'occurrence colour',(#{psaId}),#{solid}," +
+                                 $"#{baseStyled},(#{occ.NauoId}));");
+                }
+                else
+                {
+                    // No base styled item to override: a plain styled item bound to
+                    // the item still carries the colour for readers that ignore
+                    // occurrence context.
+                    _step.Append($"#{styledId}=STYLED_ITEM('occurrence colour'," +
+                                 $"(#{psaId}),#{solid});");
+                }
+                written++;
             }
-            else
-            {
-                // No base styled item to override: a plain styled item bound to
-                // the item still carries the colour for readers that ignore
-                // occurrence context.
-                _step.Append($"#{styledId}=STYLED_ITEM('occurrence colour'," +
-                             $"(#{psaId}),#{occ.TargetItemId});");
-            }
-            return styledId;
+            return written;
         }
 
         /// <summary>
@@ -417,8 +445,8 @@ namespace Peak.Cadder.Appearance
             {
                 foreach (var p in matched.Where(p => p.Key.OverridesPartInternals))
                 {
-                    AddOccurrenceColour(p.Value, p.Key.Colour, p.Key.Transparency);
-                    applied++;
+                    if (AddOccurrenceColour(p.Value, p.Key.Colour, p.Key.Transparency) > 0)
+                        applied++;
                 }
                 return applied;
             }
@@ -500,8 +528,8 @@ namespace Peak.Cadder.Appearance
                                      "occurrence styling");
                         foreach (var p in bucket)
                         {
-                            AddOccurrenceColour(p.Value, p.Key.Colour, p.Key.Transparency);
-                            applied++;
+                            if (AddOccurrenceColour(p.Value, p.Key.Colour, p.Key.Transparency) > 0)
+                                applied++;
                         }
                         continue;
                     }

@@ -178,14 +178,22 @@ namespace Peak.Cadder.Appearance
             // references.
             foreach (var extra in Closure(chain)) toClone.Add(extra);
 
-            var map = CloneAll(toClone);
-
-            // The copied solids take the colour of the copy.
-            var solids = toClone
+            // The copied solids take the colour of the copy. A part with no
+            // solid cannot take a colour, so it is not copied: the copy only
+            // added an orphan product chain to the file.
+            var originals = toClone
                 .Where(i => _step.TypeOf(i) == "MANIFOLD_SOLID_BREP"
                          || _step.TypeOf(i) == "SHELL_BASED_SURFACE_MODEL"
                          || _step.TypeOf(i) == "BREP_WITH_VOIDS")
-                .Select(i => map[i]).ToList();
+                .ToList();
+            if (originals.Count == 0)
+            {
+                _log?.Invoke($"    NAUO #{occ.NauoId}: the part has no solid to copy");
+                return null;
+            }
+
+            var map = CloneAll(toClone);
+            var solids = originals.Select(i => map[i]).ToList();
             return new PartCopy
             {
                 Map = map,
