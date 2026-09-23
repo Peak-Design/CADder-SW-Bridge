@@ -110,6 +110,17 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void OnlyChangeOkIsAResolvedSuppression()
+        {
+            // swSuppressionError_e: BadComponent 0, BadState 1, ChangeOk 2,
+            // ChangeFailed 3. SetSuppression2 reports a refusal by value.
+            Assert.True(MateReader.SuppressionChanged(2));
+            Assert.False(MateReader.SuppressionChanged(3));
+            Assert.False(MateReader.SuppressionChanged(0));
+            Assert.False(MateReader.SuppressionChanged(1));
+        }
+
+        [Fact]
         public void UnreadablePlacesFallBackToTheWalkedTransform()
         {
             var walked = Pose(0.3, 0.0, 0.0, 10.0);

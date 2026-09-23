@@ -1886,6 +1886,15 @@ namespace Peak.Cadder.Sw
                 }
         }
 
+        /// <summary>True when SetSuppression2 changed the state. It returns
+        /// a swSuppressionError_e and does not throw when SolidWorks refuses,
+        /// so a lightweight cam that did not resolve was logged as resolved,
+        /// and the "no tessellation" lines after it had no cause.</summary>
+        internal static bool SuppressionChanged(int status)
+        {
+            return status == (int)swSuppressionError_e.swSuppressionChangeOk;
+        }
+
         private static void ResolveLightweight(IMate2 mate, GraphMate gm, Action<string> log)
         {
             int count = 0;
@@ -1905,16 +1914,19 @@ namespace Peak.Cadder.Sw
                 if (state != (int)swComponentSuppressionState_e.swComponentLightweight
                     && state != (int)swComponentSuppressionState_e.swComponentFullyLightweight)
                     continue;
-                bool ok = false;
+                int status = -1;
+                string error = null;
                 try
                 {
-                    comp.SetSuppression2((int)swComponentSuppressionState_e.swComponentFullyResolved);
-                    ok = true;
+                    status = comp.SetSuppression2((int)swComponentSuppressionState_e.swComponentFullyResolved);
                 }
-                catch { }
+                catch (Exception ex) { error = ex.Message; }
                 if (log != null)
                     log("cam mate " + gm.FeatureName + ": resolved lightweight " + SafeName(comp)
-                        + (ok ? "" : " (failed)"));
+                        + (SuppressionChanged(status) ? ""
+                           : error != null ? " (failed: " + error + ")"
+                           : " (failed: swSuppressionError_e "
+                             + status.ToString(CultureInfo.InvariantCulture) + ")"));
             }
         }
 
