@@ -23,6 +23,13 @@ namespace Peak.Cadder.Core
         /// inheriting it. Never serialised.</summary>
         public HashSet<string> DerivedLimitJoints = new HashSet<string>();
 
+        /// <summary>The inputs the choice was re-made from, because the
+        /// re-made choice needs fewer controls (see Choose). An option
+        /// re-chooses the whole model, and the other mechanisms have to
+        /// come back as the manifest has them, so it is seeded with these
+        /// too. Never serialised.</summary>
+        public HashSet<string> Seeds = new HashSet<string>();
+
         /// <summary>The input joints, same instances and order, with
         /// ParentGroup/ChildGroup oriented so the parent is nearer the
         /// grounded root. The Blender side parents bones exactly as given.</summary>
@@ -152,6 +159,7 @@ namespace Peak.Cadder.Core
                     foreach (var c in lp.DriverCandidates)
                         if (!inputs.Contains(c.DriverJoint)) inputs.Add(c.DriverJoint);
                 int best = Controls(loops).Count;
+                string chosenSeed = null;
                 foreach (var alt in inputs)
                 {
                     var altTree = new HashSet<string>(tree0);
@@ -163,8 +171,10 @@ namespace Peak.Cadder.Core
                         best = n;
                         loops = altLoops;
                         tree = altTree;
+                        chosenSeed = alt;
                     }
                 }
+                if (chosenSeed != null) result.Seeds.Add(chosenSeed);
             }
             result.Loops.AddRange(loops);
 
@@ -987,7 +997,8 @@ namespace Peak.Cadder.Core
         /// An option is read against the manifest's joints as they finally
         /// stand, and against the tree the consumer builds when it takes
         /// that option: the option's own loops, and every other loop as the
-        /// manifest has it.
+        /// manifest has it. Only the mechanism's own joints can turn, and
+        /// only those are listed.
         /// </summary>
         private static void OrientToTheCuts(IList<RigidGroup> groups, LoopAnalysisResult result)
         {
@@ -999,9 +1010,17 @@ namespace Peak.Cadder.Core
                 foreach (var option in mech.Inputs)
                 {
                     var optionCuts = new HashSet<string>();
-                    foreach (var lp in option.Loops) optionCuts.Add(lp.ClosureJoint);
+                    var mine = new HashSet<string>();
+                    foreach (var lp in option.Loops)
+                    {
+                        optionCuts.Add(lp.ClosureJoint);
+                        mine.UnionWith(lp.MemberJoints);
+                    }
                     foreach (var lp in result.Loops)
+                    {
                         if (!mech.LoopIds.Contains(lp.Id)) optionCuts.Add(lp.ClosureJoint);
+                        else mine.UnionWith(lp.MemberJoints);
+                    }
                     var turned = new List<RigJoint>(result.Joints.Count);
                     foreach (var j in result.Joints)
                         turned.Add(new RigJoint
@@ -1014,7 +1033,8 @@ namespace Peak.Cadder.Core
                     OrientForCuts(groups, turned, optionCuts);
                     option.FlippedJoints.Clear();
                     for (int i = 0; i < turned.Count; i++)
-                        if (turned[i].ParentGroup == result.Joints[i].ChildGroup
+                        if (mine.Contains(turned[i].Id)
+                            && turned[i].ParentGroup == result.Joints[i].ChildGroup
                             && turned[i].ChildGroup == result.Joints[i].ParentGroup)
                             option.FlippedJoints.Add(turned[i].Id);
                 }
@@ -1112,6 +1132,22 @@ namespace Peak.Cadder.Core
 
                 var memberSet = new HashSet<string>();
                 foreach (var lp in loops) foreach (var jid in lp.MemberJoints) memberSet.Add(jid);
+                // The re-choice below is a choice of the WHOLE model, and
+                // only this mechanism's loops are kept from it. Every other
+                // mechanism is seeded as the choice seeded it, so it comes
+                // back as the manifest has it. Unseeded, a mechanism the
+                // choice re-made from another input came back as it was
+                // first met, and its stroke-derived stop was read as a
+                // limit this option clears.
+                var own = new HashSet<string>(memberSet);
+                foreach (var lp in loops)
+                    foreach (var c in lp.DriverCandidates)
+                    {
+                        own.Add(c.DriverJoint);
+                        own.Add(c.ClosureJoint);
+                    }
+                var otherSeeds = new List<string>();
+                foreach (string s in result.Seeds) if (!own.Contains(s)) otherSeeds.Add(s);
 
                 foreach (string alt in inputs)
                 {
@@ -1138,7 +1174,8 @@ namespace Peak.Cadder.Core
                         }
                         clones.Add(c);
                     }
-                    var altResult = Choose(groups, clones, new HashSet<string> { alt }, false);
+                    var seeds = new HashSet<string>(otherSeeds) { alt };
+                    var altResult = Choose(groups, clones, seeds, false);
                     DeriveSliderDriverLimits(altResult);
                     var altLoops = new List<RigLoop>();
                     foreach (var lp in altResult.Loops)
@@ -1214,9 +1251,15 @@ namespace Peak.Cadder.Core
                     // crank-driven configuration, and the slider-driven one
                     // has the slide's own limit instead (live
                     // actuator.sldasm, 2026-09-15: switching input lost the
-                    // stop).
+                    // stop). Only this mechanism's own joints: the consumer
+                    // keeps every other loop as it is, and a limit read off
+                    // another mechanism here would change that mechanism
+                    // under loops that did not change.
+                    var mine = new HashSet<string>(memberSet);
+                    foreach (var lp in altLoops) mine.UnionWith(lp.MemberJoints);
                     for (int i = 0; i < joints.Count; i++)
                     {
+                        if (!mine.Contains(joints[i].Id)) continue;
                         if (SameLimit(clones[i].RotationLimit, joints[i].RotationLimit)
                             && SameLimit(clones[i].TranslationLimit, joints[i].TranslationLimit))
                             continue;
