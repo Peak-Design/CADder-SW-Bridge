@@ -250,7 +250,34 @@ namespace Peak.Cadder.Sw
 
         private static string SafeTitle(IModelDoc2 model)
         {
-            try { return model.GetTitle(); } catch { return "part"; }
+            string path = null, title = null;
+            try { path = model.GetPathName(); } catch { }
+            try { title = model.GetTitle(); } catch { }
+            return PartName(path, title);
+        }
+
+        /// <summary>
+        /// The name of a part sent on its own: its file name without the
+        /// extension, as the assembly route (DocNameOf) and the STEP route
+        /// name it. The window title was used before, and it carries
+        /// ".SLDPRT" when Windows shows extensions for known file types, so
+        /// the same part got a different name on another PC. A document
+        /// that was never saved has only its title, with any SolidWorks
+        /// extension taken off.
+        /// </summary>
+        internal static string PartName(string pathName, string title)
+        {
+            if (!string.IsNullOrEmpty(pathName))
+            {
+                string name = System.IO.Path.GetFileNameWithoutExtension(pathName);
+                if (!string.IsNullOrEmpty(name)) return name;
+            }
+            if (string.IsNullOrEmpty(title)) return "part";
+            foreach (var extension in new[] { ".sldprt", ".sldasm", ".slddrw" })
+                if (title.Length > extension.Length
+                    && title.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+                    return title.Substring(0, title.Length - extension.Length);
+            return title;
         }
     }
 }
