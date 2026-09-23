@@ -105,7 +105,7 @@ namespace Peak.Cadder.Sw
         /// triangles, and given back as body vertex indices. Null when the
         /// rim encloses nothing that can be cut.
         /// </summary>
-        private static List<int> Lid(List<int> ring, Dictionary<int, double[]> point)
+        internal static List<int> Lid(List<int> ring, Dictionary<int, double[]> point)
         {
             if (ring == null || ring.Count < 3) return null;
 
@@ -149,8 +149,34 @@ namespace Peak.Cadder.Sw
 
             var fill = PolygonFill.Triangulate(flat, null);
             if (fill == null) return null;
+
+            // The winding comes from the rim, not from the normals. The
+            // ring runs the way the face's own triangles run along it, and
+            // a closed mesh needs the lid to run every rim edge the other
+            // way. The normals cannot say which way that is at the end
+            // circle of a cylinder: they are radial, square to the lid, and
+            // the flip test read nothing from them. So every lid triangle
+            // is turned against the ring, and BodyTessellator adds it as it
+            // is.
+            double ringArea = 0.0;
+            for (int i = 0; i < flat.Count; i++)
+            {
+                var a = flat[i];
+                var b = flat[(i + 1) % flat.Count];
+                ringArea += a[0] * b[1] - b[0] * a[1];
+            }
             var lid = new List<int>(fill.Count);
-            foreach (int i in fill) lid.Add(ring[i]);
+            for (int t = 0; t + 2 < fill.Count; t += 3)
+            {
+                var p = flat[fill[t]];
+                var q = flat[fill[t + 1]];
+                var r = flat[fill[t + 2]];
+                double area = (q[0] - p[0]) * (r[1] - p[1]) - (r[0] - p[0]) * (q[1] - p[1]);
+                bool withRing = area * ringArea > 0.0;
+                lid.Add(ring[fill[t]]);
+                lid.Add(ring[fill[withRing ? t + 2 : t + 1]]);
+                lid.Add(ring[fill[withRing ? t + 1 : t + 2]]);
+            }
             return lid;
         }
 

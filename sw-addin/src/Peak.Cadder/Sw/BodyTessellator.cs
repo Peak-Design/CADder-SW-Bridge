@@ -394,8 +394,11 @@ namespace Peak.Cadder.Sw
                     if (rims == null) continue;
                     var cap = SurfaceCap.Build(face, tess, rims, log);
                     if (cap == null) continue;
+                    // A lid is wound from its rim (SurfaceCap.Lid), which
+                    // the normals at a cylinder's end circle cannot check.
                     for (int t = 0; t + 2 < cap.Count; t += 3)
-                        AddTriangle(state, cap[t], cap[t + 1], cap[t + 2], material);
+                        AddTriangle(state, cap[t], cap[t + 1], cap[t + 2], material,
+                                    asGiven: true);
                     capped++;
                 }
             }
@@ -532,7 +535,8 @@ namespace Peak.Cadder.Sw
         /// the face's own parameters, and a face can be reversed relative to
         /// its body, so it needs the same check.
         /// </summary>
-        private static void AddTriangle(FacetState s, int a, int b, int c, int material)
+        private static void AddTriangle(
+            FacetState s, int a, int b, int c, int material, bool asGiven = false)
         {
             if (a < 0 || b < 0 || c < 0
                 || a >= s.VertexCount || b >= s.VertexCount || c >= s.VertexCount)
@@ -547,7 +551,7 @@ namespace Peak.Cadder.Sw
                 s.NormalSum[k] = s.Mesh.Normals[(s.BaseVertex + a) * 3 + k]
                     + s.Mesh.Normals[(s.BaseVertex + b) * 3 + k]
                     + s.Mesh.Normals[(s.BaseVertex + c) * 3 + k];
-            if (FacetStitcher.NeedsFlip(s.P0, s.P1, s.P2, s.NormalSum))
+            if (!asGiven && FacetStitcher.NeedsFlip(s.P0, s.P1, s.P2, s.NormalSum))
             {
                 int swap = b; b = c; c = swap;
             }
