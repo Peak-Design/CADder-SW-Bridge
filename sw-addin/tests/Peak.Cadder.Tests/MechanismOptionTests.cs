@@ -43,41 +43,43 @@ namespace Peak.Cadder.Tests
         }
 
         /// <summary>
-        /// A ram mechanism whose first choice needs two controls. Chosen
-        /// from j009 it needs one, and the ram's stroke then stops j009.
-        /// Beside it, on the same ground, a four-bar that takes either of
-        /// its ground pins (j101 or j104).
+        /// A ram mechanism that needs two controls as its loops are first
+        /// met, and one when it is re-chosen from j009. The ram's stroke
+        /// then stops j008, the pin that drives the ram's loop. Beside it,
+        /// on the same ground, a four-bar that takes either of its ground
+        /// pins (j101 or j104).
         /// </summary>
         private static void RamMechanismBesideAFourBar(
             out List<RigidGroup> groups, out List<RigJoint> joints)
         {
-            groups = Groups(11);
+            groups = Groups(10);
             var stroke = new RigJoint
             {
-                Id = "j007",
+                Id = "j002",
                 Type = JointType.Prismatic,
-                ParentGroup = "g007",
-                ChildGroup = "g006",
-                Axis = MathOps.Normalized(new[] { 0.8716, -0.4903, 0.0 }),
+                ParentGroup = "g006",
+                ChildGroup = "g005",
+                // Along the line through the ram's two pins, j001 and j003.
+                Axis = MathOps.Normalized(new[] { -0.574, 0.141, 0.0 }),
                 SecondaryAxis = new double[] { 0, 0, 1 },
-                Origin = new[] { -0.236, -0.3495, 0.0 },
+                Origin = new[] { 0.059, 0.5135, 0.0 },
                 TranslationLimit = new JointLimit { Min = -0.05, Max = 0.1, ValueAtRest = 0 },
             };
             joints = new List<RigJoint>
             {
-                Pin("j001", "g002", "g003", 0.25, 0.891),
-                Pin("j002", "g003", "g004", -0.427, -0.625),
-                Pin("j003", "g005", "g004", 0.881, -0.989),
-                Pin("j004", "g000", "g001", -0.418, 0.973),
-                Pin("j005", "g001", "g002", -0.539, -0.065),
-                Pin("j006", "g000", "g006", -0.564, -0.165),
+                Pin("j001", "g002", "g005", 0.346, 0.443),
                 stroke,
-                Pin("j008", "g007", "g005", 0.092, -0.534),
-                Pin("j009", "g001", "g005", -0.507, -0.547),
-                Pin("j101", "g000", "g008", 5, 0),
-                Pin("j102", "g008", "g009", 5, 1),
-                Pin("j103", "g009", "g010", 7, 1.2),
-                Pin("j104", "g010", "g000", 7, 0),
+                Pin("j003", "g006", "g004", -0.228, 0.584),
+                Pin("j004", "g000", "g003", -0.57, -0.191),
+                Pin("j005", "g001", "g002", -0.88, 0.548),
+                Pin("j006", "g003", "g004", 0.431, 0.285),
+                Pin("j007", "g004", "g001", 0.506, 0.876),
+                Pin("j008", "g002", "g004", -0.702, -0.41),
+                Pin("j009", "g000", "g001", -0.116, 0.766),
+                Pin("j101", "g000", "g007", 5, 0),
+                Pin("j102", "g007", "g008", 5, 1),
+                Pin("j103", "g008", "g009", 7, 1.2),
+                Pin("j104", "g009", "g000", 7, 0),
             };
         }
 
@@ -97,7 +99,7 @@ namespace Peak.Cadder.Tests
         /// An option re-chooses the whole model and keeps only its own
         /// mechanism's loops. The ram mechanism beside the four-bar came
         /// back from that re-choice with its first choice, not the one the
-        /// manifest has. Its stroke-derived stop on j009 then showed as
+        /// manifest has. Its stroke-derived stop on j008 then showed as
         /// cleared in the four-bar's option, and taking j104 in Blender
         /// took the ram's stop away.
         /// </summary>
@@ -108,8 +110,8 @@ namespace Peak.Cadder.Tests
 
             var result = LoopAnalyzer.Analyze(groups, joints);
 
-            var j009 = result.Joints.Find(j => j.Id == "j009");
-            Assert.NotNull(j009.RotationLimit);
+            var j008 = result.Joints.Find(j => j.Id == "j008");
+            Assert.NotNull(j008.RotationLimit);
             RigMechanism fourBar = null;
             foreach (var mech in result.Mechanisms)
             {
@@ -130,10 +132,10 @@ namespace Peak.Cadder.Tests
             Assert.NotNull(other);
 
             ConsumerRigCheck.Apply(result, fourBar, other, out var applied, out var loops);
-            var stop = applied.Find(j => j.Id == "j009").RotationLimit;
+            var stop = applied.Find(j => j.Id == "j008").RotationLimit;
             Assert.NotNull(stop);
-            Assert.Equal(j009.RotationLimit.Min, stop.Min, 12);
-            Assert.Equal(j009.RotationLimit.Max, stop.Max, 12);
+            Assert.Equal(j008.RotationLimit.Min, stop.Min, 12);
+            Assert.Equal(j008.RotationLimit.Max, stop.Max, 12);
             Assert.Empty(ConsumerRigCheck.EveryOption(groups, result));
         }
 

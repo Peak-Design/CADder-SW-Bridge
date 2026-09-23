@@ -2163,11 +2163,26 @@ namespace Peak.Cadder.Core
                 // ...and whether the corner that swings is the slide's own
                 // CHILD, which is the end the stroke measures.
                 bool childAtC;
+                RigJoint far;
                 if (mountC.ParentGroup == driver.ChildGroup)
-                { a = mountP.Origin; c = mountC.Origin; childAtC = true; }
+                { a = mountP.Origin; c = mountC.Origin; childAtC = true; far = mountP; }
                 else if (mountP.ParentGroup == driver.ChildGroup)
-                { a = mountC.Origin; c = mountP.Origin; childAtC = false; }
+                { a = mountC.Origin; c = mountP.Origin; childAtC = false; far = mountC; }
                 else continue;
+                // ...and the other mount, A, has to hang off the driver's
+                // PARENT, or |AB| is no side of a rigid triangle. Live
+                // TongRig: the ram's body is pinned to arm B, which turns on
+                // its own hinge. Read as if arm B stood still, the stop came
+                // out about twice the real one, and arm A opened past the
+                // ram's end of stroke.
+                if (far.ParentGroup != driver.ParentGroup)
+                {
+                    result.Notes.Add(lp.Id + ": the stroke limit of " + slide.Id
+                        + " is not carried onto " + driver.Id + ", the ram's other mount "
+                        + far.Id + " hangs off " + far.ParentGroup + ", not off "
+                        + driver.ParentGroup);
+                    continue;
+                }
 
                 var derived = SliderDriverLimit(
                     driver, a, c, slide.Axis, childAtC, slide.TranslationLimit);
