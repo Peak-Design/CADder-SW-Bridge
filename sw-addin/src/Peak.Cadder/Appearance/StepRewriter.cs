@@ -508,11 +508,17 @@ namespace Peak.Cadder.Appearance
         /// repointed uses and their direct children reference the copies.
         /// Returns the number of copies made.
         ///
-        /// Definitions split parents before children, by the depth of their
-        /// uses. When a parent splits, the uses of a definition nested inside
-        /// it land on distinct occurrence entities, one set per parent copy.
-        /// A divergence deeper down can then split the nested definition on
-        /// its own, and the recursion needs no special case.
+        /// Definitions split parents before children, in the order of the
+        /// definition tree. When a parent splits, the uses of a definition
+        /// nested inside it land on distinct occurrence entities, one set per
+        /// parent copy. A divergence deeper down can then split the nested
+        /// definition on its own, and the recursion needs no special case.
+        ///
+        /// The depth of the uses is not that order. A definition N used at
+        /// the top level and also inside a container P has a use as shallow
+        /// as any use of P. When N split first, the occurrence entity inside
+        /// P that serves every use of P moved to the copy of N, and every use
+        /// of P changed colour with it.
         /// </summary>
         private int SplitSharedDefinitions(
             List<KeyValuePair<OccurrenceAppearance, OccurrenceRef>> pairs)
@@ -532,8 +538,10 @@ namespace Peak.Cadder.Appearance
                 list.Add(p.Key);
             }
 
+            var rank = DefinitionOrder();
             var ordered = usesByDef.Where(kv => kv.Value.Count > 1)
-                .OrderBy(kv => kv.Value.Min(u => Depth(u.Path)))
+                .OrderBy(kv => rank.TryGetValue(kv.Key, out var r) ? r : int.MaxValue)
+                .ThenBy(kv => kv.Value.Min(u => Depth(u.Path)))
                 .ToList();
 
             var di = new DeInstancer(_step, _log);
@@ -547,9 +555,33 @@ namespace Peak.Cadder.Appearance
                 var childRefs = ChildrenByParentPd[def.Key];
                 string defName = _step.NameOf(ProductOf(def.Key)) ?? ("#" + def.Key);
 
+                // The groups that sit on each occurrence entity.
+                var groupsOfNauo = new Dictionary<int, HashSet<int>>();
+                for (int g = 0; g < groups.Count; g++)
+                    foreach (var use in groups[g])
+                    {
+                        int n = pairs[indexOf[use]].Value.NauoId;
+                        if (!groupsOfNauo.TryGetValue(n, out var set))
+                            groupsOfNauo[n] = set = new HashSet<int>();
+                        set.Add(g);
+                    }
+
                 // The largest group keeps the original definition.
                 foreach (var group in groups.OrderByDescending(g => g.Count()).Skip(1))
                 {
+                    // A use that shares its occurrence entity with a use of
+                    // another group cannot move alone. This happens when the
+                    // container above could not be copied. To repoint the
+                    // entity would change the other group too, so both keep
+                    // the SolidWorks colour, and the conflict check below
+                    // reports them.
+                    if (group.Any(u => groupsOfNauo[pairs[indexOf[u]].Value.NauoId].Count > 1))
+                    {
+                        _log?.Invoke($"    {defName}: {group.Count()} use(s) share an occurrence "
+                                   + "entity with uses that need other colours; not split");
+                        continue;
+                    }
+
                     var map = di.CloneAssemblyStructure(def.Key,
                         childRefs.Select(c => c.NauoId).ToList());
                     if (map == null)
@@ -583,14 +615,21 @@ namespace Peak.Cadder.Appearance
 
                     // Point each use of this group at the copy. Two paths
                     // through one shared parent share one use entity, so the
-                    // rewiring runs once per entity.
+                    // rewiring runs once per entity. The check above makes
+                    // sure that no other group sits on the entity, so its
+                    // record in ChildrenByParentPd can follow it.
                     var repointed = new HashSet<int>();
                     foreach (var use in group)
                     {
                         int idx = indexOf[use];
                         var occ = pairs[idx].Value;
                         if (repointed.Add(occ.NauoId))
+                        {
                             di.PointOccurrenceAt(occ, new DeInstancer.PartCopy { Map = map });
+                            if (ChildrenByParentPd.TryGetValue(occ.ParentPd, out var siblings))
+                                foreach (var s in siblings)
+                                    if (s.NauoId == occ.NauoId) s.ChildPd = map[def.Key];
+                        }
                         pairs[idx] = Pair(use, new OccurrenceRef
                         {
                             NauoId = occ.NauoId,
@@ -634,6 +673,34 @@ namespace Peak.Cadder.Appearance
         private static KeyValuePair<OccurrenceAppearance, OccurrenceRef> Pair(
             OccurrenceAppearance a, OccurrenceRef b)
             => new KeyValuePair<OccurrenceAppearance, OccurrenceRef>(a, b);
+
+        /// <summary>
+        /// A rank for each assembly definition in which a container always
+        /// comes before every definition nested in it: the reverse
+        /// post-order of a walk down ChildrenByParentPd.
+        /// </summary>
+        private Dictionary<int, int> DefinitionOrder()
+        {
+            var postOrder = new List<int>();
+            var seen = new HashSet<int>();
+
+            void Visit(int pd)
+            {
+                if (!seen.Add(pd)) return;
+                if (ChildrenByParentPd.TryGetValue(pd, out var kids))
+                    foreach (var k in kids)
+                        if (ChildrenByParentPd.ContainsKey(k.ChildPd)) Visit(k.ChildPd);
+                postOrder.Add(pd);
+            }
+
+            if (RootPd > 0) Visit(RootPd);
+            foreach (var pd in ChildrenByParentPd.Keys.ToList()) Visit(pd);
+
+            var rank = new Dictionary<int, int>();
+            for (int i = 0; i < postOrder.Count; i++)
+                rank[postOrder[i]] = postOrder.Count - 1 - i;
+            return rank;
+        }
 
         private static int Depth(string path)
         {
