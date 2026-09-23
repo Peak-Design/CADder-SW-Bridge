@@ -1787,11 +1787,34 @@ namespace Peak.Cadder.Core
                     drivenPrefer = new[] { JointType.Prismatic, JointType.Cylindrical };
                 }
 
+                // A body fixed to the ground has no joint of its own. The
+                // ground is the parent of every joint on it and never a
+                // child, so a mount search for it gets the first ground
+                // joint in the list, which has nothing to do with this
+                // mate. A planet on a fixed ring then drove the sun's hinge,
+                // the sun-planet mate drove the planet from the sun, and
+                // Blender refused the rig as a dependency cycle.
+                if (IsGrounded(grouping, driverGroup) || IsGrounded(grouping, drivenGroup))
+                {
+                    WarnCoupling(result, edgeJoint, mate,
+                        "One side of the mate is fixed. No joint moves that side.");
+                    continue;
+                }
+
                 var driver = FindMountJoint(result.Joints, driverGroup, driverPrefer, edgeJoint);
                 var driven = FindMountJoint(result.Joints, drivenGroup, drivenPrefer, edgeJoint);
                 if (driver == null || driven == null || driver == driven)
                 {
                     WarnCoupling(result, edgeJoint, mate);
+                    continue;
+                }
+                // Chained couplings are fine. A ring of them is not: the
+                // consumer refuses the whole rig when two joints drive each
+                // other, directly or through others.
+                if (DriverChainReaches(result.Joints, driver, driven))
+                {
+                    WarnCoupling(result, edgeJoint, mate,
+                        "The coupling would make a cycle of joints that drive each other.");
                     continue;
                 }
 
@@ -2175,14 +2198,44 @@ namespace Peak.Cadder.Core
                 w.Code == "UNDER_DEFINED" && w.Joints.Contains(driven.Id));
         }
 
-        private static void WarnCoupling(ClassificationResult result, RigJoint edgeJoint, GraphMate mate)
+        private static void WarnCoupling(
+            ClassificationResult result, RigJoint edgeJoint, GraphMate mate, string reason = null)
         {
             var w = new ManifestWarning();
             w.Code = "COUPLING_UNRESOLVED";
             w.Message = "Coupling mate " + (mate.FeatureName ?? "?")
                 + " could not be resolved to a driver/driven joint pair; annotation dropped.";
+            if (reason != null) w.Message += " " + reason;
             if (edgeJoint != null) w.Joints.Add(edgeJoint.Id);
             result.Warnings.Add(w);
+        }
+
+        private static bool IsGrounded(RigidGroupingResult grouping, string groupId)
+        {
+            foreach (var g in grouping.Groups)
+                if (g.Id == groupId) return g.Grounded;
+            return false;
+        }
+
+        /// <summary>True when <paramref name="target"/> already drives
+        /// <paramref name="driver"/>, directly or through other couplings,
+        /// so a coupling from the driver onto the target would close a
+        /// ring. A chain that loops on itself counts as a ring too.</summary>
+        private static bool DriverChainReaches(
+            List<RigJoint> joints, RigJoint driver, RigJoint target)
+        {
+            var visited = new HashSet<string>();
+            for (var d = driver; d != null && d.Coupling != null
+                 && d.Coupling.DriverJoint != null;)
+            {
+                if (!visited.Add(d.Id) || d.Coupling.DriverJoint == target.Id)
+                    return true;
+                RigJoint next = null;
+                foreach (var j in joints)
+                    if (j.Id == d.Coupling.DriverJoint) { next = j; break; }
+                d = next;
+            }
+            return false;
         }
 
         // ── Geometry helpers ────────────────────────────────────────────────
