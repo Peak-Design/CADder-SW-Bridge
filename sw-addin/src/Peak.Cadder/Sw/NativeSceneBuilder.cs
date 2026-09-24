@@ -51,12 +51,14 @@ namespace Peak.Cadder.Sw
             List<WalkedComponent> walked, BodyTessellator.Fineness fineness, Action<string> log,
             HashSet<string> only = null, bool separateSolids = false,
             HashSet<string> keepPaths = null, ExportProgress progress = null,
-            AppearanceOptions appearance = null, DefeatureOptions defeature = null)
+            AppearanceOptions appearance = null, DefeatureOptions defeature = null,
+            IModelDoc2 top = null)
         {
             progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
             var definitions = new Dictionary<string, List<MeshDefinition>>(StringComparer.OrdinalIgnoreCase);
-            var materials = new AppearanceTable(scene, log, appearance);
+            // The assembly itself, for the appearances applied in it.
+            var materials = new AppearanceTable(scene, log, appearance, top);
             // Every subassembly occurrence seen, walked or descended into.
             // Only the ones an instance actually hangs under are written.
             var nodes = new Dictionary<string, MeshNode>(StringComparer.OrdinalIgnoreCase);

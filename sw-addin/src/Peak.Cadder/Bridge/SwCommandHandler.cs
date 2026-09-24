@@ -600,6 +600,10 @@ namespace Peak.Cadder.Bridge
                 return Fail("the document has never been saved");
             var settings = AppSettings.Load(AddIn.Log);
             bool native = MiniJson.Flag(request, "native", true);
+            // "append" and "link_parts" for this send only, as the
+            // options would set them.
+            settings.AppendCopies = MiniJson.Flag(request, "append", settings.AppendCopies);
+            settings.LinkParts = MiniJson.Flag(request, "link_parts", settings.LinkParts);
             long mark = LogMark();
             var names = RequestedConfigurations(request);
             bool several = names.Count > 1;
@@ -917,6 +921,9 @@ namespace Peak.Cadder.Bridge
         {
             var model = ModelFor(app, request);
             var part = model as IPartDoc;
+            string component = MiniJson.Str(request, "component", null);
+            if (part == null && model is IAssemblyDoc && !string.IsNullOrEmpty(component))
+                return ApplyAppearanceInAssembly(model, (IAssemblyDoc)model, component, request);
             if (part == null) return Fail("the active document is not a part");
             string path = MiniJson.Str(request, "path", null);
             string target = MiniJson.Str(request, "target", "document");
@@ -969,6 +976,102 @@ namespace Peak.Cadder.Bridge
                 { "width", rm.Width }, { "height", rm.Height }, { "file", rm.FileName },
                 { "mapping_type", rm.MappingType }, { "rotation", rm.RotationAngle },
             };
+        }
+
+        /// <summary>
+        /// An appearance at assembly level on one occurrence: "component"
+        /// names it (Name2, "sub-1/part-2"), and "target" is "component"
+        /// for the whole occurrence or "face:N" for face N of its first
+        /// body. Two occurrences of one part can then look different, which
+        /// is what a send must keep apart.
+        /// </summary>
+        private static Dictionary<string, object> ApplyAppearanceInAssembly(
+            IModelDoc2 model, IAssemblyDoc assembly, string component,
+            Dictionary<string, object> request)
+        {
+            string path = MiniJson.Str(request, "path", null);
+            string target = MiniJson.Str(request, "target", "component");
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return Fail("no appearance file at " + path);
+            IComponent2 comp = null;
+            try { comp = assembly.GetComponentByName(component) as IComponent2; } catch { }
+            if (comp == null) return Fail("no component " + component);
+            IRenderMaterial rm;
+            try { rm = model.Extension.CreateRenderMaterial(path) as IRenderMaterial; }
+            catch (Exception ex) { return Fail("CreateRenderMaterial failed: " + ex.Message); }
+            if (rm == null) return Fail("CreateRenderMaterial returned nothing");
+            object entity = comp;
+            if (target.StartsWith("face:"))
+            {
+                int index;
+                if (!int.TryParse(target.Substring(5), out index)) return Fail("face index is not a number");
+                object info;
+                var bodies = comp.GetBodies3((int)swBodyType_e.swSolidBody, out info) as object[];
+                var body = bodies == null || bodies.Length == 0 ? null : bodies[0] as IBody2;
+                if (body == null) return Fail("the component has no solid body");
+                var faces = body.GetFaces() as object[];
+                if (faces == null || index < 0 || index >= faces.Length) return Fail("no face " + index);
+                // The face as the assembly sees it, picked as a click picks
+                // it: a ray at the middle of its first facet. A face taken
+                // from the bodies of the component does not take an
+                // appearance in the assembly.
+                entity = PickFace(model, comp, faces[index] as IFace2) ?? faces[index];
+            }
+            bool added;
+            int id = 0;
+            try
+            {
+                rm.AddEntity(entity);
+                added = model.Extension.AddRenderMaterial((RenderMaterial)rm, out id);
+            }
+            catch (Exception ex) { return Fail("AddRenderMaterial failed: " + ex.Message); }
+            try { model.GraphicsRedraw2(); } catch { }
+            return new Dictionary<string, object>
+            {
+                { "ok", added }, { "material_id", id }, { "component", component },
+                { "target", target }, { "file", rm.FileName },
+            };
+        }
+
+        /// <summary>The face of the assembly that a ray at the middle of the
+        /// first facet of <paramref name="face"/> hits, as the assembly
+        /// selects it, or null.</summary>
+        private static object PickFace(IModelDoc2 model, IComponent2 comp, IFace2 face)
+        {
+            try
+            {
+                var tris = face.GetTessTriangles(true) as float[];
+                var norms = face.GetTessNorms() as float[];
+                if (tris == null || tris.Length < 9 || norms == null || norms.Length < 3) return null;
+                double[] p = { (tris[0] + tris[3] + tris[6]) / 3.0,
+                               (tris[1] + tris[4] + tris[7]) / 3.0,
+                               (tris[2] + tris[5] + tris[8]) / 3.0 };
+                double[] n = { norms[0], norms[1], norms[2] };
+                // Part space to assembly space, by the component's place.
+                var t = comp.Transform2 as MathTransform;
+                var data = t == null ? null : t.ArrayData as double[];
+                if (data != null && data.Length >= 12)
+                {
+                    double[] q = new double[3], m = new double[3];
+                    for (int i = 0; i < 3; i++)
+                    {
+                        q[i] = p[0] * data[i] + p[1] * data[3 + i] + p[2] * data[6 + i] + data[9 + i];
+                        m[i] = n[0] * data[i] + n[1] * data[3 + i] + n[2] * data[6 + i];
+                    }
+                    p = q;
+                    n = m;
+                }
+                // From just outside the face, looking back at it.
+                double off = 0.001;
+                model.ClearSelection2(true);
+                bool hit = model.Extension.SelectByRay(
+                    p[0] + n[0] * off, p[1] + n[1] * off, p[2] + n[2] * off,
+                    -n[0], -n[1], -n[2], 0.0005, (int)swSelectType_e.swSelFACES,
+                    false, 0, 0);
+                if (!hit) return null;
+                var sm = model.SelectionManager as ISelectionMgr;
+                return sm == null ? null : sm.GetSelectedObject6(1, -1);
+            }
+            catch { return null; }
         }
 
         /// <summary>Sets a dimension by its full name ("D1@Distance1") in
@@ -1860,7 +1963,7 @@ namespace Peak.Cadder.Bridge
                 scene = NativeSceneBuilder.Build(
                     walked, fineness, AddIn.Log, selection.Everything ? null : selection.Ids,
                     separateSolids, keepPaths: keepPaths,
-                    appearance: appearance, defeature: defeature);
+                    appearance: appearance, defeature: defeature, top: model);
                 if (!selection.Everything && scene.Instances.Count == 0)
                     return Fail("none of those components are in the open assembly");
             }

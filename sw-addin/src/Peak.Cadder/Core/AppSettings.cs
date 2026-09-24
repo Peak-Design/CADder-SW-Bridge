@@ -68,6 +68,17 @@ namespace Peak.Cadder.Core
         /// it stands in its own collection with its own rig. Off, a send
         /// takes the active configuration, as before 1.2.0.</summary>
         public bool MultipleConfigurations = false;
+        /// <summary>Whether a send adds the assembly to the Blender scene as
+        /// a new copy, with its own collection and its own rig, and leaves
+        /// an earlier send of the same assembly and configuration as it is.
+        /// Off, a send replaces that earlier send. Refresh Model never makes
+        /// a copy: it brings the send and its copies up to date.</summary>
+        public bool AppendCopies = false;
+        /// <summary>Whether Blender gives a part the mesh of the same part
+        /// that is already in the scene, from any send: the same shape with
+        /// the same appearance. Off, each send makes meshes of its own.
+        /// </summary>
+        public bool LinkParts = true;
 
         // ── The ribbon ──────────────────────────────────────────────────────
         /// <summary>When the add-in file this ribbon was built from was
@@ -202,6 +213,10 @@ namespace Peak.Cadder.Core
                 settings.MatchView = MiniJson.Flag(obj, "match_view", settings.MatchView);
                 settings.MultipleConfigurations = MiniJson.Flag(
                     obj, "multiple_configurations", settings.MultipleConfigurations);
+                settings.AppendCopies = MiniJson.Flag(
+                    obj, "append_copies", settings.AppendCopies);
+                settings.LinkParts = MiniJson.Flag(
+                    obj, "link_parts", settings.LinkParts);
                 settings.CommandUiBuild = MiniJson.Str(obj, "command_ui_build", settings.CommandUiBuild);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
@@ -249,6 +264,8 @@ namespace Peak.Cadder.Core
                     { "unwrap_compound", UnwrapCompound },
                     { "match_view", MatchView },
                     { "multiple_configurations", MultipleConfigurations },
+                    { "append_copies", AppendCopies },
+                    { "link_parts", LinkParts },
                     { "command_ui_build", CommandUiBuild },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },

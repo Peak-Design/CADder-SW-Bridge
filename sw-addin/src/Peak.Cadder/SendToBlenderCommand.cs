@@ -594,6 +594,12 @@ namespace Peak.Cadder
             // request.
             if (!string.IsNullOrEmpty(configuration))
                 payload["configuration"] = configuration;
+            // A new copy beside the earlier send, for a send only: Refresh
+            // Model brings the send and its copies up to date instead.
+            if (settings.AppendCopies && !update) payload["append"] = true;
+            // Blender links a part to the same part in the scene unless it
+            // is told not to, so only "no" travels.
+            if (!settings.LinkParts) payload["link_parts"] = false;
             // Where SolidWorks is looking from. Blender turns its viewport
             // to the same angle when this is here, and leaves it alone when
             // it is not, so the setting travels as its presence.

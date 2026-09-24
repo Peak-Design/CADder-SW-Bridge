@@ -51,6 +51,40 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
+        public void ASendAppendsACopyOnlyWhenTheOptionIsOn()
+        {
+            var settings = new AppSettings();
+            Assert.False(SendToBlenderCommand.BuildPayload(
+                settings, null, "lift_A.swmesh", null).ContainsKey("append"));
+            settings.AppendCopies = true;
+            Assert.Equal(true, SendToBlenderCommand.BuildPayload(
+                settings, null, "lift_A.swmesh", null)["append"]);
+        }
+
+        [Fact]
+        public void ARefreshNeverAppendsACopy()
+        {
+            // Refresh Model brings the send and its copies up to date. A
+            // copy made by a refresh would stack one more copy each time.
+            var settings = new AppSettings { AppendCopies = true };
+            var payload = SendToBlenderCommand.BuildPayload(
+                settings, null, "lift_A.swmesh", "lift_A.rig.json", update: true);
+            Assert.False(payload.ContainsKey("append"));
+        }
+
+        [Fact]
+        public void OnlyASendWithLinksOffSaysSo()
+        {
+            var settings = new AppSettings();
+            Assert.True(settings.LinkParts);
+            Assert.False(SendToBlenderCommand.BuildPayload(
+                settings, null, "lift_A.swmesh", null).ContainsKey("link_parts"));
+            settings.LinkParts = false;
+            Assert.Equal(false, SendToBlenderCommand.BuildPayload(
+                settings, null, "lift_A.swmesh", null)["link_parts"]);
+        }
+
+        [Fact]
         public void AJobNamesItsFilesAfterTheStem()
         {
             var job = new SendToBlenderCommand.SendJob("A/B", "lift", @"C:\out", true);

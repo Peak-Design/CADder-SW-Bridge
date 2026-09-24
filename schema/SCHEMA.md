@@ -63,6 +63,14 @@ two halves agree on:
   `export` carries `configuration`.
 - **Pose push.** The payload carries the active `configuration`, and
   Blender moves only the parts of that configuration.
+- **Copies.** `append: true` in a send payload asks Blender to add the
+  send as a new copy when it holds that stem already: the import
+  `<stem>.001` (then `.002`), tagged `SWMESH_copy_of = <stem>`. A Refresh
+  Model payload never has it. A refresh of a stem also brings its copies
+  up to date, and the reply lists them in `copies`.
+- **Linked parts.** Blender gives a part the mesh of an identical part of
+  any import in the scene (the same triangles and the same appearance of
+  each triangle). `link_parts: false` in a send payload asks it not to.
 
 ## Units and frames
 

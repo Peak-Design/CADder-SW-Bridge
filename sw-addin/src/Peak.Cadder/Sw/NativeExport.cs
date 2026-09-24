@@ -48,7 +48,7 @@ namespace Peak.Cadder.Sw
                         + " component(s)", 0, 100, walked.Count);
                 return NativeSceneBuilder.Build(
                     walked, fineness, log, null, separateSolids, keepPaths, progress,
-                    appearance, defeature);
+                    appearance, defeature, model);
             }
 
             // A PART has no components to walk, so it is its own single

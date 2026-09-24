@@ -50,6 +50,10 @@ namespace Peak.Cadder.Sw
             public string DocDir;
             public IRenderMaterial Assembly;
             public string AssemblyWhere;
+            // Appearances on faces of this occurrence, applied in the top
+            // assembly. They cover the occurrence's own and the one on the
+            // whole occurrence.
+            public readonly List<KeyValuePair<IFace2, IRenderMaterial>> AssemblyFaces = new List<KeyValuePair<IFace2, IRenderMaterial>>();
             public readonly List<KeyValuePair<IFace2, IRenderMaterial>> Faces = new List<KeyValuePair<IFace2, IRenderMaterial>>();
             public readonly Dictionary<int, IRenderMaterial> Features = new Dictionary<int, IRenderMaterial>();
             public readonly Dictionary<string, IRenderMaterial> Bodies = new Dictionary<string, IRenderMaterial>(StringComparer.Ordinal);
@@ -59,9 +63,16 @@ namespace Peak.Cadder.Sw
             public int LegacyMaterial = -1;
         }
 
+        /// <summary>The assembly that is sent. Its own appearances, on a
+        /// component or on the faces of one, are in its document and in no
+        /// component's list (GatherTop).</summary>
+        public IModelDoc2 Top;
+        private List<IRenderMaterial> _topMaterials;
+
         public AppearanceTable(MeshScene scene, Action<string> log,
-                              AppearanceOptions options = null)
+                              AppearanceOptions options = null, IModelDoc2 top = null)
         {
+            Top = top;
             _scene = scene;
             _log = log;
             _options = options ?? AppearanceOptions.Full;
@@ -77,9 +88,20 @@ namespace Peak.Cadder.Sw
         public string OccurrenceKey(IComponent2 comp)
         {
             var ctx = For(comp);
-            if (ctx.Assembly == null) return "";
-            var spec = Cached(ctx.Assembly, ctx, "component", null);
-            return "|asm:" + spec.Key().GetHashCode().ToString("x8", CultureInfo.InvariantCulture);
+            if (ctx.Assembly == null && ctx.AssemblyFaces.Count == 0) return "";
+            var parts = new List<string>();
+            if (ctx.Assembly != null)
+                parts.Add(Cached(ctx.Assembly, ctx, "component", null).Key());
+            // A face painted in the assembly, by its appearance and its
+            // area: the same face of two occurrences has the same area, and
+            // no face object of one occurrence compares to the other's.
+            foreach (var kv in ctx.AssemblyFaces)
+                parts.Add("face " + SafeDouble(() => kv.Key.GetArea(), 0.0)
+                              .ToString("G9", CultureInfo.InvariantCulture)
+                          + " " + Cached(kv.Value, ctx, "component", null).Key());
+            parts.Sort(StringComparer.Ordinal);
+            return "|asm:" + string.Join("|", parts).GetHashCode()
+                .ToString("x8", CultureInfo.InvariantCulture);
         }
 
         public Context For(IComponent2 comp)
@@ -103,10 +125,60 @@ namespace Peak.Cadder.Sw
                             ctx.AssemblyWhere = SafeName(parent);
                         }
             }
+            GatherTop(ctx, comp);
             try { ctx.AssemblyToPart = MathOps.InvertRigid(SwFrames.ComponentWorld(comp)); } catch { }
             FinishContext(ctx);
             if (comp != null) _contexts[comp] = ctx;
             return ctx;
+        }
+
+        /// <summary>
+        /// The appearances applied in the top assembly: on this occurrence,
+        /// on a subassembly above it, or on faces of it. They are in the
+        /// document of the assembly, and neither the component nor its
+        /// parents list them: a gloss red applied in the assembly to a part
+        /// that sits at the top came back as the carbon steel of the part,
+        /// and it shared the mesh of an unpainted copy of the part (live,
+        /// 2026-09-24). The assembly is the highest level, so its
+        /// appearance wins over one from a subassembly.
+        /// </summary>
+        private void GatherTop(Context ctx, IComponent2 comp)
+        {
+            if (Top == null || comp == null) return;
+            if (_topMaterials == null)
+                _topMaterials = new List<IRenderMaterial>(SafeRenderMaterials(
+                    () => Top.Extension.GetRenderMaterials2((int)swDisplayStateOpts_e.swThisDisplayState, null)));
+            foreach (var rm in _topMaterials)
+            {
+                foreach (var e in SafeEntities(rm))
+                {
+                    var c = e as IComponent2;
+                    if (c != null)
+                    {
+                        if (IsSelfOrAbove(c, comp))
+                        {
+                            ctx.Assembly = rm;
+                            ctx.AssemblyWhere = "the assembly";
+                        }
+                        continue;
+                    }
+                    var f = e as IFace2;
+                    if (f != null && SameComponent(ComponentOf(f), comp))
+                        ctx.AssemblyFaces.Add(new KeyValuePair<IFace2, IRenderMaterial>(f, rm));
+                }
+            }
+        }
+
+        private static bool IsSelfOrAbove(IComponent2 candidate, IComponent2 comp)
+        {
+            for (var c = comp; c != null; c = SafeParent(c))
+                if (SameComponent(candidate, c)) return true;
+            return false;
+        }
+
+        private static IComponent2 ComponentOf(IFace2 face)
+        {
+            try { return ((IEntity)face).GetComponent() as IComponent2; } catch { return null; }
         }
 
         /// <summary>A part opened on its own: its document is the whole
@@ -131,12 +203,12 @@ namespace Peak.Cadder.Sw
             catch { }
             if (_log != null)
                 _log(string.Format(CultureInfo.InvariantCulture,
-                    "appearance {0}: assembly {1}, {2} face, {3} feature, {4} body, document {5}, {6} decal(s)",
+                    "appearance {0}: assembly {1} and {7} face(s), {2} face, {3} feature, {4} body, document {5}, {6} decal(s)",
                     ctx.Comp != null ? SafeName(ctx.Comp) : SafeTitle(ctx.Doc),
                     ctx.Assembly == null ? "none" : Stem(ctx.Assembly) + " from " + ctx.AssemblyWhere,
                     ctx.Faces.Count, ctx.Features.Count, ctx.Bodies.Count,
                     ctx.Document == null ? "none" : Stem(ctx.Document),
-                    ctx.Decals == null ? 0 : ctx.Decals.Length));
+                    ctx.Decals == null ? 0 : ctx.Decals.Length, ctx.AssemblyFaces.Count));
         }
 
         private static void Gather(Context ctx, IEnumerable<IRenderMaterial> materials, IComponent2 comp)
@@ -267,6 +339,21 @@ namespace Peak.Cadder.Sw
         private static IRenderMaterial Winner(IFace2 face, IBody2 body, Context ctx, out string source)
         {
             source = "component";
+            if (ctx.AssemblyFaces.Count > 0)
+            {
+                // The faces of the tessellation are the part's. A face
+                // painted in the assembly is the occurrence's, so the part
+                // face is taken to the assembly to compare.
+                object inAssembly = null;
+                try { inAssembly = ctx.Comp == null ? null : ctx.Comp.GetCorrespondingEntity(face); }
+                catch { }
+                var probe = inAssembly as IFace2 ?? face;
+                foreach (var kv in ctx.AssemblyFaces)
+                {
+                    try { if (ReferenceEquals(kv.Key, probe) || kv.Key.IsSame(probe)) return kv.Value; }
+                    catch { }
+                }
+            }
             if (ctx.Assembly != null) return ctx.Assembly;
             source = "face";
             foreach (var kv in ctx.Faces)

@@ -46,6 +46,8 @@ namespace Peak.Cadder
         private readonly CheckBox _unwrapCompound;
         private readonly CheckBox _matchView;
         private readonly CheckBox _multipleConfigurations;
+        private readonly CheckBox _appendCopies;
+        private readonly CheckBox _linkParts;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
 #if DEBUG
@@ -130,6 +132,17 @@ namespace Peak.Cadder
                 "Multiple configurations", settings.MultipleConfigurations,
                 "Ask which configurations to send. Each configuration goes to "
                 + "Blender in its own collection, with its own rig");
+            _appendCopies = Check(
+                "Append as a new copy", settings.AppendCopies,
+                "Add the assembly to the Blender scene as a new copy, with its "
+                + "own collection and rig. The earlier send of the same "
+                + "assembly and configuration stays. Refresh Model brings the "
+                + "copies up to date too");
+            _linkParts = Check(
+                "Link identical parts", settings.LinkParts,
+                "Give a part the mesh of the same part that is already in the "
+                + "Blender scene, from any assembly. A part with another "
+                + "appearance gets a mesh of its own");
             _appearances = Check(
                 "Appearances", settings.ExportAppearances,
                 "Send the SolidWorks appearances: colors, finish, textures "
@@ -219,6 +232,8 @@ namespace Peak.Cadder
             import.Controls.Add(_separateSolids);
             import.Controls.Add(_onlySelected);
             import.Controls.Add(_multipleConfigurations);
+            import.Controls.Add(_appendCopies);
+            import.Controls.Add(_linkParts);
             import.Controls.Add(_appearances);
             import.Controls.Add(_decals);
             import.Controls.Add(_textureMapping);
@@ -459,6 +474,8 @@ namespace Peak.Cadder
             settings.IncludeHidden = _hidden.Checked;
             settings.OnlySelected = _onlySelected.Checked;
             settings.MultipleConfigurations = _multipleConfigurations.Checked;
+            settings.AppendCopies = _appendCopies.Checked;
+            settings.LinkParts = _linkParts.Checked;
             settings.ImportCurves = _importCurves.Checked;
             settings.SeparateSolids = _separateSolids.Checked;
             settings.TrisToQuads = _trisToQuads.Checked;
