@@ -69,6 +69,7 @@ namespace Peak.Cadder.Bridge
                 case "unsuppress": return Lab(request, () => Suppress(app, request, false));
                 case "dimension": return Lab(request, () => Dimension(app, request));
                 case "quit": return Lab(request, () => Quit(app));
+                case "run_command": return Lab(request, () => RunCommand(app, request));
                 case "status_probe": return Lab(request, () => StatusProbe(app, request));
                 case "compose": return Lab(request, () => LabCompose.Compose(app, request));
                 case "configure":
@@ -526,17 +527,68 @@ namespace Peak.Cadder.Bridge
             bool withStep = MiniJson.Flag(request, "step", false);
             bool withMesh = MiniJson.Flag(request, "mesh", false);
             long mark = LogMark();
-            var paths = ExportFiles(app, model, settings, request, withStep, withMesh);
-            var reply = new Dictionary<string, object> { { "ok", true } };
-            foreach (var kv in paths) reply[kv.Key] = kv.Value;
-            reply["log"] = LogSince(mark);
-            return reply;
+            return InConfiguration(model, request, () =>
+            {
+                var paths = ExportFiles(app, model, settings, request, withStep, withMesh);
+                var reply = new Dictionary<string, object> { { "ok", true } };
+                foreach (var kv in paths) reply[kv.Key] = kv.Value;
+                reply["log"] = LogSince(mark);
+                return reply;
+            });
+        }
+
+        /// <summary>
+        /// Runs one operation in the configuration the request names
+        /// ("configuration"), and shows the configuration that was active
+        /// again afterwards, also when the operation fails. Blender names
+        /// the configuration of its import, because it can hold several
+        /// configurations of one document, and an answer from another
+        /// configuration puts the wrong parts and poses on its scene. A
+        /// request that names none (an older Blender) gets the active
+        /// configuration. A name the document does not have fails the
+        /// request and says which name it is.
+        /// </summary>
+        private static Dictionary<string, object> InConfiguration(
+            IModelDoc2 model, Dictionary<string, object> request,
+            Func<Dictionary<string, object>> run)
+        {
+            ConfigurationSwitch shown;
+            try
+            {
+                shown = ConfigurationSwitch.Showing(
+                    model, MiniJson.Str(request, "configuration", null), AddIn.Log);
+            }
+            catch (InvalidOperationException ex) { return Fail(ex.Message); }
+            using (shown) return run();
+        }
+
+        /// <summary>The configurations a lab send takes: "configuration"
+        /// names one, "configurations" several. A null entry is the active
+        /// configuration, which is what a request that names none gets.
+        /// </summary>
+        internal static List<string> RequestedConfigurations(Dictionary<string, object> request)
+        {
+            var names = new List<string>();
+            string one = MiniJson.Str(request, "configuration", null);
+            if (!string.IsNullOrEmpty(one)) names.Add(one);
+            foreach (var name in Strings(request, "configurations"))
+                if (!names.Contains(name)) names.Add(name);
+            if (names.Count == 0) names.Add(null);
+            return names;
         }
 
         /// <summary>
         /// The one-click send, without its dialogs: export as the ribbon
         /// would, hand the files to a running Blender (or launch one when the
         /// settings allow), and return Blender's own reply.
+        ///
+        /// "configuration" or "configurations" names what to send, and the
+        /// active configuration goes when neither does. Several
+        /// configurations go as the ribbon sends them: every export first,
+        /// then one payload after the other, and one that fails does not
+        /// stop the others. The reply of a send of one configuration has
+        /// the shape it had before 1.2.0. A send of several replies with
+        /// one row per configuration ("jobs").
         /// </summary>
         private static Dictionary<string, object> Send(
             ISldWorks app, Dictionary<string, object> request)
@@ -549,7 +601,52 @@ namespace Peak.Cadder.Bridge
             var settings = AppSettings.Load(AddIn.Log);
             bool native = MiniJson.Flag(request, "native", true);
             long mark = LogMark();
-            var paths = ExportFiles(app, model, settings, request, !native, native, send: true);
+            var names = RequestedConfigurations(request);
+            bool several = names.Count > 1;
+
+            // The selection is read once, before a configuration is shown,
+            // as the ribbon's send reads it (SendToBlenderCommand.Run).
+            HashSet<string> keep = OnlySelectedFor(request, settings, true)
+                ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
+            var rows = new List<Dictionary<string, object>>();
+            Dictionary<string, object> view = null;
+            using (var shown = new ConfigurationSwitch(model, AddIn.Log))
+            {
+                foreach (var name in names)
+                {
+                    var row = new Dictionary<string, object>
+                    {
+                        { "configuration", name ?? shown.Original },
+                    };
+                    rows.Add(row);
+                    try
+                    {
+                        row["configuration"] = shown.Show(name);
+                        foreach (var kv in ExportFiles(app, model, settings, request,
+                                                       !native, native, send: true, keepPaths: keep))
+                            row[kv.Key] = kv.Value;
+                        if (settings.MatchView) view = ViewReader.Read(model);
+                    }
+                    // One configuration stops only itself. A send of one
+                    // fails the request, as it did before, and so does an
+                    // Escape on the progress bar.
+                    catch (Exception ex) when (several && !(ex is ExportCancelled))
+                    {
+                        AddIn.Log("sw bridge: send of " + row["configuration"] + " failed: " + ex);
+                        row["ok"] = false;
+                        row["error"] = ex.Message;
+                    }
+                }
+            }
+            var ready = rows.FindAll(r => !r.ContainsKey("error"));
+            if (ready.Count == 0)
+                return new Dictionary<string, object>
+                {
+                    { "ok", false },
+                    { "error", "no configuration was exported" },
+                    { "jobs", new List<object>(rows) },
+                    { "log", LogSince(mark) },
+                };
 
             // "update" and "rig_mode" make this the payload Refresh Model
             // sends, so a lab session can refresh a scene the way the ribbon
@@ -566,27 +663,50 @@ namespace Peak.Cadder.Bridge
                 if (exe == null) return Fail("no Blender installation was found to launch");
                 target = BlenderBridge.Launch(exe, AddIn.Log);
             }
-            string stepPath = paths.ContainsKey("step") ? (string)paths["step"] : null;
-            string meshPath = paths.ContainsKey("mesh") ? (string)paths["mesh"] : null;
-            string manifestPath = paths.ContainsKey("manifest") ? (string)paths["manifest"] : null;
             string rigMode = request.ContainsKey("rig_mode")
                 ? request["rig_mode"] as string : null;
-            var payload = SendToBlenderCommand.BuildPayload(
-                settings, native ? null : stepPath, native ? meshPath : null,
-                manifestPath, update: update, rigMode: rigMode,
-                view: settings.MatchView ? ViewReader.Read(model) : null,
-                sourceDocument: SafePath(model));
             int timeoutMs = (int)(MiniJson.Num(request, "timeout_s", 600) * 1000);
-            var resp = BlenderBridge.PostImport(target, payload, timeoutMs, AddIn.Log);
-            var reply = new Dictionary<string, object>
+            for (int i = 0; i < ready.Count; i++)
             {
-                { "ok", MiniJson.Flag(resp, "ok") },
-                { "blender", resp },
+                var row = ready[i];
+                var payload = SendToBlenderCommand.BuildPayload(
+                    settings, native ? null : row.ContainsKey("step") ? row["step"] as string : null,
+                    native && row.ContainsKey("mesh") ? row["mesh"] as string : null,
+                    row.ContainsKey("manifest") ? row["manifest"] as string : null,
+                    update: update, rigMode: rigMode,
+                    // Blender turns its view once, after the last import.
+                    view: i == ready.Count - 1 ? view : null,
+                    sourceDocument: SafePath(model),
+                    configuration: row["configuration"] as string);
+                try
+                {
+                    var resp = BlenderBridge.PostImport(target, payload, timeoutMs, AddIn.Log);
+                    row["ok"] = MiniJson.Flag(resp, "ok");
+                    row["blender"] = resp;
+                }
+                catch (Exception ex) when (several)
+                {
+                    AddIn.Log("sw bridge: send of " + row["configuration"]
+                        + " did not reach Blender: " + ex);
+                    row["ok"] = false;
+                    row["error"] = ex.Message;
+                }
+            }
+            if (!several)
+            {
+                // The shape of a send before 1.2.0, with the configuration.
+                var one = rows[0];
+                one["blender_pid"] = target.Pid;
+                one["log"] = LogSince(mark);
+                return one;
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", rows.TrueForAll(r => MiniJson.Flag(r, "ok")) },
                 { "blender_pid", target.Pid },
+                { "jobs", new List<object>(rows) },
+                { "log", LogSince(mark) },
             };
-            foreach (var kv in paths) reply[kv.Key] = kv.Value;
-            reply["log"] = LogSince(mark);
-            return reply;
         }
 
         // ── Lab operations (change the open model, never save) ────────────
@@ -886,6 +1006,31 @@ namespace Peak.Cadder.Bridge
             };
         }
 
+        /// <summary>
+        /// Runs a ribbon command as a click on its button runs it, with
+        /// its dialogs: "send" is Send to Blender, "refresh" is Refresh
+        /// Model. The reply comes when the command is done, after the
+        /// last dialog closes. A live test clicks the dialogs from outside
+        /// (Windows UI Automation), so the ribbon path itself is tested,
+        /// not the lab's own send.
+        /// </summary>
+        private static Dictionary<string, object> RunCommand(
+            ISldWorks app, Dictionary<string, object> request)
+        {
+            string command = MiniJson.Str(request, "command", "");
+            long mark = LogMark();
+            switch (command)
+            {
+                case "send": SendToBlenderCommand.Run(app, native: true); break;
+                case "refresh": RefreshModelCommand.Run(app); break;
+                default: return Fail("unknown command " + command);
+            }
+            return new Dictionary<string, object>
+            {
+                { "ok", true }, { "command", command }, { "log", LogSince(mark) },
+            };
+        }
+
         /// <summary>Closes every document without saving and exits. The
         /// reply goes out first; the exit runs a moment later on the
         /// SolidWorks thread.</summary>
@@ -920,14 +1065,16 @@ namespace Peak.Cadder.Bridge
                 settings, MiniJson.Flag(request, "update", false));
         }
 
-        /// <summary>Manifest (assemblies), STEP and mesh as asked. Keys of the
-        /// result: manifest, step, mesh, warnings, joints. <paramref
+        /// <summary>Manifest (assemblies), STEP and mesh as asked, of the
+        /// configuration that SolidWorks shows now. Keys of the result:
+        /// configuration, manifest, step, mesh, warnings, joints. <paramref
         /// name="send"/> is true for the lab's send, which follows the
-        /// ribbon's.</summary>
+        /// ribbon's. <paramref name="keepPaths"/> is the selection when the
+        /// caller read it before it showed the configuration.</summary>
         private static Dictionary<string, object> ExportFiles(
             ISldWorks app, IModelDoc2 model, AppSettings settings,
             Dictionary<string, object> request, bool withStep, bool withMesh,
-            bool send = false)
+            bool send = false, HashSet<string> keepPaths = null)
         {
             var assembly = model as IAssemblyDoc;
             string baseName = Path.GetFileNameWithoutExtension(model.GetPathName());
@@ -935,14 +1082,19 @@ namespace Peak.Cadder.Bridge
             if (string.IsNullOrEmpty(dir))
                 dir = SendToBlenderCommand.ExportDir(settings, model, baseName);
             Directory.CreateDirectory(dir);
-            string stepPath = Path.Combine(dir, baseName + ".step");
-            string meshPath = Path.Combine(dir, baseName + ".swmesh");
-            string manifestPath = Path.Combine(dir, baseName + ".rig.json");
+            // The files are named after the configuration, as a send names
+            // them, so two configurations do not write over each other.
+            string configuration = Configurations.Active(model);
+            string stem = ConfigurationNames.Stem(baseName, configuration);
+            string stepPath = Path.Combine(dir, stem + ".step");
+            string meshPath = Path.Combine(dir, stem + ".swmesh");
+            string manifestPath = Path.Combine(dir, stem + ".rig.json");
             var result = new Dictionary<string, object>();
+            result["configuration"] = configuration;
 
             bool onlySelected = OnlySelectedFor(request, settings, send);
             settings.OnlySelected = onlySelected;
-            HashSet<string> keep = null;
+            HashSet<string> keep = keepPaths;
             // An update from Blender runs the same stages as the ribbon's
             // export, so SolidWorks shows the same bar. A user watching
             // SolidWorks then sees what Blender asked it to do.
@@ -960,7 +1112,7 @@ namespace Peak.Cadder.Bridge
                     var outcome = ExportCommand.ExportBundle(
                         app, model, assembly, stepPath, manifestPath, settings,
                         manifestOnly: !withStep, progress: bar,
-                        matchStep: withStep || !withMesh);
+                        matchStep: withStep || !withMesh, keepPaths: keepPaths);
                     keep = outcome.KeepPaths;
                     result["manifest"] = outcome.ManifestPath;
                     result["warnings"] = outcome.Warnings;
@@ -1241,6 +1393,12 @@ namespace Peak.Cadder.Bridge
             string error;
             var model = ModelFor(app, request, out error);
             if (model == null) return Fail(error);
+            return InConfiguration(model, request, () => PosesShown(model, request));
+        }
+
+        private static Dictionary<string, object> PosesShown(
+            IModelDoc2 model, Dictionary<string, object> request)
+        {
             var assembly = model as IAssemblyDoc;
             if (assembly == null) return Fail("the document is not an assembly");
 
@@ -1657,7 +1815,12 @@ namespace Peak.Cadder.Bridge
             string error;
             var model = ModelFor(app, request, out error);
             if (model == null) return Fail(error);
+            return InConfiguration(model, request, () => RetessellateShown(app, model, request));
+        }
 
+        private static Dictionary<string, object> RetessellateShown(
+            ISldWorks app, IModelDoc2 model, Dictionary<string, object> request)
+        {
             var settings = AppSettings.Load(AddIn.Log);
             var fineness = FinenessFrom(request, settings);
             // The geometry has to come back in the SAME pieces it went out

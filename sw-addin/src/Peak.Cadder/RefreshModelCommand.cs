@@ -56,15 +56,48 @@ namespace Peak.Cadder
             }
 
             var settings = AppSettings.Load(AddIn.Log);
-            string mode = RigUpdateDialog.Choose(
-                ExportOptionsDialog.ActiveOwner(), settings,
-                model as IAssemblyDoc != null);
-            if (mode == null) return;       // the user cancelled
-            settings.RigUpdateMode = mode;
-            settings.Save(AddIn.Log);
+            // Which configurations of the document the Blenders hold, and
+            // so which ones a refresh brings up to date.
+            var held = BlenderBridge.HeldConfigurations(
+                BlenderBridge.ForRefresh(BlenderBridge.Discover(AddIn.Log), path), path);
+            var names = Sw.Configurations.Names(model);
+            string active = Sw.Configurations.Active(model);
+            var refresh = ConfigurationsToRefresh(held, active);
+            AddIn.Log("refresh model: Blender holds "
+                + (held.Count == 0 ? "no named configuration" : string.Join(", ", held.ToArray()))
+                + " of " + path);
 
-            AddIn.Log("refresh model: rig mode " + mode);
-            SendToBlenderCommand.Run(app, native: true, update: true, rigMode: mode);
+            var answer = RigUpdateDialog.Choose(
+                ExportOptionsDialog.ActiveOwner(), settings,
+                model as IAssemblyDoc != null,
+                refresh == null ? names : null, active, held);
+            if (answer == null) return;     // the user cancelled
+            settings.RigUpdateMode = answer.Mode;
+            settings.Save(AddIn.Log);
+            refresh = answer.Configurations ?? refresh;
+
+            AddIn.Log("refresh model: rig mode " + answer.Mode + ", configuration(s) "
+                + string.Join(", ", refresh.ToArray()));
+            SendToBlenderCommand.Run(app, native: true, update: true, rigMode: answer.Mode,
+                configurations: refresh);
+        }
+
+        /// <summary>
+        /// The configurations a refresh brings up to date, from the ones the
+        /// Blenders hold (<paramref name="held"/>). Null when the user must
+        /// choose, because Blender holds two or more.
+        ///
+        /// One held configuration is refreshed, also when SolidWorks shows
+        /// another one now: the refresh shows it for the export, and then
+        /// shows the active one again. A scene sent by 1.1 holds the
+        /// document with no configuration, and it gets the active one, as
+        /// every refresh did before 1.2.0.
+        /// </summary>
+        internal static List<string> ConfigurationsToRefresh(IList<string> held, string active)
+        {
+            if (held != null && held.Count >= 2) return null;
+            if (held != null && held.Count == 1) return new List<string> { held[0] };
+            return new List<string> { active };
         }
 
         /// <summary>What to tell the user, from what Blender answered. A

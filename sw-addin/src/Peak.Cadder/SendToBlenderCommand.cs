@@ -16,7 +16,8 @@ namespace Peak.Cadder
     /// files to a running Blender over the localhost bridge, which imports,
     /// matches, snaps poses, builds the rig and parents the geometry in one
     /// go. The Keyshot-style flow: options live behind the Options button,
-    /// the send itself asks nothing.
+    /// the send itself asks nothing. The one exception is the Multiple
+    /// configurations option, which asks which configurations to send.
     ///
     /// Thread split: every SolidWorks call happens on the command thread
     /// BEFORE the progress dialog; the worker thread does only HTTP and
@@ -32,9 +33,19 @@ namespace Peak.Cadder
         /// to rebuild. That is faster, carries appearances and component
         /// identity straight through, and gives up the solid model: the
         /// trade the two commands exist to offer.
+        ///
+        /// <paramref name="configurations"/> names the configurations to
+        /// send, as Refresh Model does. Null asks the user when the Multiple
+        /// configurations option is on, and takes the active configuration
+        /// when it is off. Each configuration is a complete send of its own
+        /// with its own files (ConfigurationNames.Stem), so each one stands
+        /// in Blender in its own collection with its own rig. The exports
+        /// run first, one after the other. Then the payloads go to Blender,
+        /// one after the other, in the same order.
         /// </summary>
         public static void Run(ISldWorks app, bool native = false,
-                               bool update = false, string rigMode = null)
+                               bool update = false, string rigMode = null,
+                               IList<string> configurations = null)
         {
             if (app == null) return;
             var model = app.ActiveDoc as IModelDoc2;
@@ -45,7 +56,8 @@ namespace Peak.Cadder
                     (int)swMessageBoxBtn_e.swMbOk);
                 return;
             }
-            if (string.IsNullOrEmpty(model.GetPathName()))
+            string documentPath = model.GetPathName();
+            if (string.IsNullOrEmpty(documentPath))
             {
                 app.SendMsgToUser2("Save the document before sending.",
                     (int)swMessageBoxIcon_e.swMbWarning,
@@ -57,107 +69,92 @@ namespace Peak.Cadder
             // For this send only. Nothing here saves the settings.
             settings.OnlySelected = GeometryFollowsSelection(settings, update);
             var owner = ExportOptionsDialog.ActiveOwner();
+            var assembly = model as IAssemblyDoc;
+            var sending = configurations != null
+                ? new List<string>(configurations)
+                : ChooseConfigurations(owner, model, settings, assembly != null);
+            if (sending == null || sending.Count == 0) return;     // the user cancelled
             // A CADder that does not match this add-in is asked about before
             // the export, which can take minutes, and before anything is sent
             // (VersionGate). Here when the Blender to send to is already
             // known, after the choice or the launch below otherwise.
-            if (!VersionGate.Confirm(owner, KnownTarget(update, model.GetPathName()),
+            if (!VersionGate.Confirm(owner, KnownTarget(update, documentPath),
                                      AddIn.Log))
                 return;
-            // The export stages run on this thread and can take minutes on a
-            // large assembly. The bar says which stage is running, and it
-            // closes before the first dialog: SolidWorks draws a message box
-            // behind a live progress bar.
             string title = update ? "Refresh Model" : "Send to Blender";
             string barTitle = update ? "Refreshing the model in Blender" : "Sending to Blender";
-            var bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
 
             try
             {
-                var assembly = model as IAssemblyDoc;
-                string baseName = Path.GetFileNameWithoutExtension(model.GetPathName());
+                string baseName = Path.GetFileNameWithoutExtension(documentPath);
                 string dir = ExportDir(settings, model, baseName);
                 Directory.CreateDirectory(dir);
-                string stepPath = Path.Combine(dir, baseName + ".step");
-                string meshPath = Path.Combine(dir, baseName + ".swmesh");
-                string manifestPath = assembly != null
-                    ? Path.Combine(dir, baseName + ".rig.json") : null;
 
-                // ── 1. Export, on this thread (COM) ─────────────────────────
-                if (native)
+                // ── 1. Export each configuration, on this thread (COM) ──────
+                // "Only the selected components" reads the selection once,
+                // before anything changes the document. Showing another
+                // configuration can clear it, and the probe of the first
+                // export does clear it, so every configuration uses this
+                // one reading. A component keeps its name in every
+                // configuration, so the set means the same parts in each.
+                HashSet<string> keep = settings.OnlySelected
+                    ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
+                var jobs = new List<SendJob>();
+                Dictionary<string, object> view = null;
+                // The configuration that was active is shown again at the
+                // end, also when an export fails or the user stops it.
+                using (var shown = new ConfigurationSwitch(model, AddIn.Log))
                 {
-                    AddIn.Log("send to blender (native): tessellating into " + meshPath);
-                    // The manifest still describes the kinematics; only the
-                    // geometry's route changes, so the STEP stages are the
-                    // only thing skipped.
-                    // "Only the selected components" applies to the
-                    // geometry of either route, for a first send only
-                    // (GeometryFollowsSelection). The manifest still
-                    // describes the whole assembly, as it does for a STEP
-                    // export.
-                    HashSet<string> keep = null;
-                    // The rig export takes about three quarters of a direct
-                    // send, the tessellation the rest.
-                    bar.Window(0, 78);
-                    if (assembly != null)
+                    for (int i = 0; i < sending.Count; i++)
                     {
-                        var outcome = ExportCommand.ExportBundle(
-                            app, model, assembly, stepPath, manifestPath, settings,
-                            manifestOnly: true, matchStep: false,
-                            mateErrorPrompt: message =>
-                            {
-                                bool yes = ExportCommand.WithoutBar(
-                                    bar, () => ExportCommand.AskWithoutRig(app, message));
-                                // The geometry still goes, and it takes a
-                                // while on a large assembly, so it gets a
-                                // bar of its own.
-                                if (yes) bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
-                                return yes;
-                            },
-                            progress: bar);
-                        // No rig: the geometry still goes, and the payload
-                        // leaves out every rig stage (BuildPayload).
-                        if (outcome.GeometryOnly) manifestPath = null;
-                        // The export read the selection before its probes
-                        // cleared it.
-                        keep = outcome.KeepPaths;
-                    }
-                    else if (settings.OnlySelected)
-                    {
-                        keep = Sw.Selection.KeepSet(model, AddIn.Log);
-                    }
-                    bar.Window(78, 100);
-                    NativeExport.Write(app, model, meshPath,
-                        FinenessOf(settings), AddIn.Log,
-                        settings.SeparateSolids, keep, bar,
-                        AppearanceOptions.From(settings));
-                }
-                else
-                {
-                    AddIn.Log("send to blender: exporting " + stepPath);
-                    if (assembly != null)
-                    {
-                        var outcome = ExportCommand.ExportBundle(
-                            app, model, assembly, stepPath, manifestPath, settings,
-                            mateErrorPrompt: message => ExportCommand.WithoutBar(
-                                bar, () => ExportCommand.AskWithoutRig(app, message)),
-                            progress: bar);
-                        if (outcome.GeometryOnly) manifestPath = null;
-                    }
-                    else
-                    {
-                        StepPlusCommand.ExportAppearanceOnly(app, model, stepPath, settings);
+                        var job = new SendJob(sending[i] ?? shown.Original, baseName, dir,
+                                              assembly != null);
+                        jobs.Add(job);
+                        try
+                        {
+                            job.Name(shown.Show(job.Configuration) ?? job.Configuration,
+                                     baseName, dir, assembly != null);
+                            AddIn.Log("send to blender: configuration " + job.Configuration
+                                + " (" + (i + 1) + " of " + sending.Count + ") as " + job.Stem);
+                            ExportConfiguration(app, model, settings, native,
+                                sending.Count > 1
+                                    ? barTitle + ": " + job.Configuration
+                                      + " (" + (i + 1) + " of " + sending.Count + ")"
+                                    : barTitle,
+                                job, keep, sending.Count > 1);
+                            // Blender turns its view once, after the last
+                            // import, so only the last payload carries the
+                            // view. It is read while its configuration is
+                            // shown, because the box it frames is that
+                            // configuration's.
+                            if (settings.MatchView) view = ViewReader.Read(model);
+                        }
+                        catch (Core.ExportCancelled) { throw; }
+                        catch (Exception ex)
+                        {
+                            // One configuration that fails does not stop the
+                            // others. The report names it with its reason.
+                            AddIn.Log("send to blender: " + job.Stem + " failed: " + ex);
+                            job.Error = ex.Message;
+                        }
                     }
                 }
 
-                ExportCommand.CloseBar(bar);
+                var ready = jobs.FindAll(j => j.Error == null);
+                if (ready.Count == 0)
+                {
+                    app.SendMsgToUser2(Report(jobs, update, null, title),
+                        (int)swMessageBoxIcon_e.swMbStop,
+                        (int)swMessageBoxBtn_e.swMbOk);
+                    return;
+                }
 
                 // ── 2. Choose the Blender (needs UI, still this thread) ─────
                 var instances = BlenderBridge.Discover(AddIn.Log);
                 // A refresh goes to the Blender that holds the scene, and
                 // asks only when two of them do.
                 if (update)
-                    instances = BlenderBridge.ForRefresh(instances, model.GetPathName());
+                    instances = BlenderBridge.ForRefresh(instances, documentPath);
                 BlenderInstance target = null;
                 if (instances.Count == 1) target = instances[0];
                 else if (instances.Count > 1)
@@ -194,41 +191,57 @@ namespace Peak.Cadder
                         "Launching Blender…", () => BlenderBridge.Launch(exe, AddIn.Log));
                 if (!VersionGate.Confirm(owner, target, AddIn.Log))
                     return;
-                var payload = BuildPayload(
-                    settings, native ? null : stepPath, native ? meshPath : null,
-                    manifestPath, update, rigMode,
-                    settings.MatchView ? ViewReader.Read(model) : null,
-                    model.GetPathName());
-                string doing = update
-                    ? "Bringing " + baseName + " up to date in Blender…"
-                    : "Importing " + baseName + " in Blender…";
+                for (int i = 0; i < ready.Count; i++)
+                    ready[i].Payload = BuildPayload(
+                        settings, native ? null : ready[i].StepPath,
+                        native ? ready[i].MeshPath : null,
+                        ready[i].ManifestPath, update, rigMode,
+                        i == ready.Count - 1 ? view : null,
+                        documentPath, ready[i].Configuration);
+                // The worker does only HTTP. A payload that fails does not
+                // stop the ones after it: each is a complete send, and the
+                // report says which ones arrived.
                 var to = target;
-                var sent = ProgressDialog.Run(owner, title, doing, () =>
+                var failures = new Exception[ready.Count];
+                ProgressDialog.Run(owner, title, Doing(update, ready[0].Stem, 0, ready.Count),
+                    say =>
+                    {
+                        for (int i = 0; i < ready.Count; i++)
+                        {
+                            if (i > 0) say(Doing(update, ready[i].Stem, i, ready.Count));
+                            try
+                            {
+                                ready[i].Reply = BlenderBridge.PostImport(
+                                    to, ready[i].Payload, 30 * 60 * 1000, AddIn.Log);
+                            }
+                            catch (Exception ex) { failures[i] = ex; }
+                        }
+                        return true;
+                    });
+                for (int i = 0; i < ready.Count; i++)
                 {
-                    var resp = BlenderBridge.PostImport(
-                        to, payload, 30 * 60 * 1000, AddIn.Log);
-                    return new KeyValuePair<BlenderInstance,
-                        Dictionary<string, object>>(to, resp);
-                });
+                    if (failures[i] == null) continue;
+                    AddIn.Log("send to blender: " + ready[i].Stem + " did not reach Blender: "
+                        + failures[i]);
+                    ready[i].Error = failures[i].Message;
+                }
 
                 // ── 4. Report ───────────────────────────────────────────────
-                string summary = update
-                    ? RefreshModelCommand.Summary(sent.Value)
-                    : Summarize(sent.Value, baseName, sent.Key);
-                bool ok = MiniJson.Flag(sent.Value, "ok");
+                bool anyOk = jobs.Exists(j => j.Ok);
+                bool allOk = jobs.TrueForAll(j => j.Ok);
                 // What the ribbon's Refresh Model gate reads: this session
                 // has put this document into a Blender that is up.
-                if (ok) AddIn.RememberSent(model.GetPathName());
-                if (ok && settings.FocusBlender)
-                    BlenderBridge.Focus(sent.Key, AddIn.Log);
-                app.SendMsgToUser2(summary,
-                    ok ? (int)swMessageBoxIcon_e.swMbInformation
-                       : (int)swMessageBoxIcon_e.swMbStop,
+                if (anyOk) AddIn.RememberSent(documentPath);
+                if (anyOk && settings.FocusBlender)
+                    BlenderBridge.Focus(target, AddIn.Log);
+                app.SendMsgToUser2(Report(jobs, update, target, title),
+                    allOk ? (int)swMessageBoxIcon_e.swMbInformation
+                    : anyOk ? (int)swMessageBoxIcon_e.swMbWarning
+                    : (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
             catch (Core.ExportCancelled)
             {
-                ExportCommand.CloseBar(bar);
                 AddIn.Log("send to blender stopped by the user");
                 app.SendMsgToUser2("The send was stopped. Nothing went to Blender.",
                     (int)swMessageBoxIcon_e.swMbInformation,
@@ -236,13 +249,203 @@ namespace Peak.Cadder
             }
             catch (Exception ex)
             {
-                ExportCommand.CloseBar(bar);
                 AddIn.Log("send to blender failed: " + ex);
-                app.SendMsgToUser2("Send to Blender failed: " + ex.Message,
+                app.SendMsgToUser2(title + " failed: " + ex.Message,
                     (int)swMessageBoxIcon_e.swMbStop,
                     (int)swMessageBoxBtn_e.swMbOk);
             }
+        }
+
+        /// <summary>
+        /// The configurations a send takes when the caller does not say.
+        /// With the Multiple configurations option on, the user ticks them
+        /// (ConfigurationPickerDialog). Null when the user cancels. With
+        /// the option off, or with one configuration in the document, the
+        /// active configuration: there is nothing to choose.
+        /// </summary>
+        private static List<string> ChooseConfigurations(
+            System.Windows.Forms.IWin32Window owner, IModelDoc2 model,
+            AppSettings settings, bool isAssembly)
+        {
+            string active = Configurations.Active(model);
+            if (!settings.MultipleConfigurations) return new List<string> { active };
+            var names = Configurations.Names(model);
+            if (names.Count <= 1) return new List<string> { active };
+            return ConfigurationPickerDialog.Choose(owner, model.GetPathName(), names, active,
+                isAssembly && settings.BuildRig);
+        }
+
+        /// <summary>
+        /// Exports the configuration that SolidWorks shows now into the
+        /// files of <paramref name="job"/>. The mate errors and the
+        /// geometry without a rig work per configuration: a rig that one
+        /// configuration cannot have does not take the rig from the
+        /// others.
+        /// </summary>
+        private static void ExportConfiguration(
+            ISldWorks app, IModelDoc2 model, AppSettings settings, bool native,
+            string barTitle, SendJob job, HashSet<string> keep, bool several)
+        {
+            var assembly = model as IAssemblyDoc;
+            // With several configurations, the question about the mates
+            // says which configuration it is about.
+            Func<string, string> about = message => several
+                ? "Configuration: " + job.Configuration + "\n\n" + message : message;
+            // The export stages run on this thread and can take minutes on a
+            // large assembly. The bar says which stage is running, and it
+            // closes before the first dialog: SolidWorks draws a message box
+            // behind a live progress bar.
+            var bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
+            try
+            {
+                if (native)
+                {
+                    AddIn.Log("send to blender (native): tessellating into " + job.MeshPath);
+                    // The manifest still describes the kinematics. Only the
+                    // geometry's route changes, so the STEP stages are the
+                    // only thing skipped.
+                    // "Only the selected components" applies to the
+                    // geometry of either route, for a first send only
+                    // (GeometryFollowsSelection). The manifest still
+                    // describes the whole assembly, as it does for a STEP
+                    // export.
+                    // The rig export takes about three quarters of a direct
+                    // send, the tessellation the rest.
+                    bar.Window(0, 78);
+                    if (assembly != null)
+                    {
+                        var outcome = ExportCommand.ExportBundle(
+                            app, model, assembly, job.StepPath, job.ManifestPath, settings,
+                            manifestOnly: true, matchStep: false,
+                            mateErrorPrompt: message =>
+                            {
+                                bool yes = ExportCommand.WithoutBar(
+                                    bar, () => ExportCommand.AskWithoutRig(app, about(message)));
+                                // The geometry still goes, and it takes a
+                                // while on a large assembly, so it gets a
+                                // bar of its own.
+                                if (yes) bar = Sw.SwProgressBar.Open(app, barTitle, AddIn.Log);
+                                return yes;
+                            },
+                            progress: bar, keepPaths: keep);
+                        // No rig: the geometry still goes, and the payload
+                        // leaves out every rig stage (BuildPayload).
+                        if (outcome.GeometryOnly) job.ManifestPath = null;
+                    }
+                    bar.Window(78, 100);
+                    NativeExport.Write(app, model, job.MeshPath,
+                        FinenessOf(settings), AddIn.Log,
+                        settings.SeparateSolids, keep, bar,
+                        AppearanceOptions.From(settings));
+                }
+                else
+                {
+                    AddIn.Log("send to blender: exporting " + job.StepPath);
+                    if (assembly != null)
+                    {
+                        var outcome = ExportCommand.ExportBundle(
+                            app, model, assembly, job.StepPath, job.ManifestPath, settings,
+                            mateErrorPrompt: message => ExportCommand.WithoutBar(
+                                bar, () => ExportCommand.AskWithoutRig(app, about(message))),
+                            progress: bar, keepPaths: keep);
+                        if (outcome.GeometryOnly) job.ManifestPath = null;
+                    }
+                    else
+                    {
+                        StepPlusCommand.ExportAppearanceOnly(app, model, job.StepPath, settings);
+                    }
+                }
+            }
             finally { ExportCommand.CloseBar(bar); }
+        }
+
+        /// <summary>One configuration of a send: its files, the payload
+        /// that goes to Blender, and what came back.</summary>
+        internal sealed class SendJob
+        {
+            /// <summary>The configuration, as the document spells it.</summary>
+            public string Configuration;
+
+            /// <summary>The name of the files, and of the import in Blender
+            /// (ConfigurationNames.Stem).</summary>
+            public string Stem;
+
+            public string StepPath;
+            public string MeshPath;
+
+            /// <summary>Null for a part, and for an assembly that goes
+            /// without a rig.</summary>
+            public string ManifestPath;
+
+            public Dictionary<string, object> Payload;
+            public Dictionary<string, object> Reply;
+
+            /// <summary>Why the export failed or the payload did not reach
+            /// Blender. Null when neither happened.</summary>
+            public string Error;
+
+            internal SendJob(string configuration, string baseName, string dir, bool assembly)
+            {
+                Name(configuration, baseName, dir, assembly);
+            }
+
+            /// <summary>Names the files after the configuration.</summary>
+            internal void Name(string configuration, string baseName, string dir, bool assembly)
+            {
+                Configuration = configuration;
+                Stem = ConfigurationNames.Stem(baseName, configuration);
+                StepPath = Path.Combine(dir, Stem + ".step");
+                MeshPath = Path.Combine(dir, Stem + ".swmesh");
+                ManifestPath = assembly ? Path.Combine(dir, Stem + ".rig.json") : null;
+            }
+
+            /// <summary>Blender took the payload and reported success.</summary>
+            public bool Ok
+            {
+                get { return Error == null && MiniJson.Flag(Reply, "ok"); }
+            }
+        }
+
+        /// <summary>What the progress dialog says while Blender takes job
+        /// <paramref name="index"/> (from 0) of <paramref name="count"/>.
+        /// </summary>
+        internal static string Doing(bool update, string stem, int index, int count)
+        {
+            string text = update
+                ? "Bringing " + stem + " up to date in Blender…"
+                : "Importing " + stem + " in Blender…";
+            return count > 1 ? text + " (" + (index + 1) + " of " + count + ")" : text;
+        }
+
+        /// <summary>
+        /// What to tell the user after a send: the summary of each job. A
+        /// send of one configuration says what it said before 1.2.0. A send
+        /// of several names each configuration above its summary, the ones
+        /// that failed included, so that one failure does not hide among
+        /// the successes.
+        /// </summary>
+        internal static string Report(IList<SendJob> jobs, bool update,
+                                      BlenderInstance target, string title)
+        {
+            if (jobs == null || jobs.Count == 0) return "Nothing was sent.";
+            if (jobs.Count == 1) return Result(jobs[0], update, target, title);
+            var sb = new StringBuilder();
+            foreach (var job in jobs)
+            {
+                if (sb.Length > 0) sb.Append("\n\n");
+                sb.Append(job.Configuration).Append(":\n")
+                  .Append(Result(job, update, target, title));
+            }
+            return sb.ToString();
+        }
+
+        private static string Result(SendJob job, bool update, BlenderInstance target,
+                                     string title)
+        {
+            if (job.Error != null) return title + " failed: " + job.Error;
+            return update
+                ? RefreshModelCommand.Summary(job.Reply)
+                : Summarize(job.Reply, job.Stem, target);
         }
 
         /// <summary>
@@ -327,7 +530,8 @@ namespace Peak.Cadder
         internal static Dictionary<string, object> BuildPayload(
             AppSettings settings, string stepPath, string meshPath,
             string manifestPath, bool update = false, string rigMode = null,
-            Dictionary<string, object> view = null, string sourceDocument = null)
+            Dictionary<string, object> view = null, string sourceDocument = null,
+            string configuration = null)
         {
             bool rig = manifestPath != null;
             var payload = new Dictionary<string, object>
@@ -384,6 +588,12 @@ namespace Peak.Cadder
             // this document and not for the one that is in front then.
             if (!string.IsNullOrEmpty(sourceDocument))
                 payload["source_document"] = sourceDocument;
+            // The configuration the files hold, by its real name. The file
+            // names carry only the safe name (ConfigurationNames), and
+            // Blender keeps this one on the import to name it back in every
+            // request.
+            if (!string.IsNullOrEmpty(configuration))
+                payload["configuration"] = configuration;
             // Where SolidWorks is looking from. Blender turns its viewport
             // to the same angle when this is here, and leaves it alone when
             // it is not, so the setting travels as its presence.

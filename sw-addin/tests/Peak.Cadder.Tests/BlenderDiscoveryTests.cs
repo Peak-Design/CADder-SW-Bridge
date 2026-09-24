@@ -72,8 +72,9 @@ namespace Peak.Cadder.Tests
         }
 
         /// <summary>A port that answers every request as a Blender bridge
-        /// does.</summary>
-        private int AnsweringPort()
+        /// does, with <paramref name="answer"/> as the body when it is
+        /// given.</summary>
+        private int AnsweringPort(string answer = null)
         {
             var l = new TcpListener(IPAddress.Loopback, 0);
             l.Start();
@@ -89,7 +90,8 @@ namespace Peak.Cadder.Tests
                         {
                             var buffer = new byte[4096];
                             stream.Read(buffer, 0, buffer.Length);
-                            var body = Encoding.UTF8.GetBytes("{\"ok\": true, \"blender_version\": \"5.1.0\"}");
+                            var body = Encoding.UTF8.GetBytes(
+                                answer ?? "{\"ok\": true, \"blender_version\": \"5.1.0\"}");
                             var head = Encoding.ASCII.GetBytes(
                                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                                 + "Content-Length: " + body.Length + "\r\nConnection: close\r\n\r\n");
@@ -171,6 +173,35 @@ namespace Peak.Cadder.Tests
             Assert.Single(found);
             Assert.Equal("CADder Pro", found[0].AddonName);
             Assert.Equal("1.2.5", found[0].AddonVersion);
+        }
+
+        private const string Held =
+            "\"configurations\": {\"C:\\\\cad\\\\lift.SLDASM\": [\"Default\", \"Open\"]}";
+
+        [Fact]
+        public void APingWithoutConfigurationsKeepsTheOnesOfTheRegistry()
+        {
+            // A ping answer that does not say leaves what the registry
+            // file said, as it does for the documents.
+            File.WriteAllText(Path.Combine(_dir, "held.json"), "{\"pid\": " + Me
+                + ", \"port\": " + AnsweringPort() + ", \"token\": \"t\", " + Held + "}");
+            var found = Discover();
+            Assert.Single(found);
+            Assert.Equal(new[] { "Default", "Open" },
+                found[0].ConfigurationsOf(@"C:\cad\lift.SLDASM"));
+        }
+
+        [Fact]
+        public void APingWithConfigurationsReplacesTheOnesOfTheRegistry()
+        {
+            // The live answer beats the file: the user opens other scenes.
+            string answer = "{\"ok\": true, \"configurations\": "
+                + "{\"C:\\\\cad\\\\lift.SLDASM\": [\"Closed\"]}}";
+            File.WriteAllText(Path.Combine(_dir, "held.json"), "{\"pid\": " + Me
+                + ", \"port\": " + AnsweringPort(answer) + ", \"token\": \"t\", " + Held + "}");
+            var found = Discover();
+            Assert.Single(found);
+            Assert.Equal(new[] { "Closed" }, found[0].ConfigurationsOf(@"C:\cad\lift.SLDASM"));
         }
 
         [Fact]

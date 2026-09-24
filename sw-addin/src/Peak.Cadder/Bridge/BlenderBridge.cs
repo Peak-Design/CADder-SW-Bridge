@@ -29,6 +29,30 @@ namespace Peak.Cadder.Bridge
         /// bridge says. Null for an older bridge that does not say.</summary>
         public List<string> Documents;
 
+        /// <summary>The configurations the scenes of this Blender hold, by
+        /// document path, as its bridge says. Null for a bridge before
+        /// 1.2.0, which does not say. A scene from 1.1 holds its document
+        /// with no configuration: the document is in Documents and not
+        /// here, or here with an empty list.</summary>
+        public Dictionary<string, List<string>> Configurations;
+
+        /// <summary>The configurations of the document that this Blender
+        /// says it holds, in the order it gives them. Empty when it holds
+        /// none, or does not say. The path compares the way Holds
+        /// compares it.</summary>
+        public List<string> ConfigurationsOf(string documentPath)
+        {
+            var names = new List<string>();
+            if (Configurations == null || string.IsNullOrEmpty(documentPath)) return names;
+            foreach (var kv in Configurations)
+            {
+                if (!SamePath(kv.Key, documentPath) || kv.Value == null) continue;
+                foreach (var name in kv.Value)
+                    if (!names.Contains(name)) names.Add(name);
+            }
+            return names;
+        }
+
         /// <summary>Whether this Blender says it holds a scene of the
         /// document. False when it does not say.</summary>
         public bool Holds(string documentPath)
@@ -64,6 +88,32 @@ namespace Peak.Cadder.Bridge
                 if (!string.IsNullOrEmpty(s)) list.Add(s);
             }
             return list;
+        }
+
+        /// <summary>The "configurations" object of a registry file or a
+        /// ping answer: document path to a list of configuration names.
+        /// Null when there is none, or when it is not an object. A value
+        /// that is not a list is left out, and so is a name that is not a
+        /// string, so one bad entry does not hide the others.</summary>
+        internal static Dictionary<string, List<string>> ConfigurationMapOf(
+            Dictionary<string, object> obj)
+        {
+            var raw = MiniJson.Obj(obj, "configurations");
+            if (raw == null) return null;
+            var map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var kv in raw)
+            {
+                var list = kv.Value as List<object>;
+                if (string.IsNullOrEmpty(kv.Key) || list == null) continue;
+                List<string> names;
+                if (!map.TryGetValue(kv.Key, out names)) map[kv.Key] = names = new List<string>();
+                foreach (var o in list)
+                {
+                    var s = o as string;
+                    if (!string.IsNullOrEmpty(s) && !names.Contains(s)) names.Add(s);
+                }
+            }
+            return map;
         }
 
         public string Describe()
@@ -148,6 +198,26 @@ namespace Peak.Cadder.Bridge
         {
             var holding = instances.Where(i => i != null && i.Holds(documentPath)).ToList();
             return holding.Count > 0 ? holding : instances;
+        }
+
+        /// <summary>
+        /// The configurations of the document that the Blenders hold, all
+        /// of them together, each name once. Only a Blender that holds the
+        /// document counts. Empty when none says which configurations it
+        /// holds: a bridge before 1.2.0, or a scene sent by 1.1.
+        /// </summary>
+        internal static List<string> HeldConfigurations(
+            IEnumerable<BlenderInstance> instances, string documentPath)
+        {
+            var names = new List<string>();
+            if (instances == null) return names;
+            foreach (var inst in instances)
+            {
+                if (inst == null || !inst.Holds(documentPath)) continue;
+                foreach (var name in inst.ConfigurationsOf(documentPath))
+                    if (!names.Contains(name)) names.Add(name);
+            }
+            return names;
         }
 
         /// <summary>Every registry entry that reads, with no ping. A file that
@@ -258,6 +328,7 @@ namespace Peak.Cadder.Bridge
                 BlendFile = MiniJson.Str(obj, "blend_file"),
                 RegistryFile = path,
                 Documents = BlenderInstance.DocumentsOf(obj),
+                Configurations = BlenderInstance.ConfigurationMapOf(obj),
             };
             if (inst.Port <= 0 || string.IsNullOrEmpty(inst.Token)) return null;
             return inst;
@@ -302,6 +373,8 @@ namespace Peak.Cadder.Bridge
                 inst.AddonVersion = MiniJson.Str(obj, "addon_version", inst.AddonVersion);
                 inst.AddonName = MiniJson.Str(obj, "addon_name", inst.AddonName);
                 inst.Documents = BlenderInstance.DocumentsOf(obj) ?? inst.Documents;
+                inst.Configurations = BlenderInstance.ConfigurationMapOf(obj)
+                    ?? inst.Configurations;
                 return PingAnswer.Ok;
             }
             catch (WebException ex) when (ex.Status == WebExceptionStatus.ConnectFailure)

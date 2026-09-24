@@ -42,14 +42,21 @@ namespace Peak.Cadder.Bridge
                     { "transform", Flatten(w.Graph.Transform) },
                 });
             }
-            return PayloadOf(SafeTitle(model), SafePath(model), components);
+            return PayloadOf(SafeTitle(model), SafePath(model), components,
+                Configurations.Active(model));
         }
 
         /// <summary>The payload around the component rows. It names the
         /// document by its full path too, as a send does, so Blender can
-        /// name it back in every request.</summary>
+        /// name it back in every request.
+        ///
+        /// It also names the configuration that SolidWorks shows, because
+        /// the poses are the poses of that configuration. Blender can hold
+        /// two configurations of one assembly side by side, and it moves
+        /// only the parts of the import with this configuration.</summary>
         internal static Dictionary<string, object> PayloadOf(
-            string title, string documentPath, List<object> components)
+            string title, string documentPath, List<object> components,
+            string configuration = null)
         {
             var payload = new Dictionary<string, object>
             {
@@ -65,6 +72,8 @@ namespace Peak.Cadder.Bridge
             };
             if (!string.IsNullOrEmpty(documentPath))
                 payload["source_document"] = documentPath;
+            if (!string.IsNullOrEmpty(configuration))
+                payload["configuration"] = configuration;
             return payload;
         }
 

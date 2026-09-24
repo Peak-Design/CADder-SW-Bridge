@@ -63,6 +63,11 @@ namespace Peak.Cadder.Core
         /// SolidWorks view is at once the parts arrive. Off by default: a
         /// send should not move a view somebody is working in.</summary>
         public bool MatchView = false;
+        /// <summary>Whether Send to Blender asks which configurations to
+        /// send. Each one goes to Blender as a complete send of its own, so
+        /// it stands in its own collection with its own rig. Off, a send
+        /// takes the active configuration, as before 1.2.0.</summary>
+        public bool MultipleConfigurations = false;
 
         // ── The ribbon ──────────────────────────────────────────────────────
         /// <summary>When the add-in file this ribbon was built from was
@@ -195,6 +200,8 @@ namespace Peak.Cadder.Core
                 settings.TrisToQuads = MiniJson.Flag(obj, "tris_to_quads", settings.TrisToQuads);
                 settings.UnwrapCompound = MiniJson.Flag(obj, "unwrap_compound", settings.UnwrapCompound);
                 settings.MatchView = MiniJson.Flag(obj, "match_view", settings.MatchView);
+                settings.MultipleConfigurations = MiniJson.Flag(
+                    obj, "multiple_configurations", settings.MultipleConfigurations);
                 settings.CommandUiBuild = MiniJson.Str(obj, "command_ui_build", settings.CommandUiBuild);
                 settings.Ap = MiniJson.Int(obj, "ap", settings.Ap);
                 settings.RunDofProbe = MiniJson.Flag(obj, "run_dof_probe", settings.RunDofProbe);
@@ -241,6 +248,7 @@ namespace Peak.Cadder.Core
                     { "tris_to_quads", TrisToQuads },
                     { "unwrap_compound", UnwrapCompound },
                     { "match_view", MatchView },
+                    { "multiple_configurations", MultipleConfigurations },
                     { "command_ui_build", CommandUiBuild },
                     { "export_appearances", ExportAppearances },
                     { "export_decals", ExportDecals },

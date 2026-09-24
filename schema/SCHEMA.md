@@ -34,6 +34,36 @@ Everything else is a PATCH release of one half, which goes out alone. It
 must work with every release of the other half that has the same
 MAJOR.MINOR. When in doubt, the change is MINOR.
 
+### Configurations (1.2)
+
+From 1.2 each configuration of a document is a send of its own. What the
+two halves agree on:
+
+- **File names.** A send writes `<stem>.swmesh`, `<stem>.rig.json` and
+  `<stem>.step`, and `step_export.file` names `<stem>.step`. The stem is
+  `<document>_<configuration>`: the document file name without its
+  extension, an underscore, and the configuration name with each
+  character that Windows refuses in a file name (`\ / : * ? " < > |`) and
+  each control character changed to `_`, and with trailing dots and
+  spaces removed (`Core/ConfigurationNames`). Every send uses the stem,
+  also a send of one configuration. Blender names the import after the
+  stem: the collection `<stem>`, with `<stem>_Parts` and `<stem>_Rig` in
+  it.
+- **Send payload.** `configuration` is the name of the configuration the
+  files hold, as SolidWorks spells it. `source_document` is the path of
+  the document, as before. A send of several configurations is one
+  payload for each, sent one after the other.
+- **Registry file and ping.** Blender writes `configurations`, an object
+  that maps each document path to the configurations its scenes hold. A
+  scene from 1.1 holds its document with no configuration. Refresh Model
+  reads it.
+- **Requests from Blender.** `export`, `retessellate` and `poses` take an
+  optional `configuration`. SolidWorks shows it for the request and
+  shows the configuration that was active again after it. The reply of
+  `export` carries `configuration`.
+- **Pose push.** The payload carries the active `configuration`, and
+  Blender moves only the parts of that configuration.
+
 ## Units and frames
 
 - Length metres, angles radians. No millimetres anywhere in the file.

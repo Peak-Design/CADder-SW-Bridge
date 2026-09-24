@@ -23,6 +23,9 @@
     python swlab.py raw '{"op": "compose", ...}'     build a test assembly
     python swlab.py raw '{"op": "configure", ...}'   add a configuration
                                               (recipes: Bridge/LabCompose.cs)
+    python swlab.py raw '{"op": "run_command", "command": "send"}'
+                                              run a ribbon command with its
+                                              dialogs ("send" or "refresh")
 
 The listener is found through the registry files the add-in writes under
 %LOCALAPPDATA%\\PeakDesign\\CADder\\solidworks (one per live instance,

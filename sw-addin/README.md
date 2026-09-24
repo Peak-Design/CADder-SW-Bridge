@@ -36,9 +36,9 @@ Export Options:
 
 | Button | What it does |
 |---|---|
-| Send to Blender | Tessellates the parts in SolidWorks and sends them with the rig manifest to the running Blender: geometry, appearances, rig, parenting. Starts Blender when none is running. Blender can ask for a finer mesh later. |
+| Send to Blender | Tessellates the parts in SolidWorks and sends them with the rig manifest to the running Blender: geometry, appearances, rig, parenting. Starts Blender when none is running. Blender can ask for a finer mesh later. Each configuration is a send of its own, with its own collection and rig in Blender. With "Multiple configurations" in Export Options, it asks which configurations to send. |
 | Export Options | What a send carries and how Blender receives it. The first group is the send itself: hierarchy, mesh quality, up axis, one object per solid body, only the selected components, and how much of the SolidWorks appearances travels (the appearances, the decals, the texture mapping). The STEP+ group appears with the advanced commands. The last groups say what Blender does after the import and which Blender to start. |
-| Refresh Model | Brings the Blender scene up to date with this assembly: parts that are new arrive, parts that have gone are removed, the tree follows, and everything moves to where SolidWorks has it. Parts that did not change keep their objects and everything done to them in Blender. What happens to the rig is asked each time: add and remove bones, keep it as it is, or build a new one. Grey unless a running Blender holds a scene of this document, from a send or from the saved scene opened again. |
+| Refresh Model | Brings the Blender scene up to date with this assembly: parts that are new arrive, parts that have gone are removed, the tree follows, and everything moves to where SolidWorks has it. Parts that did not change keep their objects and everything done to them in Blender. What happens to the rig is asked each time: add and remove bones, keep it as it is, or build a new one. When Blender holds more than one configuration of the document, it also asks which configurations to refresh. Grey unless a running Blender holds a scene of this document, from a send or from the saved scene opened again. |
 | Export STEP+ (advanced) | Writes a STEP file with the appearance and engineering-material repairs, no rig. |
 | Export Rig (advanced) | Writes only the rig manifest to disk. |
 
@@ -56,7 +56,9 @@ on purpose: the rig moves what you can drag in SolidWorks, and nothing else.
 - Every export writes into a folder of its own, named after the document.
   Export Options says where that folder goes: under
   `%LOCALAPPDATA%\PeakDesign\CADder\exports`, next to the assembly, or
-  in a folder you pick.
+  in a folder you pick. The files in it are named after the document and
+  the configuration, `<document>_<configuration>`, so two configurations
+  do not write over each other.
 - Settings: `%APPDATA%\PeakDesign\CADder\settings.json`.
 - Log: `%LOCALAPPDATA%\PeakDesign\CADder\cadder-debug.log`. The
   log rotates at 8 MB. Attach it to a bug report.

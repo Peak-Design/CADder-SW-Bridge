@@ -281,12 +281,20 @@ namespace Peak.Cadder
         /// disk (if any) serves for matching and the hash, unless
         /// <paramref name="matchStep"/> is false: the direct link sends no
         /// STEP, so its manifest names none (ReadExistingStep).
+        ///
+        /// <paramref name="keepPaths"/> is the selection as the caller read
+        /// it, for an export of "only the selected components" that cannot
+        /// read it here: a send of several configurations reads it once,
+        /// before the first configuration is shown, because showing one can
+        /// clear it and the first export's probe does clear it. Null reads
+        /// the selection here when the settings ask for it.
         /// </summary>
         public static RigExportOutcome ExportBundle(
             ISldWorks app, IModelDoc2 model, IAssemblyDoc assembly,
             string stepPath, string manifestPath, AppSettings settings,
             bool manifestOnly = false, Func<string, bool> mateErrorPrompt = null,
-            ExportProgress progress = null, bool tellUser = false, bool matchStep = true)
+            ExportProgress progress = null, bool tellUser = false, bool matchStep = true,
+            HashSet<string> keepPaths = null)
         {
             // The numbers beside each stage are its share of the whole
             // export, 0 to 100. They come from timing the samples here: the
@@ -299,8 +307,8 @@ namespace Peak.Cadder
             // empty, and "only the selected components" quietly exported
             // everything (found 2026-09-16). Null means no restriction,
             // which is also what an empty selection gives.
-            var keep = settings.OnlySelected
-                ? Sw.Selection.KeepSet(model, AddIn.Log) : null;
+            var keep = keepPaths ?? (settings.OnlySelected
+                ? Sw.Selection.KeepSet(model, AddIn.Log) : null);
             int ap = settings.Ap == 203 ? 203 : 214;
             bool runDofProbe = settings.RunDofProbe;
             // The appearance entity forms are AP214's; AP203 carries no

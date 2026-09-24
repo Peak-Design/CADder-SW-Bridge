@@ -83,6 +83,32 @@ namespace Peak.Cadder.Tests
             Assert.Equal("done", result);
         }
 
+        [Fact]
+        public void TheWorkerSaysWhichJobRunsNow()
+        {
+            // A send of several configurations posts them one after the
+            // other in one dialog, and the dialog says which one is in
+            // Blender now.
+            string shown = null;
+            var ui = new Thread(() => ProgressDialog.Run(null, "Test", "Job 1 of 2", say =>
+            {
+                var dialog = Find();
+                if (dialog == null) return "no dialog";
+                dialog.Invoke(new Action(() => dialog.Location = new Point(-20000, -20000)));
+                say("Job 2 of 2");
+                for (int i = 0; i < 100 && shown != "Job 2 of 2"; i++)
+                {
+                    Thread.Sleep(20);
+                    shown = (string)dialog.Invoke(new Func<string>(() => dialog.Message));
+                }
+                return "done";
+            }));
+            ui.SetApartmentState(ApartmentState.STA);
+            ui.Start();
+            Assert.True(ui.Join(TimeSpan.FromSeconds(30)), "the dialog did not close");
+            Assert.Equal("Job 2 of 2", shown);
+        }
+
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     }

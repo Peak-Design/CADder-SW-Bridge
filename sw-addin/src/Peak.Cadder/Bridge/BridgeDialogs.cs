@@ -20,6 +20,14 @@ namespace Peak.Cadder.Bridge
         /// dialog refuses to close.</summary>
         private bool _finished;
 
+        private readonly Label _message;
+
+        /// <summary>The text the dialog shows now. For the tests.</summary>
+        internal string Message
+        {
+            get { return _message.Text; }
+        }
+
         private ProgressDialog(string title, string message)
         {
             Text = title;
@@ -42,14 +50,15 @@ namespace Peak.Cadder.Bridge
                 Dock = DockStyle.Fill,
                 Padding = new Padding(16),
             };
-            root.Controls.Add(new Label
+            _message = new Label
             {
                 Text = message,
                 AutoSize = true,
                 MaximumSize = new Size(360, 0),
                 Margin = new Padding(0, 0, 0, 10),
                 UseCompatibleTextRendering = false,
-            });
+            };
+            root.Controls.Add(_message);
             root.Controls.Add(new ProgressBar
             {
                 Style = ProgressBarStyle.Marquee,
@@ -75,13 +84,30 @@ namespace Peak.Cadder.Bridge
         public static T Run<T>(IWin32Window owner, string title, string message,
             Func<T> work)
         {
+            return Run(owner, title, message, say => work());
+        }
+
+        /// <summary>
+        /// The same, for a worker that does several jobs in turn: it gets
+        /// an action that changes the text of the dialog, so the dialog
+        /// can say which job runs now. The action is safe to call from the
+        /// worker thread.
+        /// </summary>
+        public static T Run<T>(IWin32Window owner, string title, string message,
+            Func<Action<string>, T> work)
+        {
             Exception error = null;
             T result = default(T);
             using (var dlg = new ProgressDialog(title, message))
             {
+                Action<string> say = text =>
+                {
+                    try { dlg.BeginInvoke(new Action(() => dlg._message.Text = text)); }
+                    catch (InvalidOperationException) { }
+                };
                 var thread = new System.Threading.Thread(() =>
                 {
-                    try { result = work(); }
+                    try { result = work(say); }
                     catch (Exception ex) { error = ex; }
                     try
                     {

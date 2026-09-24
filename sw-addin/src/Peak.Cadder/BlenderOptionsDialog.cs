@@ -45,6 +45,7 @@ namespace Peak.Cadder
         private readonly CheckBox _trisToQuads;
         private readonly CheckBox _unwrapCompound;
         private readonly CheckBox _matchView;
+        private readonly CheckBox _multipleConfigurations;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
 #if DEBUG
@@ -125,6 +126,10 @@ namespace Peak.Cadder
                 "Send the components that are selected in the assembly, and "
                 + "leave the rest behind. The rig still describes the whole "
                 + "assembly. Refresh Model always sends the whole assembly");
+            _multipleConfigurations = Check(
+                "Multiple configurations", settings.MultipleConfigurations,
+                "Ask which configurations to send. Each configuration goes to "
+                + "Blender in its own collection, with its own rig");
             _appearances = Check(
                 "Appearances", settings.ExportAppearances,
                 "Send the SolidWorks appearances: colors, finish, textures "
@@ -213,6 +218,7 @@ namespace Peak.Cadder
             import.Controls.Add(_trisToQuads);
             import.Controls.Add(_separateSolids);
             import.Controls.Add(_onlySelected);
+            import.Controls.Add(_multipleConfigurations);
             import.Controls.Add(_appearances);
             import.Controls.Add(_decals);
             import.Controls.Add(_textureMapping);
@@ -452,6 +458,7 @@ namespace Peak.Cadder
             settings.EngineeringMaterial = _material.Checked;
             settings.IncludeHidden = _hidden.Checked;
             settings.OnlySelected = _onlySelected.Checked;
+            settings.MultipleConfigurations = _multipleConfigurations.Checked;
             settings.ImportCurves = _importCurves.Checked;
             settings.SeparateSolids = _separateSolids.Checked;
             settings.TrisToQuads = _trisToQuads.Checked;
