@@ -5,6 +5,7 @@ tags: cadder, bridge, export, manifest, rig, joints, corpus, sweep, regression, 
 run: return CadderExport();
 uses: cadder-bridge
 tests: ..\..\..\test-assemblies\**\*.sldasm
+verified: SOLIDWORKS 2022 SP5.0, 2026-09-25, code f22b4d91
 ---
 ## What it does
 
