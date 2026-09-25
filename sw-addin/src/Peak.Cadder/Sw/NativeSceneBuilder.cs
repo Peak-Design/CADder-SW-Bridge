@@ -57,6 +57,9 @@ namespace Peak.Cadder.Sw
             progress = progress ?? ExportProgress.None;
             var scene = new MeshScene();
             var definitions = new Dictionary<string, List<MeshDefinition>>(StringComparer.OrdinalIgnoreCase);
+            // The key of the first occurrence of each document, to log an
+            // occurrence that has another shape (ShapeKey).
+            var firstShape = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             // The assembly itself, for the appearances applied in it.
             var materials = new AppearanceTable(scene, log, appearance, top);
             // Every subassembly occurrence seen, walked or descended into.
@@ -129,9 +132,19 @@ namespace Peak.Cadder.Sw
                     // consumer wants defeatured DIFFERENTLY are no longer the
                     // same geometry, so the spec is part of the key.
                     var spec = defeature == null ? null : defeature.For(w.Id);
-                    string key = DefinitionKey(leaf.Comp)
+                    string sameDocument = DefinitionKey(leaf.Comp)
                         + materials.OccurrenceKey(leaf.Comp)
                         + (spec == null ? "" : spec.Key);
+                    // The shape is read after the appearance key, which
+                    // resolves a lightweight occurrence: a lightweight one
+                    // has no bodies to measure.
+                    string key = sameDocument + ShapeKey(leaf.Comp);
+                    string firstKey;
+                    if (!firstShape.TryGetValue(sameDocument, out firstKey))
+                        firstShape[sameDocument] = key;
+                    else if (firstKey != key && !definitions.ContainsKey(key) && log != null)
+                        log("native export: " + leaf.Path + " has another shape than the first "
+                            + "occurrence of its document, so it gets a mesh of its own");
                     List<MeshDefinition> defs;
                     if (!definitions.TryGetValue(key, out defs))
                     {
@@ -526,6 +539,47 @@ namespace Peak.Cadder.Sw
                 "native export: {0} centre [{1:G4},{2:G4},{3:G4}] placed at [{4:G4},{5:G4},{6:G4}]"
                 + " ({7} tri)",
                 def.Name, cx, cy, cz, t[3], t[7], t[11], def.TriangleCount));
+        }
+
+        /// <summary>
+        /// A short description of the shape of one occurrence, in the
+        /// part's own space: the number of bodies, and the box and the
+        /// number of faces of each body. Two occurrences of one document in
+        /// one configuration usually have the same shape. A part with
+        /// external references (a hose of SolidWorks Routing) or a flexible
+        /// part can have another shape in each place. Then a shared mesh
+        /// shows the first shape everywhere. With this in the key, such an
+        /// occurrence gets its own mesh. Nothing is tessellated for it.
+        /// Empty when the bodies cannot be read, which shares the mesh as
+        /// before.
+        /// </summary>
+        internal static string ShapeKey(IComponent2 comp)
+        {
+            object[] solids = null, sheets = null;
+            try { solids = comp.GetBodies3((int)swBodyType_e.swSolidBody, out _) as object[]; } catch { }
+            try { sheets = comp.GetBodies3((int)swBodyType_e.swSheetBody, out _) as object[]; } catch { }
+            var shapes = new List<string>();
+            foreach (var body in NativeExport.BodiesToSend(solids, sheets))
+            {
+                double[] box = null;
+                int faces = -1;
+                try { box = body.GetBodyBox() as double[]; } catch { }
+                try { faces = body.GetFaceCount(); } catch { }
+                shapes.Add(ShapeOf(box, faces));
+            }
+            return shapes.Count == 0 ? "" : "|shape:" + string.Join(";", shapes);
+        }
+
+        /// <summary>One body's part of ShapeKey: the face count and the box
+        /// in micrometres. The rounding keeps two reads of one body equal.</summary>
+        internal static string ShapeOf(double[] box, int faces)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(faces.ToString(CultureInfo.InvariantCulture));
+            if (box != null)
+                foreach (double v in box)
+                    sb.Append(',').Append(Math.Round(v * 1e6).ToString("R", CultureInfo.InvariantCulture));
+            return sb.ToString();
         }
 
         private static string DefinitionKey(IComponent2 comp)
