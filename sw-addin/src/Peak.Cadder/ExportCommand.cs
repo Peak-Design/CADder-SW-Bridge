@@ -331,7 +331,7 @@ namespace Peak.Cadder
             // picks which mate to ignore and the classifier cannot know
             // which. A rig built on that would be wrong, so the export
             // offers the geometry without a rig instead, and stops when the
-            // caller has no one to ask (the listener and the test harness).
+            // caller has no one to ask (the listener).
             // Suppressed mates are exempt: they are intentionally off and
             // skipped everywhere.
             var mateErrors = new List<string>();

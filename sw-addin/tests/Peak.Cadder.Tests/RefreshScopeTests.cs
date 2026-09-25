@@ -51,35 +51,18 @@ namespace Peak.Cadder.Tests
             {
                 { "op", "export" }, { "mesh", true },
             };
-            Assert.False(SwCommandHandler.OnlySelectedFor(request, OnlySelected(), false));
+            Assert.False(SwCommandHandler.OnlySelectedFor(request));
         }
 
         [Fact]
-        public void TheLabRefreshSendsTheWholeAssembly()
-        {
-            var request = new Dictionary<string, object>
-            {
-                { "op", "send" }, { "update", true },
-            };
-            Assert.False(SwCommandHandler.OnlySelectedFor(request, OnlySelected(), true));
-        }
-
-        [Fact]
-        public void TheLabSendFollowsTheRibbon()
-        {
-            var request = new Dictionary<string, object> { { "op", "send" } };
-            Assert.True(SwCommandHandler.OnlySelectedFor(request, OnlySelected(), true));
-        }
-
-        [Fact]
-        public void TheLabCanStillAskForTheSelection()
+        public void ARequestCanStillAskForTheSelection()
         {
             var request = new Dictionary<string, object>
             {
                 { "op", "export" }, { "only_selected", true },
             };
-            Assert.True(SwCommandHandler.OnlySelectedFor(
-                request, new AppSettings { OnlySelected = false }, false));
+            Assert.True(SwCommandHandler.OnlySelectedFor(request));
+            Assert.False(SwCommandHandler.OnlySelectedFor(null));
         }
     }
 }

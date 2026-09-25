@@ -130,35 +130,6 @@ namespace Peak.Cadder.Core
         /// answers once.</summary>
         public string RigUpdateMode = "APPEND";
 
-        // The lab: the add-in's localhost listener also accepts operations
-        // that CHANGE the open model (open and close documents, suppress a
-        // mate, set a dimension, rebuild, quit), so a test harness can drive
-        // SolidWorks without the ribbon. Nothing is ever saved through it.
-        // Off, and the listener answers only read requests. Off by default:
-        // a user who installs the add-in did not ask for a localhost port
-        // that can close their documents (2026-09-15). The lab turns it on
-        // in settings.json or in the Export Options dialog.
-        public bool LabOps = false;
-
-        /// <summary>Whether this build carries the test harness at all.
-        /// The harness drives SolidWorks over the localhost port, which is a
-        /// tool for development and not a feature of the product, so a
-        /// Release build shows no switch for it and the gate below refuses
-        /// whatever a settings file asks for.</summary>
-#if DEBUG
-        public const bool LabBuild = true;
-#else
-        public const bool LabBuild = false;
-#endif
-
-        /// <summary>Whether the listener may run the operations that change
-        /// the open model. A settings file written by a development build
-        /// cannot turn them on in a shipped one.</summary>
-        public bool LabOpsAllowed
-        {
-            get { return LabBuild && LabOps; }
-        }
-
         /// <summary>Show the STEP route and the file exports on the
         /// ribbon. Off, the ribbon is Send to Blender and Export Options:
         /// the direct send is what nearly everyone needs. Read once when
@@ -236,7 +207,6 @@ namespace Peak.Cadder.Core
                 settings.ExportFolderMode = MiniJson.Str(obj, "export_folder_mode", settings.ExportFolderMode);
                 settings.ExportFolder = MiniJson.Str(obj, "export_folder", settings.ExportFolder);
                 settings.RigUpdateMode = MiniJson.Str(obj, "rig_update_mode", settings.RigUpdateMode);
-                settings.LabOps = MiniJson.Flag(obj, "lab_ops", settings.LabOps);
                 settings.AdvancedCommands = MiniJson.Flag(obj, "advanced_commands", settings.AdvancedCommands);
             }
             catch (Exception ex)
@@ -288,7 +258,6 @@ namespace Peak.Cadder.Core
                     { "export_folder_mode", ExportFolderMode },
                     { "export_folder", ExportFolder ?? "" },
                     { "rig_update_mode", RigUpdateMode ?? "APPEND" },
-                    { "lab_ops", LabOps },
                     { "advanced_commands", AdvancedCommands },
                 };
                 Directory.CreateDirectory(Path.GetDirectoryName(path));

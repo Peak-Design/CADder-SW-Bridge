@@ -3,7 +3,9 @@
 
     blender -b --factory-startup -P tools\\rig_report.py -- <sweep-dir>
 
-Run by swlab_sweep.py; usable on its own for a folder of manifests. Each
+Run it over the folder that the SW-MCP recipe cadder-export writes
+(<WorkDir>\\cadder-export, one subfolder for each assembly), or over any
+folder of manifests. Each
 <sweep-dir>\\<key>\\*.rig.json is loaded, planned and built in a fresh
 empty scene; the line records groups, joints by type, loops by closure
 kind, controls, and the first error or warning.

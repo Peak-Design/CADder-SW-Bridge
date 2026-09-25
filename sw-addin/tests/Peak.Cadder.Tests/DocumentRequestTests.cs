@@ -62,13 +62,6 @@ namespace Peak.Cadder.Tests
         }
 
         [Fact]
-        public void APosePushNamesItsDocument()
-        {
-            var payload = PosePush.PayloadOf(Assembly.Title, Assembly.Path, new List<object>());
-            Assert.Equal(Assembly.Path, payload["source_document"]);
-        }
-
-        [Fact]
         public void TheNamedDocumentAnswersEvenWhenAnotherIsInFront()
         {
             // The user opened the part in its own window to edit it.

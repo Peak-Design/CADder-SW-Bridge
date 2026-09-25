@@ -149,22 +149,6 @@ namespace Peak.Cadder.Bridge
             else marshal.BeginInvoke(action);
         }
 
-        /// <summary>Runs an action on the SolidWorks thread after a delay,
-        /// for work that must follow the reply out of the door (quitting).</summary>
-        public static void RunLater(int delayMs, Action action)
-        {
-            var marshal = _marshal;
-            if (marshal == null || marshal.IsDisposed) return;
-            var timer = new System.Windows.Forms.Timer { Interval = Math.Max(1, delayMs) };
-            timer.Tick += (s, e) =>
-            {
-                timer.Stop();
-                timer.Dispose();
-                try { action(); } catch { }
-            };
-            timer.Start();
-        }
-
         /// <summary>
         /// Entries left by instances that are gone: a crash or a kill never
         /// reaches Stop(), and a caller listing the directory would

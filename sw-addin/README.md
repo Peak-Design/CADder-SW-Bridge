@@ -85,15 +85,18 @@ to the six sizes SolidWorks asks for and stitches the command strips into
 `src\Peak.Cadder\icons\`. Edit a master, run the script, and the
 build copies the strips next to the DLL.
 
-## Test harness
+## Tests in SolidWorks
 
-The add-in listens on localhost so a test harness can drive SolidWorks
-without the ribbon. Requests that change the open model (open, close,
-suppress, set a dimension, rebuild, quit) need a **Debug build**: a
-Release build has no switch for them and refuses them. In a Debug build
-they also run only while **Test harness** is ticked in Export Options,
-which is off by default. Nothing saves a document. The harness itself is
-`tools\swlab.py`.
+The add-in listens on localhost only for what Blender asks: what is open,
+the poses, the geometry again at another fineness, and the export for
+Rebuild from CAD. Nothing that it answers changes or saves a document.
+
+Tests in a running SolidWorks use [SW-MCP](https://github.com/Peak-Design/SW-MCP).
+The recipes in `tools\recipes` run the code of the add-in in a lab
+SolidWorks: the export and its corpus sweep, the send to Blender, the
+ribbon, the mate readers, the geometry and appearance checks, and test
+assemblies. Add the folder to the recipe folders of SW-MCP (the variable
+`SWMCP_RECIPES`), then start with the recipe `cadder-bridge`.
 
 ## Licence
 

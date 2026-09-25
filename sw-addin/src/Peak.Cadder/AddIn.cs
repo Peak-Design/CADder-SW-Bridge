@@ -78,17 +78,6 @@ namespace Peak.Cadder
         private ICommandManager _cmdMgr;
         private CommandCallbacks _callbacks;
 
-        /// <summary>
-        /// The command manager of the running add-in, and the title of every
-        /// command by its SolidWorks command id. The lab "ribbon" operation
-        /// reads both to report what reached the ribbon. Nothing else uses
-        /// them.
-        /// </summary>
-        internal static ICommandManager LabCommandManager { get; private set; }
-
-        internal static readonly Dictionary<int, string> CommandTitles =
-            new Dictionary<int, string>();
-
         /// <summary>The CommandGroup UserID. SolidWorks keeps it in the registry
         /// with the toolbar layout of the user, so it must never change.
         /// 71 is NEXT-STEP, 74 is this add-in.</summary>
@@ -357,12 +346,6 @@ namespace Peak.Cadder
                 Log("the command group did not activate: the ribbon may hold "
                     + "the wrong buttons");
 
-            // Keep the command ids beside their titles, so the lab can say
-            // which buttons the ribbon holds.
-            LabCommandManager = _cmdMgr;
-            CommandTitles.Clear();
-            for (int i = 0; i < CommandOrder.Length; i++)
-                CommandTitles[group.get_CommandID(i)] = CommandOrder[i];
             // The ids SolidWorks gave us. A button that draws somebody
             // else's caption is drawing somebody else's id, and this is
             // where that shows.

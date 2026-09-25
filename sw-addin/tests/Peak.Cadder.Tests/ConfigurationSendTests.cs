@@ -163,42 +163,5 @@ namespace Peak.Cadder.Tests
             Assert.False(Job("Default", ok: false).Ok);
             Assert.False(Job("Default", error: "timed out").Ok);
         }
-
-        [Fact]
-        public void ALabSendTakesTheActiveConfigurationByDefault()
-        {
-            Assert.Equal(new string[] { null },
-                SwCommandHandler.RequestedConfigurations(new Dictionary<string, object>()));
-        }
-
-        [Fact]
-        public void ALabSendTakesOneOrSeveralConfigurations()
-        {
-            Assert.Equal(new[] { "Open" }, SwCommandHandler.RequestedConfigurations(
-                new Dictionary<string, object> { { "configuration", "Open" } }));
-            Assert.Equal(new[] { "Open", "Closed" }, SwCommandHandler.RequestedConfigurations(
-                new Dictionary<string, object>
-                {
-                    { "configuration", "Open" },
-                    { "configurations", new List<object> { "Closed", "Open" } },
-                }));
-        }
-
-        [Fact]
-        public void APosePushNamesTheConfigurationItMoves()
-        {
-            var payload = PosePush.PayloadOf("lift.SLDASM", @"C:\cad\lift.SLDASM",
-                new List<object>(), "Open");
-            Assert.Equal("Open", payload["configuration"]);
-            Assert.Equal(@"C:\cad\lift.SLDASM", payload["source_document"]);
-        }
-
-        [Fact]
-        public void APosePushWithNoConfigurationLeavesTheFieldOut()
-        {
-            var payload = PosePush.PayloadOf("lift.SLDASM", @"C:\cad\lift.SLDASM",
-                new List<object>());
-            Assert.False(payload.ContainsKey("configuration"));
-        }
     }
 }

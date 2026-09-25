@@ -32,7 +32,8 @@ namespace Peak.Cadder.Sw
         private int _shown = -1;
 
         /// <summary>How many times the bar was moved, and what SolidWorks
-        /// answered the last time. The test harness reports both: the bar
+        /// answered the last time. The cadder-ribbon recipe (tools\recipes)
+        /// reports both: the bar
         /// lives in the status bar, which no screenshot of the graphics
         /// view can show.</summary>
         public int Updates { get; private set; }

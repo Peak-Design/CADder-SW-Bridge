@@ -1,0 +1,5 @@
+# The server keeps old versions here.
+.history/
+# Test documents and approved results. They come from the local corpus,
+# which is not in git either.
+tests/

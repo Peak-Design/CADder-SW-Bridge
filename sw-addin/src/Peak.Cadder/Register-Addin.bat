@@ -4,8 +4,8 @@ REM SolidWorks version. Needs administrator rights: the add-in registry keys
 REM live under HKLM\SOFTWARE\SolidWorks\<version>\Addins.
 REM
 REM   Register-Addin.bat            register the Release build
-REM   Register-Addin.bat Debug      register the Debug build, which is the
-REM                                 only one that carries the test harness
+REM   Register-Addin.bat Debug      register the Debug build, for tests in a
+REM                                 lab SolidWorks (see tools\recipes)
 REM   Register-Addin.bat /u         unregister
 REM
 REM In the release zip the DLL sits next to this script, with no bin

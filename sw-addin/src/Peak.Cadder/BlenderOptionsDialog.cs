@@ -50,9 +50,6 @@ namespace Peak.Cadder
         private readonly CheckBox _linkParts;
         private readonly CheckBox _autoLaunch;
         private readonly CheckBox _focus;
-#if DEBUG
-        private readonly CheckBox _labOps;
-#endif
         private readonly TextBox _exportPath;
         private readonly CheckBox _advanced;
         private readonly ComboBox _relationStep;
@@ -398,19 +395,6 @@ namespace Peak.Cadder
             ribbonGroup.Controls.Add(_advanced);
             _advanced.CheckedChanged += (s, e) => step.Visible = _advanced.Checked;
 
-            // The harness drives SolidWorks from a localhost port. It
-            // belongs to development, so a shipped build has no switch for
-            // it and the listener refuses the operations outright.
-#if DEBUG
-            var labGroup = Group("Test harness");
-            _labOps = Check(
-                "Local test harness", settings.LabOps,
-                "Let a test harness on this machine open, close and change "
-                + "documents over the link. The add-in never saves a "
-                + "document, whatever the harness asks for");
-            labGroup.Controls.Add(_labOps);
-#endif
-
             // ── Status + buttons ────────────────────────────────────────────
             var running = BlenderBridge.Discover(AddIn.Log);
             var status = Prose(running.Count == 0
@@ -441,9 +425,6 @@ namespace Peak.Cadder
             root.Controls.Add(step);
             root.Controls.Add(appGroup);
             root.Controls.Add(ribbonGroup);
-#if DEBUG
-            root.Controls.Add(labGroup);
-#endif
             root.Controls.Add(status);
             root.Controls.Add(logNote);
             root.Controls.Add(buttons);
@@ -483,9 +464,6 @@ namespace Peak.Cadder
             settings.MatchView = _matchView.Checked;
             settings.AutoLaunchBlender = _autoLaunch.Checked;
             settings.FocusBlender = _focus.Checked;
-#if DEBUG
-            settings.LabOps = _labOps.Checked;
-#endif
             settings.AdvancedCommands = _advanced.Checked;
             settings.BlenderExe = Selected(_exe, settings.BlenderExe ?? "");
             settings.ExportFolderMode = Selected(_exportFolder, settings.ExportFolderMode);
