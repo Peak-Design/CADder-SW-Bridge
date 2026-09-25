@@ -41,4 +41,17 @@
     <AssemblyMetadata Include="SolidWorksApiDir" Value="$(SolidWorksApiDir)" />
   </ItemGroup>
 
+  <!-- One exception: a method of the add-in with an optional interop
+       parameter (NativeSceneBuilder.Build, IModelDoc2 top) cannot be called
+       from a test unless the compiler can find the interop type (CS1748).
+       The types are embedded, so nothing loads the interop at run time. -->
+  <ItemGroup>
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <Private>False</Private>
+      <SpecificVersion>False</SpecificVersion>
+      <EmbedInteropTypes>True</EmbedInteropTypes>
+    </Reference>
+  </ItemGroup>
+
 </Project>
