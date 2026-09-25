@@ -52,6 +52,18 @@ several configurations at once. Use it with
 
 ## Bug fixes
 
+- **SolidWorks no longer stops during a send of several configurations.**
+  With **Let the SolidWorks solver decide each joint** on, the send fixes
+  each body for a moment to read its joints. A fix of a subassembly in one
+  configuration damaged SolidWorks, and it stopped at the next fix in
+  another configuration. A send of one configuration, a change of
+  configuration and a second send had the same risk. The send now fixes
+  only the parts of a body. The rigs do not change.
+- **A part with another shape in each place keeps each shape.** A part
+  with external references, such as a hose of SolidWorks Routing, or a
+  flexible part can have another shape in each place in the assembly. A
+  direct send gave every placement of such a part the shape of the first
+  placement. Each shape now gets a mesh of its own.
 - **An appearance applied in the assembly now arrives in Blender.** An
   appearance on a part that sits at the top of the assembly, applied in
   the assembly and not in the part, came to Blender as the appearance of
