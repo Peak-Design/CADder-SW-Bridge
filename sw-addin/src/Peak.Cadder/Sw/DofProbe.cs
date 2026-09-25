@@ -241,7 +241,7 @@ namespace Peak.Cadder.Sw
                 //
                 // The list of what to unfix is known before the fix, so a
                 // fix that throws half way is still undone.
-                var chain = ParentChain(parentBody);
+                var chain = SafeToFix(ParentChain(parentBody), _log);
                 fixedByProbe = NotFixed(chain);
                 SelectComponents(chain);
                 _assembly.FixComponent();
@@ -793,6 +793,43 @@ namespace Peak.Cadder.Sw
                     if (_log != null) _log("select failed: " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// The components to fix: the parts of the chain that are not
+        /// virtual. Their mates hold the subassemblies of the body, and the
+        /// parts are fixed.
+        ///
+        /// A fix of a subassembly component damages SolidWorks when another
+        /// configuration is shown later. Live CutterRig (2026-09-25): a send
+        /// of three configurations fixed virtual bolt subassemblies in the
+        /// ground body of the first one. The first FixComponent in the third
+        /// configuration then stopped SolidWorks with an access violation.
+        /// The same sequence with only the parts fixed did not fail. An
+        /// unfix, a rebuild, an undo, or a resolve of the lightweight
+        /// components did not stop the failure.
+        ///
+        /// A chain with no such part is fixed as it is: with nothing else to
+        /// fix, the probe could not read the body at all.
+        /// </summary>
+        internal static List<Component2> SafeToFix(List<Component2> chain, Action<string> log)
+        {
+            var parts = new List<Component2>();
+            foreach (var c in chain)
+            {
+                bool isVirtual = true;
+                int solving = 0;
+                try { isVirtual = c.IsVirtual; } catch { }
+                try { solving = c.Solving; } catch { }
+                // Solving is -1 for a part component (API help,
+                // IComponent2~Solving.html).
+                if (!isVirtual && solving == -1) parts.Add(c);
+            }
+            if (log != null)
+                log("DOF probe: fixing " + (parts.Count > 0 ? parts.Count : chain.Count)
+                    + " of " + chain.Count + " component(s) of the parent body"
+                    + (parts.Count > 0 ? "" : ", which has no part that is safe to fix"));
+            return parts.Count > 0 ? parts : chain;
         }
 
         private static Component2 SafeParent(Component2 comp)
