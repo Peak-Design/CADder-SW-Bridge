@@ -83,8 +83,25 @@ namespace Peak.Cadder.Sw
             var motion = rotational
                 ? RotationAboutAxis(axis, origin, amount)
                 : TranslationAlong(axis, amount);
-            if (DragBy(comp, motion)) return true;
+            if (DragBy(comp, motion))
+            {
+                Settle(comp);
+                return true;
+            }
             return from != null && SolveTo(comp, MathOps.Multiply(motion, from));
+        }
+
+        /// <summary>
+        /// Lets the mates catch up with the last drag. A drag leaves a cam
+        /// follower where the drag before put it: its cam mates are solved
+        /// one drag late, and the cam itself settles back a little (live
+        /// cam-follower, 2026-09-27: every table of the relation probe ran
+        /// one sample late, 4 to 6 mm on the flanks). A drag that moves
+        /// nothing solves them as a rebuild does, and costs less.
+        /// </summary>
+        public void Settle(Component2 comp)
+        {
+            DragBy(comp, MathOps.Identity4());
         }
 
         public bool DragBy(Component2 comp, double[,] deltaWorld)

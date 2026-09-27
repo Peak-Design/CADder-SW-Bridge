@@ -69,3 +69,8 @@ several configurations at once. Use it with
   the assembly and not in the part, came to Blender as the appearance of
   the part. That part also shared its mesh with the unpainted placements
   of the part.
+- **A cam follower follows its cam at the right angle.** The table of a
+  cam follower ran one sample late: after each turn of the cam, the
+  follower still stood where the turn before had put it. On the flanks of
+  a cam that is 4 to 6 mm. The export now lets the mates settle after each
+  turn before it reads the follower.
