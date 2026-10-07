@@ -111,7 +111,10 @@ namespace Peak.Cadder.Tests
         private Task<Dictionary<string, object>> Hold()
         {
             var job = Task.Run(() => Call("/job", Op("hold"), 60000));
-            Assert.True(_started.Wait(TimeSpan.FromSeconds(10)), "the long job did not start");
+            Assert.True(_started.Wait(TimeSpan.FromSeconds(10)),
+                "the long job did not start: " + (job.IsFaulted
+                    ? job.Exception.GetBaseException().ToString()
+                    : "its call is " + job.Status));
             return job;
         }
 
