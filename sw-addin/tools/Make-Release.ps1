@@ -10,14 +10,14 @@ One step from a clean tree to a release folder:
   3. builds Release and runs the tests
   4. zips the DLL, icons and licence texts into dist\
   5. compiles the installer when Inno Setup (ISCC.exe) is on this machine
-  6. tags sw-v<version> (with -Tag)
+  6. tags sw-v<version>, signed (with -Tag)
 
 Nothing is pushed. Push the tag yourself after you have installed from the
 built installer and exported a corpus assembly, as the release checklist in
 .claude\RELEASING.md asks.
 
 .PARAMETER Tag
-Create the git tag after a successful build.
+Create the signed git tag after a successful build.
 
 .PARAMETER SkipTests
 Do not run the test project. For a rebuild of an already tested commit.
@@ -142,7 +142,16 @@ if ($iscc) {
 
 # ── Tag ────────────────────────────────────────────────────────────────
 if ($Tag) {
-    git -C $repo tag "sw-v$version"
-    if ($LASTEXITCODE -ne 0) { Fail "git tag failed" }
-    Write-Host "tagged sw-v$version. Push with: git push origin sw-v$version"
+    # A signed tag, so a user can check that the release is ours (git tag -v).
+    # The repo sets the key: gpg.format ssh and user.signingkey (RELEASING.md).
+    git -C $repo tag -s "sw-v$version" -m "CADder Bridge $version"
+    if ($LASTEXITCODE -ne 0) { Fail "git tag failed. Is a signing key set up for this repo? See RELEASING.md" }
+    # git tag -v writes "Good signature" to stderr, and Windows PowerShell
+    # stops on any stderr line of a native command under "Stop".
+    $ErrorActionPreference = "Continue"
+    git -C $repo tag -v "sw-v$version" 2>&1 | Out-Null
+    $verified = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = "Stop"
+    if (-not $verified) { Fail "the tag sw-v$version does not verify (git tag -v)" }
+    Write-Host "tagged sw-v$version, signed. Push with: git push origin sw-v$version"
 }
