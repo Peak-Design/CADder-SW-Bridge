@@ -40,6 +40,9 @@ Blender 5.1 with [CADder](https://github.com/Peak-Design/CADder).
    preferences.
 2. Close SolidWorks. Run `CADder-Bridge-<version>-setup.exe` from
    [Releases](https://github.com/Peak-Design/CADder-SW-Bridge/releases/latest).
+   Do not install `CADder-Bridge-<version>.zip` in Blender: it holds the
+   add-in files for a manual install in SolidWorks, and it is not a Blender
+   add-on.
 3. Start SolidWorks. The **CADder Bridge** tab is on the ribbon.
 
 The installer is not signed yet, so Windows may show **Windows protected
