@@ -211,14 +211,46 @@ namespace Peak.Cadder.Sw
                     ctx.Decals == null ? 0 : ctx.Decals.Length, ctx.AssemblyFaces.Count));
         }
 
+        /// <summary>The face as it is in the active configuration of doc, or
+        /// null when it is the same face or does not resolve. With a display
+        /// state that the configurations share, GetEntities gives the faces
+        /// of the configuration that the appearance was applied in. When a
+        /// dimension of the part differs between the two, those faces are
+        /// IsSame to no face of the configuration that is sent (issue #1).
+        /// The persistent reference names the face in every configuration.</summary>
+        private static IFace2 Current(IModelDoc2 doc, IFace2 face)
+        {
+            if (doc == null || face == null) return null;
+            try
+            {
+                var ext = doc.Extension;
+                var pid = ext.GetPersistReference3(face) as byte[];
+                if (pid == null) return null;
+                int err;
+                var now = ext.GetObjectByPersistReference3(pid, out err) as IFace2;
+                if (now == null || ReferenceEquals(now, face)) return null;
+                return now;
+            }
+            catch { return null; }
+        }
+
         private static void Gather(Context ctx, IEnumerable<IRenderMaterial> materials, IComponent2 comp)
         {
+            // A face as it is in the active configuration goes after every
+            // face as SolidWorks gave it, so a face that matched before still
+            // takes the same appearance.
+            var current = new List<KeyValuePair<IFace2, IRenderMaterial>>();
             foreach (var rm in materials)
             {
                 foreach (var e in SafeEntities(rm))
                 {
                     if (e is IFace2)
+                    {
                         ctx.Faces.Add(new KeyValuePair<IFace2, IRenderMaterial>((IFace2)e, rm));
+                        var now = Current(ctx.Doc, (IFace2)e);
+                        if (now != null)
+                            current.Add(new KeyValuePair<IFace2, IRenderMaterial>(now, rm));
+                    }
                     else if (e is IFeature)
                     {
                         int id = -1;
@@ -243,6 +275,7 @@ namespace Peak.Cadder.Sw
                         ctx.Document = rm;
                 }
             }
+            ctx.Faces.AddRange(current);
         }
 
         /// <summary>The material index for one face. relative takes the
