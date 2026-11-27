@@ -2506,6 +2506,16 @@ namespace Peak.Cadder.Core
             double shortest = Math.Abs(sideA - sideC) + 1e-9;
             double longest = sideA + sideC - 1e-9;
             if (longest <= shortest) return null;
+            // A stroke that reaches the shortest ram, or the longest one, lets
+            // the driver pass that dead centre: A, B and C stand in one line
+            // and the corner turns through 0 (or 180) degrees to the other
+            // side. A lid stay mounted close to the hinge line does this: on
+            // the 950L the lid opens up through it, and with the corner held
+            // to its own side the rig opened the lid DOWN (Oscar,
+            // 2026-11-27).
+            bool throughZero = lo <= shortest;
+            bool throughStraight = hi >= longest;
+            if (throughZero && throughStraight) return null;   // turns all the way
             lo = Math.Min(Math.Max(lo, shortest), longest);
             hi = Math.Min(Math.Max(hi, shortest), longest);
             if (hi - lo < 1e-9) return null;
@@ -2521,8 +2531,14 @@ namespace Peak.Cadder.Core
                 MathOps.Dot(n, MathOps.Cross(u, v)), MathOps.Dot(u, v));
             double sense = signed < 0 ? -1.0 : 1.0;
 
-            double d1 = sense * (atLo - atRest);
-            double d2 = sense * (atHi - atRest);
+            // The corner the driver can reach, as a signed angle on the side
+            // where it rests: from atLo to atHi on that side, and on to the
+            // mirror of atHi past a dead centre.
+            double from = atLo, to = atHi;
+            if (throughZero) from = -atHi;
+            if (throughStraight) to = 2.0 * Math.PI - atLo;
+            double d1 = sense * (from - atRest);
+            double d2 = sense * (to - atRest);
             var limit = new JointLimit();
             limit.Min = Math.Min(d1, d2);
             limit.Max = Math.Max(d1, d2);

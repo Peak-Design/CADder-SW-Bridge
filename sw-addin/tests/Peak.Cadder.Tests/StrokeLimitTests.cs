@@ -155,5 +155,47 @@ namespace Peak.Cadder.Tests
             Assert.NotEqual(-0.15, seated[false][0], 6);
             for (int k = 0; k < 3; k++) Assert.Equal(seated[false][k], seated[true][k], 9);
         }
+
+        /// <summary>
+        /// The 950L lid (SolidWorks frame, Y up): a gas stay whose base pin
+        /// sits close to the line from the lid hinge to its lid pin. Closed,
+        /// the corner at the hinge is 4 degrees. Up, the lid first takes the
+        /// stay through that dead centre (249.0 mm, the stroke allows 248)
+        /// and then out to 398 mm at about 90 degrees. Held to its own side
+        /// of the dead centre, the derived limit was -4 to +82 degrees, and
+        /// +82 is DOWN: the rig opened the lid into the tank (Oscar,
+        /// 2026-11-27).
+        /// </summary>
+        [Fact]
+        public void AStrokeThatReachesTheDeadCentreLetsTheDriverPassIt()
+        {
+            var groups = new List<RigidGroup>
+            {
+                Group("g000", grounded: true), Group("g001"), Group("g002"), Group("g003"),
+            };
+            var pin = new double[] { 1, 0, 0 };
+            var lid = Joint("j001", JointType.Revolute, "g000", "g001", pin,
+                            new double[] { -0.2275, 1.189, -0.1395 });
+            var basePin = Joint("j002", JointType.Revolute, "g000", "g002", pin,
+                                new double[] { 0.371, 1.202, -0.0057 });
+            var lidPin = Joint("j004", JointType.Revolute, "g001", "g003", pin,
+                               new double[] { 0.371, 1.199, 0.2438 });
+            var stroke = Joint("j006", JointType.Prismatic, "g002", "g003",
+                               new double[] { 0, 0.0120207, -0.9999277 },
+                               new double[] { 0.371, 1.2035, -0.1292 });
+            stroke.TranslationLimit = new JointLimit
+            {
+                Min = -0.398, Max = -0.248, ValueAtRest = -0.24956931730921064,
+            };
+
+            LoopAnalyzer.Analyze(groups, new List<RigJoint> { lid, basePin, lidPin, stroke });
+
+            Assert.NotNull(lid.RotationLimit);
+            // Up is a negative turn about +X here: the lid's front (+Z)
+            // rises to +Y. It reaches about 90 degrees up, and 82 down, as
+            // the mates allow both.
+            Assert.InRange(lid.RotationLimit.Min * 180.0 / System.Math.PI, -91.0, -89.5);
+            Assert.InRange(lid.RotationLimit.Max * 180.0 / System.Math.PI, 81.5, 83.0);
+        }
     }
 }
