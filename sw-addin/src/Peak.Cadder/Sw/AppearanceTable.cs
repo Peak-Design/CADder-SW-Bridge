@@ -114,16 +114,38 @@ namespace Peak.Cadder.Sw
             try { ctx.Doc = comp.GetModelDoc2() as IModelDoc2; } catch { }
             Gather(ctx, SafeRenderMaterials(() => comp.GetRenderMaterials2((int)swDisplayStateOpts_e.swThisDisplayState, null)), comp);
             // An appearance on an assembly ABOVE the occurrence covers it
-            // too, and the highest one wins.
+            // too, and the highest one wins. A subassembly holds three kinds
+            // (a live fuel tank assembly, 2026-11-28, all came in white):
+            //  - on the subassembly's whole document: the tank weldment is
+            //    painted grey and the posts are galvanized, while their
+            //    parts carry a white library appearance;
+            //  - on one of its components, our occurrence or one between;
+            //  - on the subassembly itself, applied one level up.
+            // At one level the more particular one wins, and a level above
+            // wins over the levels below it.
             for (var parent = SafeParent(comp); parent != null; parent = SafeParent(parent))
             {
+                IRenderMaterial wholeDoc = null, onInside = null, onParent = null;
+                // A lightweight subassembly answers with none of its own.
+                ResolveLightweight(parent);
                 foreach (var rm in SafeRenderMaterials(() => parent.GetRenderMaterials2((int)swDisplayStateOpts_e.swThisDisplayState, null)))
                     foreach (var e in SafeEntities(rm))
-                        if (e is IComponent2 && SameComponent((IComponent2)e, parent))
+                    {
+                        var c = e as IComponent2;
+                        if (c != null)
                         {
-                            ctx.Assembly = rm;
-                            ctx.AssemblyWhere = SafeName(parent);
+                            if (SameComponent(c, parent)) onParent = rm;
+                            else if (IsSelfOrAbove(c, comp)) onInside = rm;
                         }
+                        else if (e is IModelDoc2)
+                            wholeDoc = rm;
+                    }
+                var won = onParent ?? onInside ?? wholeDoc;
+                if (won != null)
+                {
+                    ctx.Assembly = won;
+                    ctx.AssemblyWhere = SafeName(parent);
+                }
             }
             GatherTop(ctx, comp);
             try { ctx.AssemblyToPart = MathOps.InvertRigid(SwFrames.ComponentWorld(comp)); } catch { }
@@ -148,6 +170,9 @@ namespace Peak.Cadder.Sw
             if (_topMaterials == null)
                 _topMaterials = new List<IRenderMaterial>(SafeRenderMaterials(
                     () => Top.Extension.GetRenderMaterials2((int)swDisplayStateOpts_e.swThisDisplayState, null)));
+            // On the whole assembly document it covers every component, and
+            // one on a component of it is the more particular of the two.
+            IRenderMaterial wholeDoc = null, onComponent = null;
             foreach (var rm in _topMaterials)
             {
                 foreach (var e in SafeEntities(rm))
@@ -155,17 +180,24 @@ namespace Peak.Cadder.Sw
                     var c = e as IComponent2;
                     if (c != null)
                     {
-                        if (IsSelfOrAbove(c, comp))
-                        {
-                            ctx.Assembly = rm;
-                            ctx.AssemblyWhere = "the assembly";
-                        }
+                        if (IsSelfOrAbove(c, comp)) onComponent = rm;
+                        continue;
+                    }
+                    if (e is IModelDoc2)
+                    {
+                        wholeDoc = rm;
                         continue;
                     }
                     var f = e as IFace2;
                     if (f != null && SameComponent(ComponentOf(f), comp))
                         ctx.AssemblyFaces.Add(new KeyValuePair<IFace2, IRenderMaterial>(f, rm));
                 }
+            }
+            var won = onComponent ?? wholeDoc;
+            if (won != null)
+            {
+                ctx.Assembly = won;
+                ctx.AssemblyWhere = "the assembly";
             }
         }
 
